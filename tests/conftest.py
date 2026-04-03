@@ -1,102 +1,141 @@
-from collections.abc import Callable, Generator
-from typing import Any
-from unittest.mock import AsyncMock, Mock
+from collections.abc import AsyncIterator
+import asyncio
+import os
+from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
-from faker import Faker
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.session import Session
 
-from src.app.core.config import settings
-from src.app.main import app
-
-DATABASE_URI = settings.POSTGRES_URI
-DATABASE_PREFIX = settings.POSTGRES_SYNC_PREFIX
-
-sync_engine = create_engine(DATABASE_PREFIX + DATABASE_URI)
-local_session = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
-
-
-fake = Faker()
+from src.app.core.config import EnvironmentOption, settings
+from src.app.core.db.database import local_session
+from src.app.core.security import get_password_hash
+from src.app.main_admin import app
+from src.app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
+from src.app.modules.admin.admin_user.model import AdminUser
+from src.app.modules.admin.role.model import Role
+from src.app.modules.user.model import User
 
 
 @pytest.fixture(scope="session")
-def client() -> Generator[TestClient, Any, None]:
-    with TestClient(app) as _client:
-        yield _client
-    app.dependency_overrides = {}
-    sync_engine.dispose()
+def event_loop() -> AsyncIterator[asyncio.AbstractEventLoop]:
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
-@pytest.fixture
-def db() -> Generator[Session, Any, None]:
-    session = local_session()
-    yield session
-    session.close()
+def _assert_safe_test_cleanup() -> None:
+    if not settings.ALLOW_TEST_DATABASE_CLEANUP:
+        raise RuntimeError(
+            "Refusing to run destructive tests. Set ALLOW_TEST_DATABASE_CLEANUP=true in src/.env or the shell first."
+        )
+
+    if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
+        raise RuntimeError("Refusing to run destructive tests unless ENVIRONMENT=local.")
+
+    backend = settings.DATABASE_BACKEND.lower()
+    allowed_db_names = {item.strip() for item in settings.TEST_DATABASE_NAME_ALLOWLIST.split(",") if item.strip()}
+
+    if backend == "mysql" and settings.MYSQL_SERVER not in {"127.0.0.1", "localhost"}:
+        raise RuntimeError("Refusing to run destructive tests against a non-local MySQL host.")
+    if backend == "mysql" and settings.MYSQL_DB not in allowed_db_names:
+        raise RuntimeError("Refusing to run destructive tests against a MySQL database not in TEST_DATABASE_NAME_ALLOWLIST.")
+    if backend == "postgresql" and settings.POSTGRES_SERVER not in {"127.0.0.1", "localhost"}:
+        raise RuntimeError("Refusing to run destructive tests against a non-local PostgreSQL host.")
+    if backend == "postgresql" and settings.POSTGRES_DB not in allowed_db_names:
+        raise RuntimeError(
+            "Refusing to run destructive tests against a PostgreSQL database not in TEST_DATABASE_NAME_ALLOWLIST."
+        )
+    if backend == "sqlite":
+        sqlite_name = Path(settings.SQLITE_URI).name
+        if sqlite_name not in allowed_db_names:
+            raise RuntimeError("Refusing to run destructive tests against a SQLite database not in TEST_DATABASE_NAME_ALLOWLIST.")
+
+    base_url = os.getenv("TEST_SERVER_BASE_URL")
+    if base_url:
+        hostname = urlparse(base_url).hostname
+        if hostname not in {"127.0.0.1", "localhost"}:
+            raise RuntimeError("Refusing to send tests to a non-local TEST_SERVER_BASE_URL.")
 
 
-def override_dependency(dependency: Callable[..., Any], mocked_response: Any) -> None:
-    app.dependency_overrides[dependency] = lambda: mocked_response
+async def _clear_tables() -> None:
+    async with local_session() as session:
+        await session.execute(delete(AdminUser))
+        await session.execute(delete(User))
+        await session.execute(delete(Role))
+        await session.commit()
 
 
-@pytest.fixture
-def mock_db():
-    """Mock database session for unit tests."""
-    return Mock(spec=AsyncSession)
+@pytest_asyncio.fixture(autouse=True, loop_scope="session")
+async def clean_database() -> AsyncIterator[None]:
+    _assert_safe_test_cleanup()
+    await _clear_tables()
+    yield
+    await _clear_tables()
 
 
-@pytest.fixture
-def mock_redis():
-    """Mock Redis connection for unit tests."""
-    mock_redis = Mock()
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.set = AsyncMock(return_value=True)
-    mock_redis.delete = AsyncMock(return_value=True)
-    return mock_redis
+@pytest_asyncio.fixture(loop_scope="session")
+async def client() -> AsyncIterator[AsyncClient]:
+    base_url = os.getenv("TEST_SERVER_BASE_URL")
+    if base_url:
+        async with AsyncClient(base_url=base_url.rstrip("/")) as async_client:
+            yield async_client
+        return
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+        yield async_client
 
 
-@pytest.fixture
-def sample_user_data():
-    """Generate sample user data for tests."""
-    return {
-        "name": fake.name(),
-        "username": fake.user_name(),
-        "email": fake.email(),
-        "password": fake.password(),
-    }
+@pytest_asyncio.fixture(loop_scope="session")
+async def db_session() -> AsyncIterator[AsyncSession]:
+    async with local_session() as session:
+        yield session
 
 
-@pytest.fixture
-def sample_user_read():
-    """Generate a sample UserRead object."""
-    from uuid6 import uuid7
-
-    from src.app.schemas.user import UserRead
-
-    return UserRead(
-        id=1,
-        uuid=uuid7(),
-        name=fake.name(),
-        username=fake.user_name(),
-        email=fake.email(),
-        profile_image_url=fake.image_url(),
-        is_superuser=False,
-        created_at=fake.date_time(),
-        updated_at=fake.date_time(),
-        tier_id=None,
+@pytest_asyncio.fixture(loop_scope="session")
+async def superadmin_credentials(db_session: AsyncSession) -> dict[str, str | int]:
+    password = "AdminPass123!"
+    admin = AdminUser(
+        name="Super Admin",
+        username="superadmin",
+        email="superadmin@example.com",
+        hashed_password=get_password_hash(password),
+        phone=None,
+        note="bootstrap superuser",
+        status="enabled",
+        profile_image_url=DEFAULT_ADMIN_PROFILE_IMAGE_URL,
+        is_superuser=True,
+        role_id=None,
+        data={},
     )
-
-
-@pytest.fixture
-def current_user_dict():
-    """Mock current user from auth dependency."""
+    db_session.add(admin)
+    await db_session.commit()
+    await db_session.refresh(admin)
     return {
-        "id": 1,
-        "username": fake.user_name(),
-        "email": fake.email(),
-        "name": fake.name(),
-        "is_superuser": False,
+        "id": admin.id,
+        "username": admin.username,
+        "email": admin.email,
+        "password": password,
     }
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def admin_access_token(client: AsyncClient, superadmin_credentials: dict[str, str | int]) -> str:
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username_or_email": superadmin_credentials["username"],
+            "password": superadmin_credentials["password"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def admin_auth_headers(admin_access_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {admin_access_token}"}

@@ -19,9 +19,13 @@ class CryptSettings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
+    ADMIN_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
 
 class FileLoggerSettings(BaseSettings):
+    FILE_LOG_DIR: str | None = None
+    FILE_LOG_FILENAME: str = "app.log"
     FILE_LOG_MAX_BYTES: int = 10 * 1024 * 1024
     FILE_LOG_BACKUP_COUNT: int = 5
     FILE_LOG_FORMAT_JSON: bool = True
@@ -48,7 +52,7 @@ class ConsoleLoggerSettings(BaseSettings):
 
 
 class DatabaseSettings(BaseSettings):
-    pass
+    DATABASE_BACKEND: str = "mysql"
 
 
 class SQLiteSettings(DatabaseSettings):
@@ -56,23 +60,45 @@ class SQLiteSettings(DatabaseSettings):
     SQLITE_SYNC_PREFIX: str = "sqlite:///"
     SQLITE_ASYNC_PREFIX: str = "sqlite+aiosqlite:///"
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def SQLITE_SYNC_URL(self) -> str:
+        return f"{self.SQLITE_SYNC_PREFIX}{self.SQLITE_URI}"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def SQLITE_ASYNC_URL(self) -> str:
+        return f"{self.SQLITE_ASYNC_PREFIX}{self.SQLITE_URI}"
+
 
 class MySQLSettings(DatabaseSettings):
     MYSQL_USER: str = "username"
     MYSQL_PASSWORD: str = "password"
     MYSQL_SERVER: str = "localhost"
-    MYSQL_PORT: int = 5432
+    MYSQL_PORT: int = 3306
     MYSQL_DB: str = "dbname"
-    MYSQL_SYNC_PREFIX: str = "mysql://"
+    MYSQL_SYNC_PREFIX: str = "mysql+pymysql://"
     MYSQL_ASYNC_PREFIX: str = "mysql+aiomysql://"
     MYSQL_URL: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def MYSQL_URI(self) -> str:
+        if self.MYSQL_URL:
+            return self.MYSQL_URL
         credentials = f"{self.MYSQL_USER}:{self.MYSQL_PASSWORD}"
         location = f"{self.MYSQL_SERVER}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
         return f"{credentials}@{location}"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def MYSQL_SYNC_URL(self) -> str:
+        return f"{self.MYSQL_SYNC_PREFIX}{self.MYSQL_URI}"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def MYSQL_ASYNC_URL(self) -> str:
+        return f"{self.MYSQL_ASYNC_PREFIX}{self.MYSQL_URI}"
 
 
 class PostgresSettings(DatabaseSettings):
@@ -88,20 +114,26 @@ class PostgresSettings(DatabaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def POSTGRES_URI(self) -> str:
+        if self.POSTGRES_URL:
+            return self.POSTGRES_URL
         credentials = f"{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
         location = f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         return f"{credentials}@{location}"
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def POSTGRES_SYNC_URL(self) -> str:
+        return f"{self.POSTGRES_SYNC_PREFIX}{self.POSTGRES_URI}"
 
-class FirstUserSettings(BaseSettings):
-    ADMIN_NAME: str = "admin"
-    ADMIN_EMAIL: str = "admin@admin.com"
-    ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "!Ch4ng3Th1sP4ssW0rd!"
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def POSTGRES_ASYNC_URL(self) -> str:
+        return f"{self.POSTGRES_ASYNC_PREFIX}{self.POSTGRES_URI}"
 
 
 class TestSettings(BaseSettings):
-    ...
+    ALLOW_TEST_DATABASE_CLEANUP: bool = False
+    TEST_DATABASE_NAME_ALLOWLIST: str = "hr_server"
 
 
 class RedisCacheSettings(BaseSettings):
@@ -114,49 +146,15 @@ class RedisCacheSettings(BaseSettings):
         return f"redis://{self.REDIS_CACHE_HOST}:{self.REDIS_CACHE_PORT}"
 
 
+class EventSettings(BaseSettings):
+    EVENT_QUEUE_PREFIX: str = "hr-mq:"
+    EVENT_CONSUMER_GROUP: str = "hr_event_consumer"
+    EVENT_CONSUMER_CONCURRENCY: int = 3
+    EVENT_STATS_INTERVAL: int = 30
+
+
 class ClientSideCacheSettings(BaseSettings):
     CLIENT_CACHE_MAX_AGE: int = 60
-
-
-class RedisQueueSettings(BaseSettings):
-    REDIS_QUEUE_HOST: str = "localhost"
-    REDIS_QUEUE_PORT: int = 6379
-
-
-class RedisRateLimiterSettings(BaseSettings):
-    REDIS_RATE_LIMIT_HOST: str = "localhost"
-    REDIS_RATE_LIMIT_PORT: int = 6379
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def REDIS_RATE_LIMIT_URL(self) -> str:
-        return f"redis://{self.REDIS_RATE_LIMIT_HOST}:{self.REDIS_RATE_LIMIT_PORT}"
-
-
-class DefaultRateLimitSettings(BaseSettings):
-    DEFAULT_RATE_LIMIT_LIMIT: int = 10
-    DEFAULT_RATE_LIMIT_PERIOD: int = 3600
-
-
-class CRUDAdminSettings(BaseSettings):
-    CRUD_ADMIN_ENABLED: bool = True
-    CRUD_ADMIN_MOUNT_PATH: str = "/admin"
-
-    CRUD_ADMIN_ALLOWED_IPS_LIST: list[str] | None = None
-    CRUD_ADMIN_ALLOWED_NETWORKS_LIST: list[str] | None = None
-    CRUD_ADMIN_MAX_SESSIONS: int = 10
-    CRUD_ADMIN_SESSION_TIMEOUT: int = 1440
-    SESSION_SECURE_COOKIES: bool = True
-
-    CRUD_ADMIN_TRACK_EVENTS: bool = True
-    CRUD_ADMIN_TRACK_SESSIONS: bool = True
-
-    CRUD_ADMIN_REDIS_ENABLED: bool = False
-    CRUD_ADMIN_REDIS_HOST: str = "localhost"
-    CRUD_ADMIN_REDIS_PORT: int = 6379
-    CRUD_ADMIN_REDIS_DB: int = 0
-    CRUD_ADMIN_REDIS_PASSWORD: str | None = "None"
-    CRUD_ADMIN_REDIS_SSL: bool = False
 
 
 class EnvironmentOption(str, Enum):
@@ -178,16 +176,13 @@ class CORSSettings(BaseSettings):
 class Settings(
     AppSettings,
     SQLiteSettings,
+    MySQLSettings,
     PostgresSettings,
     CryptSettings,
-    FirstUserSettings,
     TestSettings,
     RedisCacheSettings,
+    EventSettings,
     ClientSideCacheSettings,
-    RedisQueueSettings,
-    RedisRateLimiterSettings,
-    DefaultRateLimitSettings,
-    CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,
     FileLoggerSettings,
@@ -199,6 +194,26 @@ class Settings(
         case_sensitive=True,
         extra="ignore",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def DATABASE_SYNC_URL(self) -> str:
+        backend = self.DATABASE_BACKEND.lower()
+        if backend == "sqlite":
+            return self.SQLITE_SYNC_URL
+        if backend == "postgresql":
+            return self.POSTGRES_SYNC_URL
+        return self.MYSQL_SYNC_URL
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def DATABASE_ASYNC_URL(self) -> str:
+        backend = self.DATABASE_BACKEND.lower()
+        if backend == "sqlite":
+            return self.SQLITE_ASYNC_URL
+        if backend == "postgresql":
+            return self.POSTGRES_ASYNC_URL
+        return self.MYSQL_ASYNC_URL
 
 
 settings = Settings()

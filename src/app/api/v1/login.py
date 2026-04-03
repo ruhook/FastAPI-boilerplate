@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.config import settings
+from ...core.config import EnvironmentOption, settings
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import UnauthorizedException
 from ...core.schemas import Token
@@ -17,6 +17,7 @@ from ...core.security import (
     create_refresh_token,
     verify_token,
 )
+from ...modules.user.crud import crud_users
 
 router = APIRouter(tags=["login"])
 
@@ -38,7 +39,12 @@ async def login_for_access_token(
     max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
 
     response.set_cookie(
-        key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="lax", max_age=max_age
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=settings.ENVIRONMENT != EnvironmentOption.LOCAL,
+        samesite="lax",
+        max_age=max_age,
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
@@ -50,9 +56,17 @@ async def refresh_access_token(request: Request, db: AsyncSession = Depends(asyn
     if not refresh_token:
         raise UnauthorizedException("Refresh token missing.")
 
-    user_data = await verify_token(refresh_token, TokenType.REFRESH, db)
+    user_data = await verify_token(refresh_token, TokenType.REFRESH)
     if not user_data:
         raise UnauthorizedException("Invalid refresh token.")
+
+    if "@" in user_data.username_or_email:
+        db_user = await crud_users.get(db=db, email=user_data.username_or_email, is_deleted=False)
+    else:
+        db_user = await crud_users.get(db=db, username=user_data.username_or_email, is_deleted=False)
+
+    if not db_user:
+        raise UnauthorizedException("User not authenticated.")
 
     new_access_token = await create_access_token(data={"sub": user_data.username_or_email})
     return {"access_token": new_access_token, "token_type": "bearer"}

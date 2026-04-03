@@ -1,0 +1,27 @@
+[program:hr-web]
+directory=/path/to/hr-server
+command=/path/to/venv/bin/gunicorn -c /path/to/hr-server/gunicorn_web.conf.py src.app.main_web:app
+user=www
+autostart=true
+autorestart=true
+startsecs=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+stdout_logfile=/var/log/hr-web.stdout.log
+stderr_logfile=/var/log/hr-web.stderr.log
+environment=PYTHONPATH="/path/to/hr-server",ENVIRONMENT="production",FILE_LOG_DIR="/var/log/hr-server",FILE_LOG_FILENAME="web.app.log"
+
+[program:hr-admin]
+directory=/path/to/hr-server
+command=/path/to/venv/bin/gunicorn -c /path/to/hr-server/gunicorn_admin.conf.py src.app.main_admin:app
+user=www
+autostart=true
+autorestart=true
+startsecs=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+stdout_logfile=/var/log/hr-admin.stdout.log
+stderr_logfile=/var/log/hr-admin.stderr.log
+environment=PYTHONPATH="/path/to/hr-server",ENVIRONMENT="production",FILE_LOG_DIR="/var/log/hr-server",FILE_LOG_FILENAME="admin.app.log"

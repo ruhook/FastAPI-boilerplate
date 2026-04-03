@@ -1,6 +1,4 @@
 import asyncio
-import importlib
-import pkgutil
 from logging.config import fileConfig
 
 from alembic import context
@@ -10,6 +8,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
 from app.core.db.database import Base
+from app.modules.admin.admin_user.model import AdminUser
+from app.modules.admin.role.model import Role
+from app.modules.user.model import User
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -17,20 +18,13 @@ config = context.config
 
 config.set_main_option(
     "sqlalchemy.url",
-    f"{settings.POSTGRES_ASYNC_PREFIX}{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}",
+    settings.DATABASE_ASYNC_URL,
 )
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-
-def import_models(package_name):
-    package = importlib.import_module(package_name)
-    for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-        importlib.import_module(module_name)
-
-
-import_models("app.models")
+REGISTERED_MODELS = (AdminUser, Role, User)
 target_metadata = Base.metadata
 
 

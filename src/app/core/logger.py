@@ -1,8 +1,8 @@
 """Logging configuration for the application."""
 
 import logging
-import os
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import structlog
 from structlog.dev import ConsoleRenderer
@@ -10,6 +10,8 @@ from structlog.processors import JSONRenderer
 from structlog.types import EventDict, Processor
 
 from ..core.config import settings
+
+_logging_initialized = False
 
 
 def drop_color_message_key(_, __, event_dict: EventDict) -> EventDict:
@@ -89,44 +91,67 @@ def build_formatter(*, json_output: bool, pre_chain: list[Processor]) -> structl
     return structlog.stdlib.ProcessorFormatter(foreign_pre_chain=pre_chain, processors=processors)
 
 
-# Setup log directory
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
+def get_default_log_dir() -> Path:
+    return Path(__file__).resolve().parents[1] / "logs"
 
 
-# File handler configuration
-file_handler = RotatingFileHandler(
-    filename=os.path.join(LOG_DIR, "app.log"),
-    maxBytes=settings.FILE_LOG_MAX_BYTES,
-    backupCount=settings.FILE_LOG_BACKUP_COUNT,
-)
-file_handler.setLevel(settings.FILE_LOG_LEVEL)
-file_handler.setFormatter(
-    build_formatter(
-        json_output=settings.FILE_LOG_FORMAT_JSON, pre_chain=SHARED_PROCESSORS + [file_log_filter_processors]
+def get_log_dir() -> Path:
+    configured_dir = (settings.FILE_LOG_DIR or "").strip()
+    if configured_dir:
+        return Path(configured_dir).expanduser()
+    return get_default_log_dir()
+
+
+def get_log_file_path(service_name: str | None = None) -> Path:
+    configured_filename = settings.FILE_LOG_FILENAME.strip()
+    if configured_filename and configured_filename != "app.log":
+        filename = configured_filename
+    elif service_name in {"web", "admin", "event"}:
+        filename = f"{service_name}.app.log"
+    else:
+        filename = "app.log"
+    return get_log_dir() / filename
+
+
+def init_logging(service_name: str | None = None) -> None:
+    global _logging_initialized
+
+    if _logging_initialized:
+        return
+
+    log_file_path = get_log_file_path(service_name)
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_handler = RotatingFileHandler(
+        filename=log_file_path,
+        maxBytes=settings.FILE_LOG_MAX_BYTES,
+        backupCount=settings.FILE_LOG_BACKUP_COUNT,
     )
-)
-
-# Console handler configuration
-console_handler = logging.StreamHandler()
-console_handler.setLevel(settings.CONSOLE_LOG_LEVEL)
-console_handler.setFormatter(
-    build_formatter(
-        json_output=settings.CONSOLE_LOG_FORMAT_JSON, pre_chain=SHARED_PROCESSORS + [console_log_filter_processors]
+    file_handler.setLevel(settings.FILE_LOG_LEVEL)
+    file_handler.setFormatter(
+        build_formatter(
+            json_output=settings.FILE_LOG_FORMAT_JSON, pre_chain=SHARED_PROCESSORS + [file_log_filter_processors]
+        )
     )
-)
 
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(settings.CONSOLE_LOG_LEVEL)
+    console_handler.setFormatter(
+        build_formatter(
+            json_output=settings.CONSOLE_LOG_FORMAT_JSON, pre_chain=SHARED_PROCESSORS + [console_log_filter_processors]
+        )
+    )
 
-# Root logger configuration
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
-root_logger.handlers.clear()  # avoid duplicate logs
-root_logger.addHandler(file_handler)
-root_logger.addHandler(console_handler)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
 
-# Uvicorn logger integration
-for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-    logger = logging.getLogger(logger_name)
-    logger.handlers.clear()
-    logger.propagate = True
-    logger.setLevel(logging.INFO)
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logger = logging.getLogger(logger_name)
+        logger.handlers.clear()
+        logger.propagate = True
+        logger.setLevel(logging.INFO)
+
+    _logging_initialized = True

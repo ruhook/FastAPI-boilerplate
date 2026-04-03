@@ -5,18 +5,17 @@ from typing import Any
 import anyio
 import fastapi
 import redis.asyncio as redis
-from arq import create_pool
-from arq.connections import RedisSettings
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
-from ..api.dependencies import get_current_superuser
-from ..core.utils.rate_limit import rate_limiter
+from ..admin.api.dependencies import get_current_admin_superuser
 from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..middleware.logger_middleware import LoggerMiddleware
-from ..models import *  # noqa: F403
+from ..modules.admin.admin_user.model import AdminUser
+from ..modules.admin.role.model import Role
+from ..modules.user.model import User
 from .config import (
     AppSettings,
     ClientSideCacheSettings,
@@ -25,13 +24,14 @@ from .config import (
     EnvironmentOption,
     EnvironmentSettings,
     RedisCacheSettings,
-    RedisQueueSettings,
-    RedisRateLimiterSettings,
     settings,
 )
 from .db.database import Base
 from .db.database import async_engine as engine
-from .utils import cache, queue
+from .logger import init_logging
+from .utils import cache
+
+REGISTERED_MODELS = (AdminUser, Role, User)
 
 
 # -------------- database --------------
@@ -51,26 +51,6 @@ async def close_redis_cache_pool() -> None:
         await cache.client.aclose()  # type: ignore
 
 
-# -------------- queue --------------
-async def create_redis_queue_pool() -> None:
-    queue.pool = await create_pool(RedisSettings(host=settings.REDIS_QUEUE_HOST, port=settings.REDIS_QUEUE_PORT))
-
-
-async def close_redis_queue_pool() -> None:
-    if queue.pool is not None:
-        await queue.pool.aclose()  # type: ignore
-
-
-# -------------- rate limit --------------
-async def create_redis_rate_limit_pool() -> None:
-    rate_limiter.initialize(settings.REDIS_RATE_LIMIT_URL)  # type: ignore
-
-
-async def close_redis_rate_limit_pool() -> None:
-    if rate_limiter.client is not None:
-        await rate_limiter.client.aclose()  # type: ignore
-
-
 # -------------- application --------------
 async def set_threadpool_tokens(number_of_tokens: int = 100) -> None:
     limiter = anyio.to_thread.current_default_thread_limiter()
@@ -84,11 +64,9 @@ def lifespan_factory(
         | AppSettings
         | ClientSideCacheSettings
         | CORSSettings
-        | RedisQueueSettings
-        | RedisRateLimiterSettings
         | EnvironmentSettings
     ),
-    create_tables_on_start: bool = True,
+    create_tables_on_start: bool = False,
 ) -> Callable[[FastAPI], _AsyncGeneratorContextManager[Any]]:
     """Factory to create a lifespan async context manager for a FastAPI app."""
 
@@ -105,12 +83,6 @@ def lifespan_factory(
             if isinstance(settings, RedisCacheSettings):
                 await create_redis_cache_pool()
 
-            if isinstance(settings, RedisQueueSettings):
-                await create_redis_queue_pool()
-
-            if isinstance(settings, RedisRateLimiterSettings):
-                await create_redis_rate_limit_pool()
-
             if create_tables_on_start:
                 await create_tables()
 
@@ -121,12 +93,6 @@ def lifespan_factory(
         finally:
             if isinstance(settings, RedisCacheSettings):
                 await close_redis_cache_pool()
-
-            if isinstance(settings, RedisQueueSettings):
-                await close_redis_queue_pool()
-
-            if isinstance(settings, RedisRateLimiterSettings):
-                await close_redis_rate_limit_pool()
 
     return lifespan
 
@@ -140,18 +106,17 @@ def create_application(
         | AppSettings
         | ClientSideCacheSettings
         | CORSSettings
-        | RedisQueueSettings
-        | RedisRateLimiterSettings
         | EnvironmentSettings
     ),
-    create_tables_on_start: bool = True,
+    create_tables_on_start: bool = False,
     lifespan: Callable[[FastAPI], _AsyncGeneratorContextManager[Any]] | None = None,
+    service_name: str | None = None,
     **kwargs: Any,
 ) -> FastAPI:
     """Creates and configures a FastAPI application based on the provided settings.
 
-    This function initializes a FastAPI application and configures it with various settings
-    and handlers based on the type of the `settings` object provided.
+    This function initializes a FastAPI application and configures it with the
+    runtime settings used by this project.
 
     Parameters
     ----------
@@ -162,19 +127,15 @@ def create_application(
         An instance representing the settings for configuring the FastAPI application.
         It determines the configuration applied:
 
-        - AppSettings: Configures basic app metadata like name, description, contact, and license info.
-        - DatabaseSettings: Adds event handlers for initializing database tables during startup.
-        - RedisCacheSettings: Sets up event handlers for creating and closing a Redis cache pool.
+        - AppSettings: Configures app metadata such as name, description, and contact info.
+        - RedisCacheSettings: Sets up event handlers for creating and closing the Redis cache pool.
         - ClientSideCacheSettings: Integrates middleware for client-side caching.
-        - CORSSettings: Integrates CORS middleware with specified origins.
-        - RedisQueueSettings: Sets up event handlers for creating and closing a Redis queue pool.
-        - RedisRateLimiterSettings: Sets up event handlers for creating and closing a Redis rate limiter pool.
-        - EnvironmentSettings: Conditionally sets documentation URLs and integrates custom routes for API documentation
-          based on the environment type.
+        - CORSSettings: Integrates CORS middleware with the configured origins.
+        - EnvironmentSettings: Conditionally exposes API documentation based on the environment type.
 
     create_tables_on_start : bool
         A flag to indicate whether to create database tables on application startup.
-        Defaults to True.
+        Defaults to False and should generally stay disabled in favor of Alembic migrations.
 
     **kwargs
         Additional keyword arguments passed directly to the FastAPI constructor.
@@ -184,11 +145,11 @@ def create_application(
     FastAPI
         A fully configured FastAPI application instance.
 
-    The function configures the FastAPI application with different features and behaviors
-    based on the provided settings. It includes setting up database connections, Redis pools
-    for caching, queue, and rate limiting, client-side caching, and customizing the API documentation
-    based on the environment settings.
+    The function configures the FastAPI application with the active settings,
+    including Redis-backed caching, middleware, and environment-specific docs behavior.
     """
+    init_logging(service_name=service_name)
+
     # --- before creating application ---
     if isinstance(settings, AppSettings):
         to_update = {
@@ -225,7 +186,7 @@ def create_application(
         if settings.ENVIRONMENT != EnvironmentOption.PRODUCTION:
             docs_router = APIRouter()
             if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
-                docs_router = APIRouter(dependencies=[Depends(get_current_superuser)])
+                docs_router = APIRouter(dependencies=[Depends(get_current_admin_superuser)])
 
             @docs_router.get("/docs", include_in_schema=False)
             async def get_swagger_documentation() -> fastapi.responses.HTMLResponse:

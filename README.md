@@ -33,10 +33,7 @@
 * ⚡️ Fully async FastAPI + SQLAlchemy 2.0
 * 🧱 Pydantic v2 models & validation
 * 🔐 JWT auth (access + refresh), cookies for refresh
-* 👮 Rate limiter + tiers (free/pro/etc.)
 * 🧰 FastCRUD for efficient CRUD & pagination
-* 🧑‍💼 **CRUDAdmin**: minimal admin panel (optional)
-* 🚦 ARQ background jobs (Redis)
 * 🧊 Redis caching (server + client-side headers)
 * 🌐 Configurable CORS middleware for frontend integration
 * 🐳 One-command Docker Compose
@@ -46,7 +43,7 @@
 
 **Perfect if you want:**
 
-* A pragmatic starter with auth, CRUD, jobs, caching and rate-limits
+* A pragmatic starter with auth, CRUD, caching, and a split web/admin structure
 * **Sensible defaults** with the freedom to opt-out of modules
 * **Docs over boilerplate** in README - depth lives in the site
 
@@ -56,12 +53,10 @@
 
 * **App**: FastAPI app factory, [env-aware docs](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/development/) exposure
 * **Auth**: [JWT access/refresh](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/authentication/), logout via token blacklist
-* **DB**: Postgres + SQLAlchemy 2.0, [Alembic migrations](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/database/)
+* **DB**: MySQL + SQLAlchemy 2.0, [Alembic migrations](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/database/)
 * **CRUD**: [FastCRUD generics](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/database/crud/) (get, get_multi, create, update, delete, joins)
 * **Caching**: [decorator-based endpoints cache](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/caching/); client cache headers
-* **Queues**: [ARQ worker](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/background-tasks/) (async jobs), Redis connection helpers
-* **Rate limits**: [per-tier + per-path rules](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/rate-limiting/)
-* **Admin**: [CRUDAdmin views](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/admin-panel/) for common models (optional)
+* **Split API**: separate `web` and `admin` entrypoints sharing common modules
 
 This is what we've been using in production apps. Several applications running in production started from this boilerplate as their foundation - from SaaS platforms to internal tools. It's proven, stable technology that works together reliably. Use this as the foundation for whatever you want to build on top.
 
@@ -159,41 +154,55 @@ docker compose run --rm create_superuser
 cd src && uv run alembic revision --autogenerate && uv run alembic upgrade head
 ```
 
-**Test background jobs:**
-```bash
-curl -X POST 'http://127.0.0.1:8000/api/v1/tasks/task?message=hello'
-```
-
 **Or run locally without Docker:**
 ```bash
-uv sync && uv run uvicorn src.app.main:app --reload
+uv sync
+cp src/.env.example src/.env
+uv run python run_web.py
 ```
 
-> Full setup (from-scratch, .env examples, PostgreSQL & Redis, gunicorn, nginx) lives in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/installation/).
+> Full setup examples still live in the upstream docs, but this repo has already been trimmed down to a MySQL + Redis + web/admin split baseline.
 
 ## Configuration (minimal)
 
-Create `src/.env` and set **app**, **database**, **JWT**, and **environment** settings. See the [docs](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/configuration/) for a copy-pasteable example and production guidance.
+Create `src/.env` and set **app**, **database**, **JWT**, and **environment** settings. `src/.env` is ignored by git, so you can keep local MySQL credentials, Redis addresses, and secrets there safely. Start from `src/.env.example`.
 
 [https://benavlabs.github.io/FastAPI-boilerplate/getting-started/configuration/](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/configuration/)
 
 * `ENVIRONMENT=local|staging|production` controls API docs exposure
-* Set `ADMIN_*` to enable the first admin user
+* Create the first admin user explicitly with `uv run python -m src.scripts.create_first_superuser` and follow the interactive prompts
 
 ## Common tasks
 
 ```bash
-# run locally with reload (without Docker)
-uv sync && uv run uvicorn src.app.main:app --reload
+# install dependencies
+uv sync
+
+# prepare local env file
+cp src/.env.example src/.env
+
+# run web app in development
+uv run python run_web.py
+
+# run admin app in development
+uv run python run_admin.py
 
 # run Alembic migrations
-cd src && uv run alembic revision --autogenerate && uv run alembic upgrade head
+cd src && uv run alembic upgrade head
 
-# enqueue a background job (example endpoint)
-curl -X POST 'http://127.0.0.1:8000/api/v1/tasks/task?message=hello'
+# run web app with gunicorn
+gunicorn -c gunicorn_web.conf.py src.app.main_web:app
+
+# run admin app with gunicorn
+gunicorn -c gunicorn_admin.conf.py src.app.main_admin:app
+
 ```
 
-More examples (superuser creation, tiers, rate limits, admin usage) in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/first-run/).
+More examples for this repo should follow the current `web/admin` split rather than the upstream boilerplate docs.
+
+Minimal local development guide: [docs/development-minimal-zh.md](docs/development-minimal-zh.md)
+
+Production/deploy notes for the split `web/admin` setup: [docs/deployment-zh.md](docs/deployment-zh.md)
 
 ## Contributing
 
