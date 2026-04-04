@@ -13,13 +13,16 @@ from ....core.security import (
     create_access_token,
     create_refresh_token,
     get_password_hash,
+    verify_password,
 )
 from ..role.crud import crud_roles
+from ..role.model import Role
+from ..role.const import validate_permissions
 from ..role.schema import RoleRead
 from .const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from .crud import crud_admin_users
 from .model import AdminUser
-from .schema import AdminLoginRequest, AdminToken, AdminUserAuth, AdminUserCreate, AdminUserCreateInternal, AdminUserCreateResponse, AdminUserDBRead, AdminUserRead, AdminUserUpdate, generate_temporary_password
+from .schema import AdminChangePasswordRequest, AdminLoginRequest, AdminToken, AdminUserAuth, AdminUserCreate, AdminUserCreateInternal, AdminUserCreateResponse, AdminUserDBRead, AdminUserRead, AdminUserUpdate, generate_temporary_password
 
 
 def build_admin_user_create_values(payload: AdminUserCreate, username: str, hashed_password: str) -> AdminUserCreateInternal:
@@ -44,7 +47,19 @@ def build_admin_user_update_values(payload: AdminUserUpdate, existing_data: dict
     return update_data
 
 
-def serialize_admin_user(account: AdminUser, role_name: str | None = None) -> dict[str, Any]:
+def build_deleted_admin_identity(account_id: int) -> tuple[str, str]:
+    archived_username = f"deleted{account_id}"
+    archived_email = f"deleted+{account_id}@local.invalid"
+    return archived_username[:20], archived_email[:100]
+
+
+def serialize_admin_user(
+    account: AdminUser,
+    role_name: str | None = None,
+    role_id_override: int | None | object = ...,
+) -> dict[str, Any]:
+    resolved_role_name = "超级管理员" if account.is_superuser else role_name
+    resolved_role_id = account.role_id if role_id_override is ... else role_id_override
     return AdminUserRead(
         id=account.id,
         name=account.name,
@@ -54,8 +69,8 @@ def serialize_admin_user(account: AdminUser, role_name: str | None = None) -> di
         note=account.note,
         status=account.status,
         profile_image_url=account.profile_image_url,
-        role_id=account.role_id,
-        role_name=role_name,
+        role_id=resolved_role_id,
+        role_name=resolved_role_name,
         is_superuser=account.is_superuser,
         last_login_at=account.last_login_at,
         created_at=account.created_at,
@@ -63,18 +78,48 @@ def serialize_admin_user(account: AdminUser, role_name: str | None = None) -> di
     ).model_dump()
 
 
-async def get_account_with_role(db: AsyncSession, account_id: int) -> tuple[AdminUser, str | None] | None:
-    role_model = crud_roles.model
-    stmt = (
-        select(AdminUser, role_model.name)
-        .outerjoin(role_model, AdminUser.role_id == role_model.id)
-        .where(AdminUser.id == account_id, AdminUser.is_deleted.is_(False))
-    )
-    result = await db.execute(stmt)
-    row = result.first()
-    if row is None:
+async def get_account_with_role(db: AsyncSession, account_id: int) -> tuple[AdminUser, str | None, int | None] | None:
+    result = await db.execute(select(AdminUser).where(AdminUser.id == account_id, AdminUser.is_deleted.is_(False)))
+    account = result.scalar_one_or_none()
+    if account is None:
         return None
-    return row[0], row[1]
+    role_name, permissions = await resolve_admin_role_assignment(db=db, admin_user_id=account.id, role_id=account.role_id)
+    effective_role_id = account.role_id if role_name is not None or permissions else None
+    return account, role_name, effective_role_id
+
+
+async def resolve_admin_role_assignment(
+    db: AsyncSession,
+    admin_user_id: int,
+    role_id: int | None,
+) -> tuple[str | None, list[str]]:
+    if role_id is None:
+        return None, []
+
+    result = await db.execute(select(Role).where(Role.id == role_id))
+    role = result.scalar_one_or_none()
+    if role is None:
+        await crud_admin_users.update(
+            db=db,
+            object={"role_id": None, "updated_at": datetime.now(UTC)},
+            id=admin_user_id,
+        )
+        return None, []
+
+    try:
+        permissions = validate_permissions(role.permissions or [])
+    except ValueError:
+        await crud_admin_users.update(
+            db=db,
+            object={"role_id": None, "updated_at": datetime.now(UTC)},
+            id=admin_user_id,
+        )
+        return None, []
+
+    if not role.enabled:
+        return None, []
+
+    return role.name, permissions
 
 
 async def ensure_role_exists(db: AsyncSession, role_id: int | None) -> RoleRead | None:
@@ -95,17 +140,15 @@ async def build_unique_username(db: AsyncSession, preferred: str) -> str:
     base = slugify_username(preferred)
     candidate = base
     index = 1
-    while await crud_admin_users.exists(db=db, username=candidate):
+    while await crud_admin_users.exists(db=db, username=candidate, is_deleted=False):
         candidate = f"{base}{index}"
         index += 1
     return candidate
 
 
 async def query_admin_accounts(db: AsyncSession, keyword: str | None = None) -> list[dict[str, Any]]:
-    role_model = crud_roles.model
     stmt: Select[Any] = (
-        select(AdminUser, role_model.name)
-        .outerjoin(role_model, AdminUser.role_id == role_model.id)
+        select(AdminUser)
         .where(AdminUser.is_deleted.is_(False))
         .order_by(AdminUser.created_at.desc())
     )
@@ -120,15 +163,25 @@ async def query_admin_accounts(db: AsyncSession, keyword: str | None = None) -> 
             )
         )
     result = await db.execute(stmt)
-    return [serialize_admin_user(account, role_name) for account, role_name in result.all()]
+    accounts = result.scalars().all()
+    serialized_accounts: list[dict[str, Any]] = []
+    for account in accounts:
+        role_name, permissions = await resolve_admin_role_assignment(
+            db=db,
+            admin_user_id=account.id,
+            role_id=account.role_id,
+        )
+        effective_role_id = account.role_id if role_name is not None or permissions else None
+        serialized_accounts.append(serialize_admin_user(account, role_name, effective_role_id))
+    return serialized_accounts
 
 
 async def create_admin_account(payload: AdminUserCreate, db: AsyncSession) -> dict[str, Any]:
-    if await crud_admin_users.exists(db=db, email=payload.email):
+    if await crud_admin_users.exists(db=db, email=payload.email, is_deleted=False):
         raise DuplicateValueException("Email is already registered.")
     await ensure_role_exists(db, payload.role_id)
     username = payload.username or await build_unique_username(db, payload.email.split("@", 1)[0])
-    if await crud_admin_users.exists(db=db, username=username):
+    if await crud_admin_users.exists(db=db, username=username, is_deleted=False):
         raise DuplicateValueException("Username not available.")
 
     password = payload.password or generate_temporary_password()
@@ -143,8 +196,8 @@ async def create_admin_account(payload: AdminUserCreate, db: AsyncSession) -> di
     account_with_role = await get_account_with_role(db, created_id)
     if account_with_role is None:
         raise NotFoundException("Failed to create admin account.")
-    account, role_name = account_with_role
-    response = serialize_admin_user(account, role_name)
+    account, role_name, effective_role_id = account_with_role
+    response = serialize_admin_user(account, role_name, effective_role_id)
     response["temporary_password"] = None if payload.password else password
     return response
 
@@ -158,14 +211,18 @@ async def update_admin_account(
     account_with_role = await get_account_with_role(db, account_id)
     if account_with_role is None:
         raise NotFoundException("Admin account not found.")
-    account, _ = account_with_role
+    account, _, _ = account_with_role
 
-    if payload.email and payload.email != account.email and await crud_admin_users.exists(db=db, email=payload.email):
+    if (
+        payload.email
+        and payload.email != account.email
+        and await crud_admin_users.exists(db=db, email=payload.email, is_deleted=False)
+    ):
         raise DuplicateValueException("Email is already registered.")
     if (
         payload.username
         and payload.username != account.username
-        and await crud_admin_users.exists(db=db, username=payload.username)
+        and await crud_admin_users.exists(db=db, username=payload.username, is_deleted=False)
     ):
         raise DuplicateValueException("Username not available.")
     await ensure_role_exists(db, payload.role_id)
@@ -173,6 +230,8 @@ async def update_admin_account(
     update_data = build_admin_user_update_values(payload, existing_data=account.data)
     if payload.password:
         update_data["hashed_password"] = get_password_hash(payload.password)
+    if account.is_superuser and "status" in update_data:
+        raise ForbiddenException("Superuser account status cannot be changed.")
     if current_admin["id"] == account_id and update_data.get("status") == "disabled" and not current_admin["is_superuser"]:
         raise ForbiddenException("You cannot disable your own current admin account.")
     await crud_admin_users.update(
@@ -183,8 +242,8 @@ async def update_admin_account(
     refreshed = await get_account_with_role(db, account_id)
     if refreshed is None:
         raise NotFoundException("Admin account not found.")
-    refreshed_account, role_name = refreshed
-    return serialize_admin_user(refreshed_account, role_name)
+    refreshed_account, role_name, effective_role_id = refreshed
+    return serialize_admin_user(refreshed_account, role_name, effective_role_id)
 
 
 async def delete_admin_account(account_id: int, current_admin: dict[str, Any], db: AsyncSession) -> dict[str, str]:
@@ -193,18 +252,41 @@ async def delete_admin_account(account_id: int, current_admin: dict[str, Any], d
     account = await crud_admin_users.get(db=db, id=account_id, is_deleted=False)
     if account is None:
         raise NotFoundException("Admin account not found.")
-    await crud_admin_users.delete(db=db, id=account_id)
+    if account["is_superuser"]:
+        raise ForbiddenException("Superuser account cannot be deleted.")
+    archived_username, archived_email = build_deleted_admin_identity(account_id)
+    archived_data = dict(account.get("data") or {})
+    archived_data.update(
+        {
+            "archived_username": account["username"],
+            "archived_email": account["email"],
+        }
+    )
+    await crud_admin_users.update(
+        db=db,
+        object={
+            "username": archived_username,
+            "email": archived_email,
+            "role_id": None,
+            "data": archived_data,
+            "is_deleted": True,
+            "deleted_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+        },
+        id=account_id,
+    )
     return {"message": "Admin account deleted."}
 
 
 async def build_admin_auth_user(admin_user: dict[str, Any], db: AsyncSession, all_permissions: list[str]) -> AdminUserAuth:
     permissions: list[str] = all_permissions if admin_user["is_superuser"] else []
-    role_name: str | None = None
+    role_name: str | None = "超级管理员" if admin_user["is_superuser"] else None
     if not admin_user["is_superuser"] and admin_user["role_id"] is not None:
-        role = await crud_roles.get(db=db, id=admin_user["role_id"], schema_to_select=RoleRead)
-        if role and role["enabled"]:
-            permissions = role["permissions"]
-            role_name = role["name"]
+        role_name, permissions = await resolve_admin_role_assignment(
+            db=db,
+            admin_user_id=admin_user["id"],
+            role_id=admin_user["role_id"],
+        )
 
     return AdminUserAuth(
         id=admin_user["id"],
@@ -270,3 +352,26 @@ async def refresh_admin_user_tokens(
         raise UnauthorizedException("Admin not authenticated.")
     _ = refresh_token
     return await issue_admin_tokens(admin_user, db, all_permissions)
+
+
+async def change_current_admin_password(
+    payload: AdminChangePasswordRequest,
+    current_admin: dict[str, Any],
+    db: AsyncSession,
+) -> dict[str, str]:
+    account = await crud_admin_users.get(db=db, id=current_admin["id"], is_deleted=False)
+    if account is None:
+        raise UnauthorizedException("Admin not authenticated.")
+
+    if not await verify_password(payload.current_password, account["hashed_password"]):
+        raise UnauthorizedException("Current password is incorrect.")
+
+    await crud_admin_users.update(
+        db=db,
+        object={
+            "hashed_password": get_password_hash(payload.new_password),
+            "updated_at": datetime.now(UTC),
+        },
+        id=current_admin["id"],
+    )
+    return {"message": "Password changed successfully."}

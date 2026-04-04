@@ -153,10 +153,6 @@ class EventSettings(BaseSettings):
     EVENT_STATS_INTERVAL: int = 30
 
 
-class ClientSideCacheSettings(BaseSettings):
-    CLIENT_CACHE_MAX_AGE: int = 60
-
-
 class EnvironmentOption(str, Enum):
     LOCAL = "local"
     STAGING = "staging"
@@ -182,7 +178,6 @@ class Settings(
     TestSettings,
     RedisCacheSettings,
     EventSettings,
-    ClientSideCacheSettings,
     EnvironmentSettings,
     CORSSettings,
     FileLoggerSettings,

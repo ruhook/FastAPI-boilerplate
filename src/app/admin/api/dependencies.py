@@ -8,9 +8,8 @@ from ...core.exceptions.http_exceptions import ForbiddenException, UnauthorizedE
 from ...core.security import TokenType, admin_oauth2_scheme, verify_token
 from ...modules.admin.admin_user.crud import crud_admin_users
 from ...modules.admin.admin_user.schema import AdminUserDBRead
+from ...modules.admin.admin_user.service import resolve_admin_role_assignment
 from ...modules.admin.role.const import ALL_ADMIN_PERMISSIONS
-from ...modules.admin.role.crud import crud_roles
-from ...modules.admin.role.schema import RoleRead
 
 
 async def _get_admin_from_subject(
@@ -44,10 +43,11 @@ async def get_current_admin_user(
     permissions: list[str] = ALL_ADMIN_PERMISSIONS if user["is_superuser"] else []
     role_name: str | None = None
     if not user["is_superuser"] and user["role_id"] is not None:
-        role = await crud_roles.get(db=db, id=user["role_id"], schema_to_select=RoleRead)
-        if role and role["enabled"]:
-            permissions = role["permissions"]
-            role_name = role["name"]
+        role_name, permissions = await resolve_admin_role_assignment(
+            db=db,
+            admin_user_id=user["id"],
+            role_id=user["role_id"],
+        )
 
     return {
         **user,

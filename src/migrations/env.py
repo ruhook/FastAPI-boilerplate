@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import settings
 from app.core.db.database import Base
 from app.modules.admin.admin_user.model import AdminUser
+from app.modules.admin.dictionary.model import AdminDictionary
+from app.modules.admin.form_template.model import AdminFormTemplate
 from app.modules.admin.role.model import Role
 from app.modules.user.model import User
 
@@ -24,7 +26,7 @@ config.set_main_option(
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-REGISTERED_MODELS = (AdminUser, Role, User)
+REGISTERED_MODELS = (AdminUser, Role, AdminDictionary, AdminFormTemplate, User)
 target_metadata = Base.metadata
 
 

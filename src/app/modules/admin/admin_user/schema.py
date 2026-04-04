@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from ....core.passwords import validate_password_strength
+from ....core.passwords import validate_admin_password
 from ....core.schemas import PersistentDeletion, TimestampSchema
 from .const import ADMIN_ACCOUNT_STATUSES, DEFAULT_ADMIN_PROFILE_IMAGE_URL
 
@@ -81,7 +81,7 @@ class AdminUserCreate(AdminUserBase):
     def validate_password(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        return validate_password_strength(value)
+        return validate_admin_password(value)
 
 
 class AdminUserCreateInternal(BaseModel):
@@ -130,7 +130,7 @@ class AdminUserUpdate(BaseModel):
     def validate_password(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        return validate_password_strength(value)
+        return validate_admin_password(value)
 
 
 class AdminUserUpdateInternal(BaseModel):
@@ -164,6 +164,16 @@ class AdminRefreshRequest(BaseModel):
 
 class AdminLogoutRequest(BaseModel):
     refresh_token: str
+
+
+class AdminChangePasswordRequest(BaseModel):
+    current_password: Annotated[str, Field(min_length=8, max_length=128)]
+    new_password: Annotated[str, Field(min_length=8, max_length=128)]
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_admin_password(value)
 
 
 class AdminToken(BaseModel):

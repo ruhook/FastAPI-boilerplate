@@ -11,14 +11,14 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
 from ..admin.api.dependencies import get_current_admin_superuser
-from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..middleware.logger_middleware import LoggerMiddleware
 from ..modules.admin.admin_user.model import AdminUser
+from ..modules.admin.dictionary.model import AdminDictionary
+from ..modules.admin.form_template.model import AdminFormTemplate
 from ..modules.admin.role.model import Role
 from ..modules.user.model import User
 from .config import (
     AppSettings,
-    ClientSideCacheSettings,
     CORSSettings,
     DatabaseSettings,
     EnvironmentOption,
@@ -31,7 +31,7 @@ from .db.database import async_engine as engine
 from .logger import init_logging
 from .utils import cache
 
-REGISTERED_MODELS = (AdminUser, Role, User)
+REGISTERED_MODELS = (AdminUser, Role, AdminDictionary, AdminFormTemplate, User)
 
 
 # -------------- database --------------
@@ -62,7 +62,6 @@ def lifespan_factory(
         DatabaseSettings
         | RedisCacheSettings
         | AppSettings
-        | ClientSideCacheSettings
         | CORSSettings
         | EnvironmentSettings
     ),
@@ -104,7 +103,6 @@ def create_application(
         DatabaseSettings
         | RedisCacheSettings
         | AppSettings
-        | ClientSideCacheSettings
         | CORSSettings
         | EnvironmentSettings
     ),
@@ -129,7 +127,6 @@ def create_application(
 
         - AppSettings: Configures app metadata such as name, description, and contact info.
         - RedisCacheSettings: Sets up event handlers for creating and closing the Redis cache pool.
-        - ClientSideCacheSettings: Integrates middleware for client-side caching.
         - CORSSettings: Integrates CORS middleware with the configured origins.
         - EnvironmentSettings: Conditionally exposes API documentation based on the environment type.
 
@@ -169,9 +166,6 @@ def create_application(
 
     application = FastAPI(lifespan=lifespan, **kwargs)
     application.include_router(router)
-
-    if isinstance(settings, ClientSideCacheSettings):
-        application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)
 
     if isinstance(settings, CORSSettings):
         application.add_middleware(

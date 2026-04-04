@@ -4,7 +4,7 @@ import logging
 
 from sqlalchemy import insert, select
 
-from ..app.core.db.database import AsyncSession, local_session
+from ..app.core.db.database import AsyncSession, async_engine, local_session
 from ..app.core.security import get_password_hash
 from ..app.modules.admin.admin_user.model import AdminUser
 from ..app.modules.admin.admin_user.schema import AdminUserCreate
@@ -80,8 +80,11 @@ async def create_first_user(session: AsyncSession) -> None:
 
 
 async def main() -> None:
-    async with local_session() as session:
-        await create_first_user(session)
+    try:
+        async with local_session() as session:
+            await create_first_user(session)
+    finally:
+        await async_engine.dispose()
 
 
 if __name__ == "__main__":

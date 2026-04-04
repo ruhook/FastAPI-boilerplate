@@ -1,6 +1,17 @@
 import re
 
 
+def validate_admin_password(value: str) -> str:
+    checks = (
+        (len(value) >= 8, "Password must be at least 8 characters long."),
+        (re.search(r"\s", value) is None, "Password must not contain whitespace."),
+    )
+    for passed, message in checks:
+        if not passed:
+            raise ValueError(message)
+    return value
+
+
 def validate_password_strength(value: str) -> str:
     checks = (
         (len(value) >= 8, "Password must be at least 8 characters long."),

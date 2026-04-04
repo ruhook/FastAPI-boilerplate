@@ -9,13 +9,14 @@ from ....core.exceptions.http_exceptions import UnauthorizedException
 from ....core.security import TokenType, admin_oauth2_scheme, verify_token
 from ....modules.admin.admin_user.crud import crud_admin_users
 from ....modules.admin.admin_user.schema import (
+    AdminChangePasswordRequest,
     AdminLoginRequest,
     AdminLogoutRequest,
     AdminRefreshRequest,
     AdminToken,
     AdminUserAuth,
 )
-from ....modules.admin.admin_user.service import login_admin_user, refresh_admin_user_tokens
+from ....modules.admin.admin_user.service import change_current_admin_password, login_admin_user, refresh_admin_user_tokens
 from ....modules.admin.role.const import ALL_ADMIN_PERMISSIONS
 
 router = APIRouter(prefix="/auth", tags=["admin-auth"])
@@ -61,3 +62,12 @@ async def admin_logout(
 ) -> dict[str, str]:
     _ = payload, access_token, db
     return {"message": "Logged out successfully."}
+
+
+@router.post("/change-password")
+async def admin_change_password(
+    payload: AdminChangePasswordRequest,
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+) -> dict[str, str]:
+    return await change_current_admin_password(payload=payload, current_admin=current_admin, db=db)
