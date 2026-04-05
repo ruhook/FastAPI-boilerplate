@@ -171,6 +171,7 @@ Create `src/.env` and set **app**, **database**, **JWT**, and **environment** se
 
 * `ENVIRONMENT=local|staging|production` controls API docs exposure
 * Create the first admin user explicitly with `uv run python -m src.scripts.create_first_superuser` and follow the interactive prompts
+* For fast local bootstrap, you can also run `uv run python -m src.scripts.create_first_superuser --default` to create `admin@admin.com / 12345678`
 
 ## Common tasks
 

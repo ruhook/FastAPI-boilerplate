@@ -35,10 +35,10 @@ async def test_admin_login_me_and_permissions_catalog(
     assert me_data["email"] == superadmin_credentials["email"]
     assert me_data["is_superuser"] is True
 
-    permissions_response = await client.get("/api/v1/permissions/catalog", headers=headers)
+    permissions_response = await client.get("/api/v1/settings/permissions/catalog", headers=headers)
     assert permissions_response.status_code == 200, permissions_response.text
     permissions_data = permissions_response.json()
-    assert any(group["group"] == "系统设置" for group in permissions_data)
+    assert any(group["group"] == "设置页面" for group in permissions_data)
 
 
 async def test_admin_refresh_and_logout_blacklists_refresh_token(

@@ -10,7 +10,7 @@ async def test_superadmin_can_create_list_update_and_delete_admin_account(
     admin_auth_headers: dict[str, str],
 ) -> None:
     create_response = await client.post(
-        "/api/v1/accounts",
+        "/api/v1/settings/accounts",
         headers=admin_auth_headers,
         json={
             "name": "Ops Manager",
@@ -27,18 +27,18 @@ async def test_superadmin_can_create_list_update_and_delete_admin_account(
     assert created_account["temporary_password"] is None
     assert created_account["is_superuser"] is False
 
-    list_response = await client.get("/api/v1/accounts", headers=admin_auth_headers)
+    list_response = await client.get("/api/v1/settings/accounts", headers=admin_auth_headers)
     assert list_response.status_code == 200, list_response.text
     list_data = list_response.json()
     assert len(list_data) == 2
     assert any(account["username"] == "opsmanager" for account in list_data)
 
-    detail_response = await client.get(f"/api/v1/accounts/{account_id}", headers=admin_auth_headers)
+    detail_response = await client.get(f"/api/v1/settings/accounts/{account_id}", headers=admin_auth_headers)
     assert detail_response.status_code == 200, detail_response.text
     assert detail_response.json()["email"] == "opsmanager@example.com"
 
     update_response = await client.patch(
-        f"/api/v1/accounts/{account_id}",
+        f"/api/v1/settings/accounts/{account_id}",
         headers=admin_auth_headers,
         json={
             "status": "disabled",
@@ -50,11 +50,11 @@ async def test_superadmin_can_create_list_update_and_delete_admin_account(
     assert updated_account["status"] == "disabled"
     assert updated_account["note"] == "handled by integration test"
 
-    delete_response = await client.delete(f"/api/v1/accounts/{account_id}", headers=admin_auth_headers)
+    delete_response = await client.delete(f"/api/v1/settings/accounts/{account_id}", headers=admin_auth_headers)
     assert delete_response.status_code == 200, delete_response.text
     assert delete_response.json()["message"] == "Admin account deleted."
 
-    list_after_delete_response = await client.get("/api/v1/accounts", headers=admin_auth_headers)
+    list_after_delete_response = await client.get("/api/v1/settings/accounts", headers=admin_auth_headers)
     assert list_after_delete_response.status_code == 200, list_after_delete_response.text
     remaining_accounts = list_after_delete_response.json()
     assert len(remaining_accounts) == 1

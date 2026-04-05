@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 import asyncio
 import os
 from pathlib import Path
+import shutil
 from urllib.parse import urlparse
 
 import pytest
@@ -16,7 +17,13 @@ from src.app.core.security import get_password_hash
 from src.app.main_admin import app
 from src.app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from src.app.modules.admin.admin_user.model import AdminUser
+from src.app.modules.admin.mail_account.model import MailAccount
+from src.app.modules.admin.mail_signature.model import MailSignature
+from src.app.modules.admin.mail_task.model import MailTask
+from src.app.modules.admin.mail_template.model import MailTemplate
+from src.app.modules.admin.mail_template_category.model import MailTemplateCategory
 from src.app.modules.admin.role.model import Role
+from src.app.modules.assets.model import Asset
 from src.app.modules.user.model import User
 
 
@@ -63,10 +70,21 @@ def _assert_safe_test_cleanup() -> None:
 
 async def _clear_tables() -> None:
     async with local_session() as session:
+        await session.execute(delete(MailTask))
+        await session.execute(delete(MailTemplate))
+        await session.execute(delete(MailSignature))
+        await session.execute(delete(MailTemplateCategory).where(MailTemplateCategory.parent_id.is_not(None)))
+        await session.execute(delete(MailTemplateCategory).where(MailTemplateCategory.parent_id.is_(None)))
+        await session.execute(delete(Asset))
+        await session.execute(delete(MailAccount))
         await session.execute(delete(AdminUser))
         await session.execute(delete(User))
         await session.execute(delete(Role))
         await session.commit()
+
+    storage_root = Path(settings.ASSET_STORAGE_DIR)
+    if storage_root.exists():
+        shutil.rmtree(storage_root)
 
 
 @pytest_asyncio.fixture(autouse=True, loop_scope="session")

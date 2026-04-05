@@ -153,6 +153,16 @@ class EventSettings(BaseSettings):
     EVENT_STATS_INTERVAL: int = 30
 
 
+class AssetStorageSettings(BaseSettings):
+    ASSET_STORAGE_DIR: str = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        "..",
+        "..",
+        "storage",
+        "assets",
+    )
+
+
 class EnvironmentOption(str, Enum):
     LOCAL = "local"
     STAGING = "staging"
@@ -178,6 +188,7 @@ class Settings(
     TestSettings,
     RedisCacheSettings,
     EventSettings,
+    AssetStorageSettings,
     EnvironmentSettings,
     CORSSettings,
     FileLoggerSettings,

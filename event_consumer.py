@@ -9,6 +9,7 @@ from src.app.core.config import settings
 from src.app.core.logger import init_logging
 from src.app.event import AsyncEventManager, AsyncMQClient, EventType, QueueType
 from src.app.event.handlers.example import handle_example_event
+from src.app.event.handlers.mail import handle_mail_task_created
 
 
 init_logging(service_name="event")
@@ -21,6 +22,7 @@ event_manager = AsyncEventManager(
 )
 
 event_manager.register_handler(EventType.EXAMPLE, handle_example_event)
+event_manager.register_handler(EventType.MAIL_TASK_CREATED, handle_mail_task_created)
 event_manager.set_mq_client(mq)
 
 

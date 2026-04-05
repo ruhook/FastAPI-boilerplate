@@ -171,6 +171,18 @@ uv run python -m src.scripts.create_first_superuser
 - `Username`
 - `Password`
 
+如果你只是本地快速初始化，也可以直接创建默认管理员：
+
+```bash
+cd /Users/ruanhaokang/workspace/hr/hr-server
+uv run python -m src.scripts.create_first_superuser --default
+```
+
+默认账号是：
+
+- `admin@admin.com`
+- `12345678`
+
 ## 当前主要接口
 
 ### Web

@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import getpass
 import logging
 
@@ -13,9 +14,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEFAULT_SUPERUSER = {
-    "name": "Admin User",
-    "email": "admin@example.com",
+    "name": "Admin",
+    "email": "admin@admin.com",
     "username": "admin",
+    "password": "12345678",
 }
 
 
@@ -50,8 +52,29 @@ def prompt_superuser_data() -> AdminUserCreate:
             logger.error(str(exc))
 
 
-async def create_first_user(session: AsyncSession) -> None:
-    superuser = prompt_superuser_data()
+def build_default_superuser_data() -> AdminUserCreate:
+    logger.info("Creating the first admin superuser with default credentials.")
+    return AdminUserCreate(
+        name=DEFAULT_SUPERUSER["name"],
+        email=DEFAULT_SUPERUSER["email"],
+        username=DEFAULT_SUPERUSER["username"],
+        password=DEFAULT_SUPERUSER["password"],
+        status="enabled",
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Create the first admin superuser.")
+    parser.add_argument(
+        "--default",
+        action="store_true",
+        help="Create the default admin account directly without interactive prompts.",
+    )
+    return parser.parse_args()
+
+
+async def create_first_user(session: AsyncSession, *, use_default: bool = False) -> None:
+    superuser = build_default_superuser_data() if use_default else prompt_superuser_data()
     existing = await session.execute(select(AdminUser).filter_by(email=superuser.email))
     admin_user = existing.scalar_one_or_none()
 
@@ -80,9 +103,10 @@ async def create_first_user(session: AsyncSession) -> None:
 
 
 async def main() -> None:
+    args = parse_args()
     try:
         async with local_session() as session:
-            await create_first_user(session)
+            await create_first_user(session, use_default=args.default)
     finally:
         await async_engine.dispose()
 

@@ -11,6 +11,12 @@ from app.core.db.database import Base
 from app.modules.admin.admin_user.model import AdminUser
 from app.modules.admin.dictionary.model import AdminDictionary
 from app.modules.admin.form_template.model import AdminFormTemplate
+from app.modules.admin.mail_account.model import MailAccount
+from app.modules.assets.model import Asset
+from app.modules.admin.mail_signature.model import MailSignature
+from app.modules.admin.mail_task.model import MailTask
+from app.modules.admin.mail_template.model import MailTemplate
+from app.modules.admin.mail_template_category.model import MailTemplateCategory
 from app.modules.admin.role.model import Role
 from app.modules.user.model import User
 
@@ -26,7 +32,19 @@ config.set_main_option(
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-REGISTERED_MODELS = (AdminUser, Role, AdminDictionary, AdminFormTemplate, User)
+REGISTERED_MODELS = (
+    AdminUser,
+    Role,
+    AdminDictionary,
+    AdminFormTemplate,
+    MailAccount,
+    Asset,
+    MailTemplateCategory,
+    MailTemplate,
+    MailSignature,
+    MailTask,
+    User,
+)
 target_metadata = Base.metadata
 
 

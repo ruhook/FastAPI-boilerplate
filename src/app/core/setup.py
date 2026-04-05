@@ -15,6 +15,12 @@ from ..middleware.logger_middleware import LoggerMiddleware
 from ..modules.admin.admin_user.model import AdminUser
 from ..modules.admin.dictionary.model import AdminDictionary
 from ..modules.admin.form_template.model import AdminFormTemplate
+from ..modules.admin.mail_account.model import MailAccount
+from ..modules.assets.model import Asset
+from ..modules.admin.mail_signature.model import MailSignature
+from ..modules.admin.mail_task.model import MailTask
+from ..modules.admin.mail_template.model import MailTemplate
+from ..modules.admin.mail_template_category.model import MailTemplateCategory
 from ..modules.admin.role.model import Role
 from ..modules.user.model import User
 from .config import (
@@ -31,7 +37,19 @@ from .db.database import async_engine as engine
 from .logger import init_logging
 from .utils import cache
 
-REGISTERED_MODELS = (AdminUser, Role, AdminDictionary, AdminFormTemplate, User)
+REGISTERED_MODELS = (
+    AdminUser,
+    Role,
+    AdminDictionary,
+    AdminFormTemplate,
+    MailAccount,
+    Asset,
+    MailTemplateCategory,
+    MailTemplate,
+    MailSignature,
+    MailTask,
+    User,
+)
 
 
 # -------------- database --------------

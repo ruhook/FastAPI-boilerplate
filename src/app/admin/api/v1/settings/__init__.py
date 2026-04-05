@@ -14,4 +14,3 @@ router.include_router(dictionaries_router)
 router.include_router(form_templates_router)
 
 __all__ = ["router"]
-

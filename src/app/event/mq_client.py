@@ -154,3 +154,8 @@ class AsyncMQClient:
             encoded_msg["type"] = encoded_msg["type"].value
 
         await redis_client.xadd(self._queue, {"json": json.dumps(encoded_msg, ensure_ascii=False)})
+
+    async def close(self) -> None:
+        if self._redis is not None:
+            await self._redis.aclose()
+            self._redis = None
