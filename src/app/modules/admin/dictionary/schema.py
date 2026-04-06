@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ....core.schemas import PersistentDeletion, TimestampSchema
 from .const import (
+    DICTIONARY_KEY_MAX_LENGTH,
     DICTIONARY_LABEL_MAX_LENGTH,
     DICTIONARY_OPTION_LABEL_MAX_LENGTH,
     DICTIONARY_OPTION_VALUE_MAX_LENGTH,
@@ -40,8 +41,17 @@ def normalize_dictionary_options(options: list[DictionaryOption]) -> list[Dictio
 
 
 class DictionaryBase(BaseModel):
+    key: str | None = Field(default=None, min_length=1, max_length=DICTIONARY_KEY_MAX_LENGTH)
     label: str = Field(min_length=1, max_length=DICTIONARY_LABEL_MAX_LENGTH)
     options: list[DictionaryOption] = Field(default_factory=list)
+
+    @field_validator("key")
+    @classmethod
+    def normalize_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("label")
     @classmethod
@@ -70,6 +80,7 @@ class DictionaryCreate(DictionaryBase):
 
 
 class DictionaryCreateInternal(BaseModel):
+    key: str | None = None
     label: str
     options: list[dict[str, str]] = Field(default_factory=list)
     data: dict[str, Any] = Field(default_factory=dict)
@@ -78,8 +89,17 @@ class DictionaryCreateInternal(BaseModel):
 class DictionaryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    key: str | None = Field(default=None, max_length=DICTIONARY_KEY_MAX_LENGTH)
     label: str | None = Field(default=None, min_length=1, max_length=DICTIONARY_LABEL_MAX_LENGTH)
     options: list[DictionaryOption] | None = None
+
+    @field_validator("key")
+    @classmethod
+    def normalize_optional_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        return normalized or None
 
     @field_validator("label")
     @classmethod
@@ -97,6 +117,7 @@ class DictionaryUpdate(BaseModel):
 
 
 class DictionaryUpdateInternal(BaseModel):
+    key: str | None = None
     label: str | None = None
     options: list[dict[str, str]] | None = None
     data: dict[str, Any] | None = None
@@ -108,4 +129,3 @@ class DictionaryDelete(BaseModel):
 
     is_deleted: bool
     deleted_at: datetime
-

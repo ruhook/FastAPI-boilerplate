@@ -15,6 +15,7 @@ def serialize_dictionary(dictionary: AdminDictionary) -> dict[str, Any]:
     options = [option.model_dump() for option in dictionary_options_from_model(dictionary)]
     return DictionaryRead(
         id=dictionary.id,
+        key=dictionary.key,
         label=dictionary.label,
         options=options,
         created_at=dictionary.created_at,
@@ -58,6 +59,16 @@ async def get_dictionary_model(dictionary_id: int, db: AsyncSession) -> AdminDic
 
 
 async def create_dictionary(payload: DictionaryCreate, db: AsyncSession) -> dict[str, Any]:
+    if payload.key:
+        existing_by_key = await db.execute(
+            select(AdminDictionary).where(
+                AdminDictionary.key == payload.key,
+                AdminDictionary.is_deleted.is_(False),
+            )
+        )
+        if existing_by_key.scalar_one_or_none() is not None:
+            raise DuplicateValueException("Dictionary key already exists.")
+
     existing = await db.execute(
         select(AdminDictionary).where(
             AdminDictionary.label == payload.label,
@@ -68,6 +79,7 @@ async def create_dictionary(payload: DictionaryCreate, db: AsyncSession) -> dict
         raise DuplicateValueException("Dictionary label already exists.")
 
     dictionary = AdminDictionary(
+        key=payload.key,
         label=payload.label,
         options=[option.model_dump() for option in payload.options],
         data={},
@@ -80,6 +92,19 @@ async def create_dictionary(payload: DictionaryCreate, db: AsyncSession) -> dict
 
 async def update_dictionary(dictionary_id: int, payload: DictionaryUpdate, db: AsyncSession) -> dict[str, Any]:
     dictionary = await get_dictionary_model(dictionary_id, db)
+    if payload.key != dictionary.key:
+        if payload.key:
+            existing_by_key = await db.execute(
+                select(AdminDictionary).where(
+                    AdminDictionary.key == payload.key,
+                    AdminDictionary.is_deleted.is_(False),
+                    AdminDictionary.id != dictionary_id,
+                )
+            )
+            if existing_by_key.scalar_one_or_none() is not None:
+                raise DuplicateValueException("Dictionary key already exists.")
+        dictionary.key = payload.key
+
     if payload.label and payload.label != dictionary.label:
         existing = await db.execute(
             select(AdminDictionary).where(
@@ -117,4 +142,3 @@ async def delete_dictionary(dictionary_id: int, db: AsyncSession) -> dict[str, s
     dictionary.updated_at = datetime.now(UTC)
     await db.flush()
     return {"message": "Dictionary deleted."}
-

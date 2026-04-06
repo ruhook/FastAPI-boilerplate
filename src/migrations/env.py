@@ -11,6 +11,7 @@ from app.core.db.database import Base
 from app.modules.admin.admin_user.model import AdminUser
 from app.modules.admin.dictionary.model import AdminDictionary
 from app.modules.admin.form_template.model import AdminFormTemplate
+from app.modules.admin.job.model import Job
 from app.modules.admin.mail_account.model import MailAccount
 from app.modules.assets.model import Asset
 from app.modules.admin.mail_signature.model import MailSignature
@@ -37,6 +38,7 @@ REGISTERED_MODELS = (
     Role,
     AdminDictionary,
     AdminFormTemplate,
+    Job,
     MailAccount,
     Asset,
     MailTemplateCategory,

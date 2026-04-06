@@ -19,7 +19,7 @@ from ...core.security import (
 )
 from ...modules.user.crud import crud_users
 
-router = APIRouter(tags=["login"])
+router = APIRouter(tags=["web-auth"])
 
 
 @router.post("/login", response_model=Token)
@@ -33,9 +33,12 @@ async def login_for_access_token(
         raise UnauthorizedException("Wrong username, email or password.")
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = await create_access_token(data={"sub": user["username"]}, expires_delta=access_token_expires)
+    access_token = await create_access_token(
+        data={"sub": user["username"], "portal": "web"},
+        expires_delta=access_token_expires,
+    )
 
-    refresh_token = await create_refresh_token(data={"sub": user["username"]})
+    refresh_token = await create_refresh_token(data={"sub": user["username"], "portal": "web"})
     max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
 
     response.set_cookie(
@@ -50,14 +53,18 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/refresh")
-async def refresh_access_token(request: Request, db: AsyncSession = Depends(async_get_db)) -> dict[str, str]:
+@router.post("/refresh", response_model=Token)
+async def refresh_access_token(
+    request: Request,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+) -> dict[str, str]:
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
         raise UnauthorizedException("Refresh token missing.")
 
     user_data = await verify_token(refresh_token, TokenType.REFRESH)
-    if not user_data:
+    if not user_data or user_data.portal == "admin":
         raise UnauthorizedException("Invalid refresh token.")
 
     if "@" in user_data.username_or_email:
@@ -68,5 +75,18 @@ async def refresh_access_token(request: Request, db: AsyncSession = Depends(asyn
     if not db_user:
         raise UnauthorizedException("User not authenticated.")
 
-    new_access_token = await create_access_token(data={"sub": user_data.username_or_email})
+    max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=settings.ENVIRONMENT != EnvironmentOption.LOCAL,
+        samesite="lax",
+        max_age=max_age,
+    )
+
+    new_access_token = await create_access_token(
+        data={"sub": db_user["username"], "portal": "web"},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
     return {"access_token": new_access_token, "token_type": "bearer"}

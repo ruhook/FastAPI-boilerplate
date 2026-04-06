@@ -73,3 +73,17 @@ def require_admin_permission(permission: str):
         return current_admin
 
     return permission_dependency
+
+
+def require_any_admin_permission(*permissions: str):
+    async def permission_dependency(
+        current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    ) -> dict[str, Any]:
+        if current_admin["is_superuser"]:
+            return current_admin
+        current_permissions = set(current_admin.get("permissions") or [])
+        if not any(permission in current_permissions for permission in permissions):
+            raise ForbiddenException(f"Missing admin permission: {' / '.join(permissions)}")
+        return current_admin
+
+    return permission_dependency

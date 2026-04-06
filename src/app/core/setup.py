@@ -15,6 +15,7 @@ from ..middleware.logger_middleware import LoggerMiddleware
 from ..modules.admin.admin_user.model import AdminUser
 from ..modules.admin.dictionary.model import AdminDictionary
 from ..modules.admin.form_template.model import AdminFormTemplate
+from ..modules.admin.job.model import Job
 from ..modules.admin.mail_account.model import MailAccount
 from ..modules.assets.model import Asset
 from ..modules.admin.mail_signature.model import MailSignature
@@ -42,6 +43,7 @@ REGISTERED_MODELS = (
     Role,
     AdminDictionary,
     AdminFormTemplate,
+    Job,
     MailAccount,
     Asset,
     MailTemplateCategory,
