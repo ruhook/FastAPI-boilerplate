@@ -4,14 +4,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ....core.schemas import PersistentDeletion, TimestampSchema
-from .const import (
-    DICTIONARY_KEY_MAX_LENGTH,
-    DICTIONARY_LABEL_MAX_LENGTH,
-    DICTIONARY_OPTION_LABEL_MAX_LENGTH,
-    DICTIONARY_OPTION_VALUE_MAX_LENGTH,
-)
-
-
 def _normalize_text(value: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -20,8 +12,8 @@ def _normalize_text(value: str) -> str:
 
 
 class DictionaryOption(BaseModel):
-    label: str = Field(min_length=1, max_length=DICTIONARY_OPTION_LABEL_MAX_LENGTH)
-    value: str = Field(min_length=1, max_length=DICTIONARY_OPTION_VALUE_MAX_LENGTH)
+    label: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=100)
 
     @field_validator("label", "value")
     @classmethod
@@ -41,8 +33,8 @@ def normalize_dictionary_options(options: list[DictionaryOption]) -> list[Dictio
 
 
 class DictionaryBase(BaseModel):
-    key: str | None = Field(default=None, min_length=1, max_length=DICTIONARY_KEY_MAX_LENGTH)
-    label: str = Field(min_length=1, max_length=DICTIONARY_LABEL_MAX_LENGTH)
+    key: str | None = Field(default=None, min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=100)
     options: list[DictionaryOption] = Field(default_factory=list)
 
     @field_validator("key")
@@ -89,8 +81,8 @@ class DictionaryCreateInternal(BaseModel):
 class DictionaryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: str | None = Field(default=None, max_length=DICTIONARY_KEY_MAX_LENGTH)
-    label: str | None = Field(default=None, min_length=1, max_length=DICTIONARY_LABEL_MAX_LENGTH)
+    key: str | None = Field(default=None, max_length=100)
+    label: str | None = Field(default=None, min_length=1, max_length=100)
     options: list[DictionaryOption] | None = None
 
     @field_validator("key")

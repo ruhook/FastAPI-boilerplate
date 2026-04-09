@@ -3,18 +3,33 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..dependencies import get_current_user
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import NotFoundException
-from ...modules.admin.job.const import (
-    JOB_DATA_FORM_FIELDS_KEY,
-    JOB_STATUS_OPEN,
+from ...modules.candidate_application.schema import (
+    CandidateApplicationSubmitRequest,
+    CandidateApplicationSubmitResponse,
 )
-from ...modules.admin.job.model import Job
+from ...modules.candidate_field.service import hydrate_candidate_field_options
+from ...modules.job.const import (
+    JOB_DATA_FORM_FIELDS_KEY,
+    JobStatus,
+)
+from ...modules.job.model import Job
+from ...modules.job_progress.schema import (
+    JobProgressAssessmentUploadResponse,
+    JobProgressCandidateSignedContractUploadResponse,
+)
+from ...modules.job_progress.service import (
+    submit_job_progress_assessment,
+    submit_job_progress_candidate_signed_contract,
+)
+from ...modules.talent_profile.service import create_application_and_sync_talent
 
 router = APIRouter(prefix="/jobs", tags=["web-jobs"])
 
@@ -118,7 +133,7 @@ def _serialize_job_detail(job: Job) -> dict[str, Any]:
         summary=_build_summary(job),
         process=_build_process(job),
         form_template_id=job.form_template_id,
-        form_fields=list(data.get(JOB_DATA_FORM_FIELDS_KEY) or []),
+        form_fields=hydrate_candidate_field_options(list(data.get(JOB_DATA_FORM_FIELDS_KEY) or [])),
         published_at=job.created_at,
         assessment_enabled=job.assessment_enabled,
     ).model_dump()
@@ -133,7 +148,7 @@ async def list_public_jobs(
     work_mode: str | None = Query(default=None),
     country: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    conditions = [Job.is_deleted.is_(False), Job.status == JOB_STATUS_OPEN]
+    conditions = [Job.is_deleted.is_(False), Job.status == JobStatus.OPEN.value]
 
     if keyword:
         term = f"%{keyword.strip()}%"
@@ -171,10 +186,63 @@ async def get_public_job(
         select(Job).where(
             Job.id == job_id,
             Job.is_deleted.is_(False),
-            Job.status == JOB_STATUS_OPEN,
+            Job.status == JobStatus.OPEN.value,
         )
     )
     job = result.scalar_one_or_none()
     if job is None:
         raise NotFoundException("Job not found.")
     return _serialize_job_detail(job)
+
+
+@router.post("/{job_id}/apply", response_model=CandidateApplicationSubmitResponse)
+async def submit_job_application(
+    job_id: int,
+    payload: CandidateApplicationSubmitRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict[str, Any]:
+    return await create_application_and_sync_talent(
+        job_id=job_id,
+        payload=payload,
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.post(
+    "/{job_id}/assessment/upload",
+    response_model=JobProgressAssessmentUploadResponse,
+    status_code=201,
+)
+async def upload_job_assessment(
+    job_id: int,
+    file: Annotated[UploadFile, File(...)],
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict[str, Any]:
+    return await submit_job_progress_assessment(
+        job_id=job_id,
+        user_id=int(current_user["id"]),
+        upload=file,
+        db=db,
+    )
+
+
+@router.post(
+    "/{job_id}/signed-contract/upload",
+    response_model=JobProgressCandidateSignedContractUploadResponse,
+    status_code=201,
+)
+async def upload_job_signed_contract(
+    job_id: int,
+    file: Annotated[UploadFile, File(...)],
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict[str, Any]:
+    return await submit_job_progress_candidate_signed_contract(
+        job_id=job_id,
+        user_id=int(current_user["id"]),
+        upload=file,
+        db=db,
+    )

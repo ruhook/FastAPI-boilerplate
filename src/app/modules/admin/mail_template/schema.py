@@ -5,7 +5,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ....core.schemas import PersistentDeletion
-from .const import MAIL_TEMPLATE_NAME_MAX_LENGTH, MAIL_TEMPLATE_SUBJECT_MAX_LENGTH
 
 TOKEN_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 
@@ -30,9 +29,9 @@ class MailTemplateAttachmentRead(BaseModel):
 
 
 class MailTemplateBase(BaseModel):
-    name: str = Field(min_length=1, max_length=MAIL_TEMPLATE_NAME_MAX_LENGTH)
+    name: str = Field(min_length=1, max_length=120)
     category_id: int
-    subject_template: str = Field(min_length=1, max_length=MAIL_TEMPLATE_SUBJECT_MAX_LENGTH)
+    subject_template: str = Field(min_length=1, max_length=500)
     body_html: str = Field(min_length=1)
     attachments: list[MailTemplateAttachmentRef] = Field(default_factory=list)
 
@@ -69,8 +68,8 @@ class MailTemplateUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     category_id: int | None = None
-    name: str | None = Field(default=None, min_length=1, max_length=MAIL_TEMPLATE_NAME_MAX_LENGTH)
-    subject_template: str | None = Field(default=None, min_length=1, max_length=MAIL_TEMPLATE_SUBJECT_MAX_LENGTH)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    subject_template: str | None = Field(default=None, min_length=1, max_length=500)
     body_html: str | None = Field(default=None, min_length=1)
     attachments: list[MailTemplateAttachmentRef] | None = None
 

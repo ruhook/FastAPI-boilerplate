@@ -5,17 +5,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ....core.schemas import PersistentDeletion
 from ...assets.schema import AssetRead
-from .const import (
-    MAIL_SIGNATURE_ADDRESS_MAX_LENGTH,
-    MAIL_SIGNATURE_COMPANY_NAME_MAX_LENGTH,
-    MAIL_SIGNATURE_EMAIL_MAX_LENGTH,
-    MAIL_SIGNATURE_FULL_NAME_MAX_LENGTH,
-    MAIL_SIGNATURE_JOB_TITLE_MAX_LENGTH,
-    MAIL_SIGNATURE_LINKEDIN_LABEL_MAX_LENGTH,
-    MAIL_SIGNATURE_NAME_MAX_LENGTH,
-    MAIL_SIGNATURE_TEAM_MAX_LENGTH,
-    MAIL_SIGNATURE_URL_MAX_LENGTH,
-)
 
 
 def _normalize_optional(value: str | None) -> str | None:
@@ -33,18 +22,18 @@ def _normalize_required(value: str) -> str:
 
 
 class MailSignatureBase(BaseModel):
-    name: str = Field(min_length=1, max_length=MAIL_SIGNATURE_NAME_MAX_LENGTH)
-    owner: str | None = Field(default=None, max_length=MAIL_SIGNATURE_TEAM_MAX_LENGTH)
+    name: str = Field(min_length=1, max_length=120)
+    owner: str | None = Field(default=None, max_length=120)
     enabled: bool = True
-    full_name: str = Field(min_length=1, max_length=MAIL_SIGNATURE_FULL_NAME_MAX_LENGTH)
-    job_title: str | None = Field(default=None, max_length=MAIL_SIGNATURE_JOB_TITLE_MAX_LENGTH)
-    company_name: str | None = Field(default=None, max_length=MAIL_SIGNATURE_COMPANY_NAME_MAX_LENGTH)
-    primary_email: str | None = Field(default=None, max_length=MAIL_SIGNATURE_EMAIL_MAX_LENGTH)
-    secondary_email: str | None = Field(default=None, max_length=MAIL_SIGNATURE_EMAIL_MAX_LENGTH)
-    website: str | None = Field(default=None, max_length=MAIL_SIGNATURE_URL_MAX_LENGTH)
-    linkedin_label: str | None = Field(default=None, max_length=MAIL_SIGNATURE_LINKEDIN_LABEL_MAX_LENGTH)
-    linkedin_url: str | None = Field(default=None, max_length=MAIL_SIGNATURE_URL_MAX_LENGTH)
-    address: str | None = Field(default=None, max_length=MAIL_SIGNATURE_ADDRESS_MAX_LENGTH)
+    full_name: str = Field(min_length=1, max_length=120)
+    job_title: str | None = Field(default=None, max_length=120)
+    company_name: str | None = Field(default=None, max_length=120)
+    primary_email: str | None = Field(default=None, max_length=255)
+    secondary_email: str | None = Field(default=None, max_length=255)
+    website: str | None = Field(default=None, max_length=500)
+    linkedin_label: str | None = Field(default=None, max_length=255)
+    linkedin_url: str | None = Field(default=None, max_length=500)
+    address: str | None = Field(default=None, max_length=500)
     avatar_asset_id: int | None = None
     banner_asset_id: int | None = None
 
@@ -105,18 +94,18 @@ class MailSignatureCreateInternal(BaseModel):
 class MailSignatureUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=MAIL_SIGNATURE_NAME_MAX_LENGTH)
-    owner: str | None = Field(default=None, max_length=MAIL_SIGNATURE_TEAM_MAX_LENGTH)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    owner: str | None = Field(default=None, max_length=120)
     enabled: bool | None = None
-    full_name: str | None = Field(default=None, min_length=1, max_length=MAIL_SIGNATURE_FULL_NAME_MAX_LENGTH)
-    job_title: str | None = Field(default=None, max_length=MAIL_SIGNATURE_JOB_TITLE_MAX_LENGTH)
-    company_name: str | None = Field(default=None, max_length=MAIL_SIGNATURE_COMPANY_NAME_MAX_LENGTH)
-    primary_email: str | None = Field(default=None, max_length=MAIL_SIGNATURE_EMAIL_MAX_LENGTH)
-    secondary_email: str | None = Field(default=None, max_length=MAIL_SIGNATURE_EMAIL_MAX_LENGTH)
-    website: str | None = Field(default=None, max_length=MAIL_SIGNATURE_URL_MAX_LENGTH)
-    linkedin_label: str | None = Field(default=None, max_length=MAIL_SIGNATURE_LINKEDIN_LABEL_MAX_LENGTH)
-    linkedin_url: str | None = Field(default=None, max_length=MAIL_SIGNATURE_URL_MAX_LENGTH)
-    address: str | None = Field(default=None, max_length=MAIL_SIGNATURE_ADDRESS_MAX_LENGTH)
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+    job_title: str | None = Field(default=None, max_length=120)
+    company_name: str | None = Field(default=None, max_length=120)
+    primary_email: str | None = Field(default=None, max_length=255)
+    secondary_email: str | None = Field(default=None, max_length=255)
+    website: str | None = Field(default=None, max_length=500)
+    linkedin_label: str | None = Field(default=None, max_length=255)
+    linkedin_url: str | None = Field(default=None, max_length=500)
+    address: str | None = Field(default=None, max_length=500)
     avatar_asset_id: int | None = None
     banner_asset_id: int | None = None
 

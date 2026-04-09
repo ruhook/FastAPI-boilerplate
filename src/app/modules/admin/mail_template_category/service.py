@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from ..mail_template.model import MailTemplate
 from .model import MailTemplateCategory
 from .schema import MailTemplateCategoryCreate, MailTemplateCategoryRead, MailTemplateCategoryUpdate
@@ -89,6 +91,14 @@ async def create_mail_template_category(
     )
     db.add(category)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_TEMPLATE_CATEGORY_CREATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_TEMPLATE_CATEGORY.value,
+        target_id=category.id,
+        data={"name": category.name, "parent_id": category.parent_id},
+    )
     await db.refresh(category)
     return serialize_mail_template_category(category)
 
@@ -123,6 +133,14 @@ async def update_mail_template_category(
 
     category.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_TEMPLATE_CATEGORY_UPDATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_TEMPLATE_CATEGORY.value,
+        target_id=category.id,
+        data={"name": category.name, "parent_id": category.parent_id},
+    )
     await db.refresh(category)
     return serialize_mail_template_category(category)
 
@@ -153,4 +171,12 @@ async def delete_mail_template_category(category_id: int, db: AsyncSession, *, a
     category.deleted_at = datetime.now(UTC)
     category.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_TEMPLATE_CATEGORY_DELETED.value,
+        target_type=AdminAuditLogTargetType.MAIL_TEMPLATE_CATEGORY.value,
+        target_id=category.id,
+        data={"name": category.name, "parent_id": category.parent_id},
+    )
     return {"message": "Mail template category deleted."}

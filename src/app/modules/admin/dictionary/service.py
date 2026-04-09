@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from ..form_template.model import AdminFormTemplate
 from ..form_template.schema import parse_form_template_fields
 from .model import AdminDictionary
@@ -58,7 +60,7 @@ async def get_dictionary_model(dictionary_id: int, db: AsyncSession) -> AdminDic
     return dictionary
 
 
-async def create_dictionary(payload: DictionaryCreate, db: AsyncSession) -> dict[str, Any]:
+async def create_dictionary(payload: DictionaryCreate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
     if payload.key:
         existing_by_key = await db.execute(
             select(AdminDictionary).where(
@@ -86,11 +88,25 @@ async def create_dictionary(payload: DictionaryCreate, db: AsyncSession) -> dict
     )
     db.add(dictionary)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.DICTIONARY_CREATED.value,
+        target_type=AdminAuditLogTargetType.DICTIONARY.value,
+        target_id=dictionary.id,
+        data={"label": dictionary.label, "key": dictionary.key},
+    )
     await db.refresh(dictionary)
     return serialize_dictionary(dictionary)
 
 
-async def update_dictionary(dictionary_id: int, payload: DictionaryUpdate, db: AsyncSession) -> dict[str, Any]:
+async def update_dictionary(
+    dictionary_id: int,
+    payload: DictionaryUpdate,
+    db: AsyncSession,
+    *,
+    admin_user_id: int,
+) -> dict[str, Any]:
     dictionary = await get_dictionary_model(dictionary_id, db)
     if payload.key != dictionary.key:
         if payload.key:
@@ -122,11 +138,19 @@ async def update_dictionary(dictionary_id: int, payload: DictionaryUpdate, db: A
 
     dictionary.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.DICTIONARY_UPDATED.value,
+        target_type=AdminAuditLogTargetType.DICTIONARY.value,
+        target_id=dictionary.id,
+        data={"label": dictionary.label, "key": dictionary.key},
+    )
     await db.refresh(dictionary)
     return serialize_dictionary(dictionary)
 
 
-async def delete_dictionary(dictionary_id: int, db: AsyncSession) -> dict[str, str]:
+async def delete_dictionary(dictionary_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     dictionary = await get_dictionary_model(dictionary_id, db)
     result = await db.execute(
         select(AdminFormTemplate).where(AdminFormTemplate.is_deleted.is_(False))
@@ -141,4 +165,12 @@ async def delete_dictionary(dictionary_id: int, db: AsyncSession) -> dict[str, s
     dictionary.deleted_at = datetime.now(UTC)
     dictionary.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.DICTIONARY_DELETED.value,
+        target_type=AdminAuditLogTargetType.DICTIONARY.value,
+        target_id=dictionary.id,
+        data={"label": dictionary.label, "key": dictionary.key},
+    )
     return {"message": "Dictionary deleted."}

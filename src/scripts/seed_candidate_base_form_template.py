@@ -5,40 +5,26 @@ from typing import Any
 from sqlalchemy import select
 
 from ..app.core.db.database import async_engine, local_session
+from ..app.modules.candidate_field.const import (
+    CANDIDATE_FIELD_CATALOG_DICTIONARY_KEY,
+    CandidateFieldKey,
+    build_candidate_field_catalog_options,
+)
 from ..app.modules.admin.dictionary.model import AdminDictionary
 from ..app.modules.admin.form_template.model import AdminFormTemplate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-FIELD_CATALOG_KEY = "candidate_field_catalog"
 TEMPLATE_NAME = "基础候选人报名模板"
 
 
-FIELD_CATALOG_OPTIONS = [
-    {"label": "姓名", "value": "full_name"},
-    {"label": "邮箱", "value": "email"},
-    {"label": "WhatsApp", "value": "whatsapp"},
-    {"label": "长期居住国家", "value": "country_of_residence"},
-    {"label": "国籍/公民身份", "value": "nationality"},
-    {"label": "母语级语言", "value": "native_languages"},
-    {"label": "其他熟练语言", "value": "additional_languages"},
-    {"label": "年龄区间", "value": "age_range"},
-    {"label": "每日最大工作时长", "value": "max_working_hours_per_day"},
-    {"label": "是否接受时薪结算", "value": "accepts_hourly_payment"},
-    {"label": "期望时薪（USD/小时）", "value": "expected_salary_usd_per_hour"},
-    {"label": "当前学历状态", "value": "education_status"},
-    {"label": "AI数据标注经验", "value": "ai_data_annotation_experience"},
-    {"label": "是否需要签证支持", "value": "requires_visa_sponsorship"},
-    {"label": "英文简历附件", "value": "resume_attachment"},
-    {"label": "岗位来源渠道", "value": "job_source"},
-    {"label": "其他补充信息", "value": "additional_information"},
-]
+FIELD_CATALOG_OPTIONS = build_candidate_field_catalog_options()
 
 
 DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
     {
-        "key": FIELD_CATALOG_KEY,
+        "key": CANDIDATE_FIELD_CATALOG_DICTIONARY_KEY,
         "label": "候选人字段标识",
         "options": FIELD_CATALOG_OPTIONS,
     },
@@ -140,19 +126,19 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
 
 
 FIELD_DESCRIPTIONS = {
-    "whatsapp": "If we cannot connect you via email, we may try this way.",
-    "country_of_residence": "Please enter the country name in English, such as United Kingdom, the Philippines, or Brazil.",
-    "native_languages": "e.g. English, Malay, Korea",
-    "age_range": "Required for internal analysis only; this information will not be used for selection decisions. We welcome applicants of all age range groups who pass the test~",
-    "expected_salary_usd_per_hour": "Please choose your expected rate in USD.",
-    "requires_visa_sponsorship": "This is an independent contractor role. Please select whether you now or in the future require visa sponsorship to work with us.",
-    "resume_attachment": "Kindly ensure your resume includes a valid email address. In case the email provided in this form is incorrect, we will try to reach you via the email listed in your resume.",
+    CandidateFieldKey.WHATSAPP.value: "If we cannot connect you via email, we may try this way.",
+    CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: "Please enter the country name in English, such as United Kingdom, the Philippines, or Brazil.",
+    CandidateFieldKey.NATIVE_LANGUAGES.value: "e.g. English, Malay, Korea",
+    CandidateFieldKey.AGE_RANGE.value: "Required for internal analysis only; this information will not be used for selection decisions. We welcome applicants of all age range groups who pass the test~",
+    CandidateFieldKey.EXPECTED_SALARY_USD_PER_HOUR.value: "Please choose your expected rate in USD.",
+    CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP.value: "This is an independent contractor role. Please select whether you now or in the future require visa sponsorship to work with us.",
+    CandidateFieldKey.RESUME_ATTACHMENT.value: "Kindly ensure your resume includes a valid email address. In case the email provided in this form is incorrect, we will try to reach you via the email listed in your resume.",
 }
 
 
 FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
     {
-        "key": "full_name",
+        "key": CandidateFieldKey.FULL_NAME.value,
         "label": "Full Name",
         "type": "text",
         "required": True,
@@ -161,7 +147,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "Please enter your full name",
     },
     {
-        "key": "email",
+        "key": CandidateFieldKey.EMAIL.value,
         "label": "Email",
         "type": "email",
         "required": True,
@@ -170,7 +156,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "Please enter your email",
     },
     {
-        "key": "whatsapp",
+        "key": CandidateFieldKey.WHATSAPP.value,
         "label": "WhatsApp",
         "type": "text",
         "required": True,
@@ -179,7 +165,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "Please enter your WhatsApp number",
     },
     {
-        "key": "country_of_residence",
+        "key": CandidateFieldKey.COUNTRY_OF_RESIDENCE.value,
         "label": "Which country do you reside in on a long-term basis?",
         "type": "text",
         "required": True,
@@ -188,7 +174,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "Please enter the country name in English",
     },
     {
-        "key": "nationality",
+        "key": CandidateFieldKey.NATIONALITY.value,
         "label": "Nationality/Citizenship",
         "type": "text",
         "required": False,
@@ -197,7 +183,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "Please enter your nationality/citizenship",
     },
     {
-        "key": "native_languages",
+        "key": CandidateFieldKey.NATIVE_LANGUAGES.value,
         "label": "Please list all your native-level languages (in English)",
         "type": "text",
         "required": True,
@@ -206,7 +192,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "e.g. English, Malay, Korean",
     },
     {
-        "key": "additional_languages",
+        "key": CandidateFieldKey.ADDITIONAL_LANGUAGES.value,
         "label": "Please list any additional languages you speak at a proficient level (in English).",
         "type": "text",
         "required": True,
@@ -215,7 +201,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "placeholder": "Please list additional proficient languages",
     },
     {
-        "key": "age_range",
+        "key": CandidateFieldKey.AGE_RANGE.value,
         "label": "Age Range",
         "type": "select",
         "required": True,
@@ -224,7 +210,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_age_range",
     },
     {
-        "key": "max_working_hours_per_day",
+        "key": CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY.value,
         "label": "The maximum working hours per day",
         "type": "select",
         "required": True,
@@ -233,7 +219,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_max_working_hours_per_day",
     },
     {
-        "key": "accepts_hourly_payment",
+        "key": CandidateFieldKey.ACCEPTS_HOURLY_PAYMENT.value,
         "label": "Do you accept to be paid by hours",
         "type": "select",
         "required": True,
@@ -242,7 +228,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_accepts_hourly_payment",
     },
     {
-        "key": "expected_salary_usd_per_hour",
+        "key": CandidateFieldKey.EXPECTED_SALARY_USD_PER_HOUR.value,
         "label": "Expected Salary in USD (Per Hour)",
         "type": "select",
         "required": True,
@@ -251,7 +237,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_expected_salary_usd_per_hour",
     },
     {
-        "key": "education_status",
+        "key": CandidateFieldKey.EDUCATION_STATUS.value,
         "label": "What is your current education status?",
         "type": "select",
         "required": True,
@@ -260,7 +246,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_education_status",
     },
     {
-        "key": "ai_data_annotation_experience",
+        "key": CandidateFieldKey.AI_DATA_ANNOTATION_EXPERIENCE.value,
         "label": "How many experience do you have in AI data annotation?",
         "type": "select",
         "required": True,
@@ -269,7 +255,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_ai_data_annotation_experience",
     },
     {
-        "key": "requires_visa_sponsorship",
+        "key": CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP.value,
         "label": "Will you now or in the future require visa sponsorship to participate in this independent contractor role?",
         "type": "select",
         "required": True,
@@ -278,7 +264,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_visa_sponsorship_requirement",
     },
     {
-        "key": "resume_attachment",
+        "key": CandidateFieldKey.RESUME_ATTACHMENT.value,
         "label": "Please upload your most updated comprehensive English Resume here.",
         "type": "file",
         "required": True,
@@ -286,7 +272,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "canFilter": False,
     },
     {
-        "key": "job_source",
+        "key": CandidateFieldKey.JOB_SOURCE.value,
         "label": "How did you hear about this position?",
         "type": "select",
         "required": True,
@@ -295,7 +281,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "dictionary_key": "candidate_job_source",
     },
     {
-        "key": "additional_information",
+        "key": CandidateFieldKey.ADDITIONAL_INFORMATION.value,
         "label": "Please feel free to use this space to share any additional relevant information that would support your application for this role.",
         "type": "text",
         "required": False,
@@ -372,7 +358,7 @@ async def upsert_template(*, session, dictionary_id_map: dict[str, int]) -> None
     template = result.scalar_one_or_none()
     template_data = {
         "seed_key": "candidate_base_application_template_v1",
-        "field_catalog_dictionary_key": FIELD_CATALOG_KEY,
+        "field_catalog_dictionary_key": CANDIDATE_FIELD_CATALOG_DICTIONARY_KEY,
         "field_descriptions": FIELD_DESCRIPTIONS,
     }
 

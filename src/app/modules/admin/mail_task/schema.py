@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .const import MAIL_TASK_STATUSES
+from .const import MailTaskStatus
 
 
 def _normalize_email(value: str) -> str:
@@ -75,8 +75,11 @@ class MailTaskCreateInternal(BaseModel):
 class MailTaskRead(BaseModel):
     id: int
     account_id: int
+    account_email: str | None = None
     template_id: int | None = None
+    template_name: str | None = None
     signature_id: int | None = None
+    signature_name: str | None = None
     subject: str
     body_html: str
     final_subject: str | None = None
@@ -86,6 +89,7 @@ class MailTaskRead(BaseModel):
     bcc_recipients: list[MailRecipient] = Field(default_factory=list)
     attachment_asset_ids: list[int] = Field(default_factory=list)
     status: str
+    status_cn_name: str
     error_message: str | None = None
     provider_message_id: str | None = None
     sent_at: datetime | None = None
@@ -110,6 +114,6 @@ class MailTaskUpdateInternal(BaseModel):
         if value is None:
             return value
         normalized = value.strip().lower()
-        if normalized not in MAIL_TASK_STATUSES:
+        if normalized not in {item.value for item in MailTaskStatus}:
             raise ValueError(f"Unsupported mail task status: {normalized}")
         return normalized

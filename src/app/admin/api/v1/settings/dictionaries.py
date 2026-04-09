@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import require_admin_permission, require_any_admin_permission
+from ...dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.dictionary.schema import DictionaryCreate, DictionaryRead, DictionaryUpdate
 from .....modules.admin.dictionary.service import (
@@ -31,8 +31,9 @@ async def read_dictionaries(db: Annotated[AsyncSession, Depends(async_get_db)]) 
 async def create_dictionary_endpoint(
     payload: DictionaryCreate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    return await create_dictionary(payload, db)
+    return await create_dictionary(payload, db, admin_user_id=int(current_admin["id"]))
 
 
 @router.get(
@@ -50,13 +51,15 @@ async def update_dictionary_endpoint(
     dictionary_id: int,
     payload: DictionaryUpdate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    return await update_dictionary(dictionary_id, payload, db)
+    return await update_dictionary(dictionary_id, payload, db, admin_user_id=int(current_admin["id"]))
 
 
 @router.delete("/{dictionary_id}", dependencies=[Depends(require_admin_permission("常量字典"))])
 async def delete_dictionary_endpoint(
     dictionary_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, str]:
-    return await delete_dictionary(dictionary_id, db)
+    return await delete_dictionary(dictionary_id, db, admin_user_id=int(current_admin["id"]))

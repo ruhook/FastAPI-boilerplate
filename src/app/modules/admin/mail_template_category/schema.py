@@ -4,7 +4,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ....core.schemas import PersistentDeletion
-from .const import MAIL_TEMPLATE_CATEGORY_NAME_MAX_LENGTH
 
 
 def _normalize_text(value: str) -> str:
@@ -15,7 +14,7 @@ def _normalize_text(value: str) -> str:
 
 
 class MailTemplateCategoryBase(BaseModel):
-    name: str = Field(min_length=1, max_length=MAIL_TEMPLATE_CATEGORY_NAME_MAX_LENGTH)
+    name: str = Field(min_length=1, max_length=100)
     sort_order: int = 0
     enabled: bool = True
 
@@ -51,7 +50,7 @@ class MailTemplateCategoryCreateInternal(BaseModel):
 class MailTemplateCategoryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=MAIL_TEMPLATE_CATEGORY_NAME_MAX_LENGTH)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     sort_order: int | None = None
     enabled: bool | None = None
 

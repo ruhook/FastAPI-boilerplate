@@ -12,17 +12,24 @@ from fastapi.openapi.utils import get_openapi
 
 from ..admin.api.dependencies import get_current_admin_superuser
 from ..middleware.logger_middleware import LoggerMiddleware
+from ..modules.admin.admin_audit_log.model import AdminAuditLog
 from ..modules.admin.admin_user.model import AdminUser
 from ..modules.admin.dictionary.model import AdminDictionary
 from ..modules.admin.form_template.model import AdminFormTemplate
-from ..modules.admin.job.model import Job
 from ..modules.admin.mail_account.model import MailAccount
-from ..modules.assets.model import Asset
 from ..modules.admin.mail_signature.model import MailSignature
 from ..modules.admin.mail_task.model import MailTask
 from ..modules.admin.mail_template.model import MailTemplate
 from ..modules.admin.mail_template_category.model import MailTemplateCategory
 from ..modules.admin.role.model import Role
+from ..modules.assets.model import Asset
+from ..modules.candidate_application.model import CandidateApplication
+from ..modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from ..modules.job.model import Job
+from ..modules.job_progress.model import JobProgress
+from ..modules.operation_log.model import OperationLog
+from ..modules.talent_profile.model import TalentProfile
+from ..modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from ..modules.user.model import User
 from .config import (
     AppSettings,
@@ -40,6 +47,7 @@ from .utils import cache
 
 REGISTERED_MODELS = (
     AdminUser,
+    AdminAuditLog,
     Role,
     AdminDictionary,
     AdminFormTemplate,
@@ -51,6 +59,12 @@ REGISTERED_MODELS = (
     MailSignature,
     MailTask,
     User,
+    CandidateApplication,
+    CandidateApplicationFieldValue,
+    JobProgress,
+    OperationLog,
+    TalentProfile,
+    TalentProfileMergeLog,
 )
 
 
@@ -188,9 +202,11 @@ def create_application(
     application.include_router(router)
 
     if isinstance(settings, CORSSettings):
+        allow_all_origins = settings.CORS_ORIGINS == ["*"]
         application.add_middleware(
             CORSMiddleware,
-            allow_origins=settings.CORS_ORIGINS,
+            allow_origins=[] if allow_all_origins else settings.CORS_ORIGINS,
+            allow_origin_regex=".*" if allow_all_origins else None,
             allow_credentials=True,
             allow_methods=settings.CORS_METHODS,
             allow_headers=settings.CORS_HEADERS,

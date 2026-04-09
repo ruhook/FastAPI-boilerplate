@@ -15,6 +15,8 @@ from ....core.security import (
     get_password_hash,
     verify_password,
 )
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from ..role.crud import crud_roles
 from ..role.model import Role
 from ..role.const import validate_permissions
@@ -146,7 +148,11 @@ async def build_unique_username(db: AsyncSession, preferred: str) -> str:
     return candidate
 
 
-async def query_admin_accounts(db: AsyncSession, keyword: str | None = None) -> list[dict[str, Any]]:
+async def query_admin_accounts(
+    db: AsyncSession,
+    keyword: str | None = None,
+    required_permission: str | None = None,
+) -> list[dict[str, Any]]:
     stmt: Select[Any] = (
         select(AdminUser)
         .where(AdminUser.is_deleted.is_(False))
@@ -171,6 +177,8 @@ async def query_admin_accounts(db: AsyncSession, keyword: str | None = None) -> 
             admin_user_id=account.id,
             role_id=account.role_id,
         )
+        if required_permission and not account.is_superuser and required_permission not in permissions:
+            continue
         effective_role_id = account.role_id if role_name is not None or permissions else None
         serialized_accounts.append(serialize_admin_user(account, role_name, effective_role_id))
     return serialized_accounts
@@ -339,6 +347,14 @@ async def login_admin_user(
     refreshed_user = await crud_admin_users.get(db=db, id=admin_user["id"], is_deleted=False)
     if refreshed_user is None:
         raise UnauthorizedException("Admin not authenticated.")
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=refreshed_user["id"],
+        action_type=AdminAuditLogActionType.ADMIN_LOGIN.value,
+        target_type=AdminAuditLogTargetType.ADMIN_AUTH.value,
+        target_id=refreshed_user["id"],
+        data={"username": refreshed_user["username"]},
+    )
     return await issue_admin_tokens(refreshed_user, db, all_permissions)
 
 
@@ -373,5 +389,13 @@ async def change_current_admin_password(
             "updated_at": datetime.now(UTC),
         },
         id=current_admin["id"],
+    )
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=current_admin["id"],
+        action_type=AdminAuditLogActionType.ADMIN_PASSWORD_CHANGED.value,
+        target_type=AdminAuditLogTargetType.ADMIN_AUTH.value,
+        target_id=current_admin["id"],
+        data={},
     )
     return {"message": "Password changed successfully."}

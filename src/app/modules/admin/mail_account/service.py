@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
 from ...assets.model import Asset
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from ..mail_account.const import MAIL_ACCOUNT_PROVIDER_PRESETS
 from ..mail_task.model import MailTask
 from .model import MailAccount
@@ -86,6 +88,14 @@ async def create_mail_account(payload: MailAccountCreate, db: AsyncSession, *, a
     )
     db.add(account)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_ACCOUNT_CREATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_ACCOUNT.value,
+        target_id=account.id,
+        data={"email": account.email, "provider": account.provider},
+    )
     await db.refresh(account)
     return serialize_mail_account(account)
 
@@ -131,6 +141,14 @@ async def update_mail_account(account_id: int, payload: MailAccountUpdate, db: A
 
     account.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_ACCOUNT_UPDATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_ACCOUNT.value,
+        target_id=account.id,
+        data={"email": account.email, "provider": account.provider},
+    )
     await db.refresh(account)
     return serialize_mail_account(account)
 
@@ -167,4 +185,12 @@ async def delete_mail_account(account_id: int, db: AsyncSession, *, admin_user_i
     account.email = f"deleted+mail-account-{account.id}@local.invalid"
     account.smtp_username = account.email
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_ACCOUNT_DELETED.value,
+        target_type=AdminAuditLogTargetType.MAIL_ACCOUNT.value,
+        target_id=account.id,
+        data={"email": account.email, "provider": account.provider},
+    )
     return {"message": "Mail account deleted."}

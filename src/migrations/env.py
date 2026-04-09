@@ -8,17 +8,23 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
 from app.core.db.database import Base
+from app.modules.admin.admin_audit_log.model import AdminAuditLog
 from app.modules.admin.admin_user.model import AdminUser
 from app.modules.admin.dictionary.model import AdminDictionary
 from app.modules.admin.form_template.model import AdminFormTemplate
-from app.modules.admin.job.model import Job
 from app.modules.admin.mail_account.model import MailAccount
-from app.modules.assets.model import Asset
 from app.modules.admin.mail_signature.model import MailSignature
 from app.modules.admin.mail_task.model import MailTask
 from app.modules.admin.mail_template.model import MailTemplate
 from app.modules.admin.mail_template_category.model import MailTemplateCategory
 from app.modules.admin.role.model import Role
+from app.modules.assets.model import Asset
+from app.modules.candidate_application.model import CandidateApplication
+from app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from app.modules.job.model import Job
+from app.modules.operation_log.model import OperationLog
+from app.modules.talent_profile.model import TalentProfile
+from app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from app.modules.user.model import User
 
 # this is the Alembic Config object, which provides
@@ -35,6 +41,7 @@ if config.config_file_name is not None:
 
 REGISTERED_MODELS = (
     AdminUser,
+    AdminAuditLog,
     Role,
     AdminDictionary,
     AdminFormTemplate,
@@ -46,6 +53,11 @@ REGISTERED_MODELS = (
     MailSignature,
     MailTask,
     User,
+    CandidateApplication,
+    CandidateApplicationFieldValue,
+    OperationLog,
+    TalentProfile,
+    TalentProfileMergeLog,
 )
 target_metadata = Base.metadata
 

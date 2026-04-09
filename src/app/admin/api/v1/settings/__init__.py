@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .accounts import router as accounts_router
+from .candidate_fields import router as candidate_fields_router
 from .dictionaries import router as dictionaries_router
 from .form_templates import router as form_templates_router
 from .permissions import router as permissions_router
@@ -10,6 +11,7 @@ router = APIRouter(prefix="/settings")
 router.include_router(accounts_router)
 router.include_router(roles_router)
 router.include_router(permissions_router)
+router.include_router(candidate_fields_router)
 router.include_router(dictionaries_router)
 router.include_router(form_templates_router)
 

@@ -4,13 +4,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ...core.schemas import PersistentDeletion
-from .const import (
-    ASSET_MIME_TYPE_MAX_LENGTH,
-    ASSET_MODULE_MAX_LENGTH,
-    ASSET_NAME_MAX_LENGTH,
-    ASSET_OWNER_TYPE_MAX_LENGTH,
-    ASSET_TYPE_MAX_LENGTH,
-)
 
 
 def _normalize_required(value: str) -> str:
@@ -47,9 +40,9 @@ class AssetRead(BaseModel):
 class AssetUploadPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: str = Field(min_length=1, max_length=ASSET_TYPE_MAX_LENGTH)
-    module: str = Field(default="general", min_length=1, max_length=ASSET_MODULE_MAX_LENGTH)
-    owner_type: str | None = Field(default=None, max_length=ASSET_OWNER_TYPE_MAX_LENGTH)
+    type: str = Field(min_length=1, max_length=64)
+    module: str = Field(default="general", min_length=1, max_length=64)
+    owner_type: str | None = Field(default=None, max_length=64)
     owner_id: int | None = None
 
     @field_validator("type", "module")
@@ -69,9 +62,9 @@ class AssetCreateInternal(BaseModel):
     module: str
     owner_type: str | None = None
     owner_id: int | None = None
-    original_name: str = Field(max_length=ASSET_NAME_MAX_LENGTH)
+    original_name: str = Field(max_length=255)
     storage_key: str
-    mime_type: str = Field(max_length=ASSET_MIME_TYPE_MAX_LENGTH)
+    mime_type: str = Field(max_length=255)
     file_size: int
     data: dict[str, Any] = Field(default_factory=dict)
 

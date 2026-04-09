@@ -15,8 +15,11 @@ from src.app.core.config import EnvironmentOption, settings
 from src.app.core.db.database import local_session
 from src.app.core.security import get_password_hash
 from src.app.main_admin import app
+from src.app.main_web import app as web_app
+from src.app.modules.admin.admin_audit_log.model import AdminAuditLog
 from src.app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from src.app.modules.admin.admin_user.model import AdminUser
+from src.app.modules.admin.form_template.model import AdminFormTemplate
 from src.app.modules.admin.mail_account.model import MailAccount
 from src.app.modules.admin.mail_signature.model import MailSignature
 from src.app.modules.admin.mail_task.model import MailTask
@@ -24,6 +27,13 @@ from src.app.modules.admin.mail_template.model import MailTemplate
 from src.app.modules.admin.mail_template_category.model import MailTemplateCategory
 from src.app.modules.admin.role.model import Role
 from src.app.modules.assets.model import Asset
+from src.app.modules.candidate_application.model import CandidateApplication
+from src.app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from src.app.modules.job.model import Job
+from src.app.modules.job_progress.model import JobProgress
+from src.app.modules.operation_log.model import OperationLog
+from src.app.modules.talent_profile.model import TalentProfile
+from src.app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from src.app.modules.user.model import User
 
 
@@ -68,8 +78,21 @@ def _assert_safe_test_cleanup() -> None:
             raise RuntimeError("Refusing to send tests to a non-local TEST_SERVER_BASE_URL.")
 
 
+def _env_flag(name: str) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 async def _clear_tables() -> None:
     async with local_session() as session:
+        await session.execute(delete(CandidateApplicationFieldValue))
+        await session.execute(delete(JobProgress))
+        await session.execute(delete(TalentProfileMergeLog))
+        await session.execute(delete(OperationLog))
+        await session.execute(delete(AdminAuditLog))
+        await session.execute(delete(TalentProfile))
+        await session.execute(delete(CandidateApplication))
+        await session.execute(delete(Job))
         await session.execute(delete(MailTask))
         await session.execute(delete(MailTemplate))
         await session.execute(delete(MailSignature))
@@ -77,6 +100,7 @@ async def _clear_tables() -> None:
         await session.execute(delete(MailTemplateCategory).where(MailTemplateCategory.parent_id.is_(None)))
         await session.execute(delete(Asset))
         await session.execute(delete(MailAccount))
+        await session.execute(delete(AdminFormTemplate))
         await session.execute(delete(AdminUser))
         await session.execute(delete(User))
         await session.execute(delete(Role))
@@ -90,13 +114,18 @@ async def _clear_tables() -> None:
 @pytest_asyncio.fixture(autouse=True, loop_scope="session")
 async def clean_database() -> AsyncIterator[None]:
     _assert_safe_test_cleanup()
-    await _clear_tables()
+    skip_initial_cleanup = _env_flag("TEST_SKIP_INITIAL_CLEANUP")
+    skip_final_cleanup = _env_flag("TEST_SKIP_FINAL_CLEANUP")
+
+    if not skip_initial_cleanup:
+        await _clear_tables()
     yield
-    await _clear_tables()
+    if not skip_final_cleanup:
+        await _clear_tables()
 
 
 @pytest_asyncio.fixture(loop_scope="session")
-async def client() -> AsyncIterator[AsyncClient]:
+async def admin_client() -> AsyncIterator[AsyncClient]:
     base_url = os.getenv("TEST_SERVER_BASE_URL")
     if base_url:
         async with AsyncClient(base_url=base_url.rstrip("/")) as async_client:
@@ -106,6 +135,18 @@ async def client() -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
         yield async_client
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def web_client() -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=web_app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+        yield async_client
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def client(admin_client: AsyncClient) -> AsyncIterator[AsyncClient]:
+    yield admin_client
 
 
 @pytest_asyncio.fixture(loop_scope="session")

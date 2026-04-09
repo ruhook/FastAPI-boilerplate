@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import require_admin_permission, require_any_admin_permission
+from ...dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.form_template.schema import FormTemplateCreate, FormTemplateRead, FormTemplateUpdate
 from .....modules.admin.form_template.service import (
@@ -35,8 +35,9 @@ async def read_form_templates(db: Annotated[AsyncSession, Depends(async_get_db)]
 async def create_form_template_endpoint(
     payload: FormTemplateCreate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    return await create_form_template(payload, db)
+    return await create_form_template(payload, db, admin_user_id=int(current_admin["id"]))
 
 
 @router.get(
@@ -57,13 +58,15 @@ async def update_form_template_endpoint(
     template_id: int,
     payload: FormTemplateUpdate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    return await update_form_template(template_id, payload, db)
+    return await update_form_template(template_id, payload, db, admin_user_id=int(current_admin["id"]))
 
 
 @router.delete("/{template_id}", dependencies=[Depends(require_admin_permission("报名表单策略"))])
 async def delete_form_template_endpoint(
     template_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, str]:
-    return await delete_form_template(template_id, db)
+    return await delete_form_template(template_id, db, admin_user_id=int(current_admin["id"]))

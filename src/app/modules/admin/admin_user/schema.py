@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from ....core.passwords import validate_admin_password
 from ....core.schemas import PersistentDeletion, TimestampSchema
-from .const import ADMIN_ACCOUNT_STATUSES, DEFAULT_ADMIN_PROFILE_IMAGE_URL
+from .const import AdminAccountStatus, DEFAULT_ADMIN_PROFILE_IMAGE_URL
 
 
 def generate_temporary_password(length: int = 12) -> str:
@@ -21,14 +21,14 @@ class AdminUserBase(BaseModel):
     email: Annotated[EmailStr, Field(examples=["admin@example.com"])]
     phone: Annotated[str | None, Field(default=None, max_length=32, examples=["13800000000"])]
     note: Annotated[str | None, Field(default=None, max_length=500, examples=["负责后台权限配置"])]
-    status: Annotated[str, Field(default="enabled", examples=["enabled"])]
+    status: Annotated[str, Field(default=AdminAccountStatus.ENABLED.value, examples=["enabled"])]
     profile_image_url: Annotated[str, Field(default=DEFAULT_ADMIN_PROFILE_IMAGE_URL)]
     role_id: int | None = None
 
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: str) -> str:
-        if value not in ADMIN_ACCOUNT_STATUSES:
+        if value not in {item.value for item in AdminAccountStatus}:
             raise ValueError("Status must be one of: enabled, disabled.")
         return value
 
@@ -121,7 +121,7 @@ class AdminUserUpdate(BaseModel):
     def validate_status(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        if value not in ADMIN_ACCOUNT_STATUSES:
+        if value not in {item.value for item in AdminAccountStatus}:
             raise ValueError("Status must be one of: enabled, disabled.")
         return value
 

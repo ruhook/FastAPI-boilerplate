@@ -10,6 +10,7 @@ from .....modules.admin.mail_task.service import create_mail_task
 from .accounts import router as mail_accounts_router
 from .categories import router as mail_categories_router
 from .signatures import router as mail_signatures_router
+from .tasks import router as mail_tasks_router
 from .templates import router as mail_templates_router
 from .variables import router as mail_variables_router
 
@@ -19,6 +20,7 @@ router.include_router(mail_categories_router)
 router.include_router(mail_templates_router)
 router.include_router(mail_signatures_router)
 router.include_router(mail_variables_router)
+router.include_router(mail_tasks_router)
 
 
 @router.post("/send", response_model=MailTaskRead, status_code=201, dependencies=[Depends(require_admin_permission("邮件与模板"))])

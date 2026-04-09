@@ -4,15 +4,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ....core.schemas import PersistentDeletion, TimestampSchema
-from .const import (
-    FORM_FIELD_GROUPS,
-    FORM_FIELD_TYPES,
-    FORM_TEMPLATE_DESCRIPTION_MAX_LENGTH,
-    FORM_TEMPLATE_FIELD_KEY_MAX_LENGTH,
-    FORM_TEMPLATE_FIELD_LABEL_MAX_LENGTH,
-    FORM_TEMPLATE_FIELD_PLACEHOLDER_MAX_LENGTH,
-    FORM_TEMPLATE_NAME_MAX_LENGTH,
-)
+from .const import FormFieldGroup, FormFieldType
 
 
 def _normalize_text(value: str) -> str:
@@ -23,14 +15,14 @@ def _normalize_text(value: str) -> str:
 
 
 class FormTemplateField(BaseModel):
-    key: str = Field(min_length=1, max_length=FORM_TEMPLATE_FIELD_KEY_MAX_LENGTH)
-    label: str = Field(min_length=1, max_length=FORM_TEMPLATE_FIELD_LABEL_MAX_LENGTH)
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=100)
     type: str
     required: bool = False
-    group: str = "other"
+    group: str = FormFieldGroup.OTHER.value
     canFilter: bool = True
     dictionaryId: int | None = None
-    placeholder: str | None = Field(default=None, max_length=FORM_TEMPLATE_FIELD_PLACEHOLDER_MAX_LENGTH)
+    placeholder: str | None = Field(default=None, max_length=255)
 
     @field_validator("key", "label")
     @classmethod
@@ -41,7 +33,7 @@ class FormTemplateField(BaseModel):
     @classmethod
     def validate_type(cls, value: str) -> str:
         normalized = _normalize_text(value).lower()
-        if normalized not in FORM_FIELD_TYPES:
+        if normalized not in {item.value for item in FormFieldType}:
             raise ValueError(f"Unsupported form field type: {normalized}")
         return normalized
 
@@ -49,7 +41,7 @@ class FormTemplateField(BaseModel):
     @classmethod
     def validate_group(cls, value: str) -> str:
         normalized = _normalize_text(value).lower()
-        if normalized not in FORM_FIELD_GROUPS:
+        if normalized not in {item.value for item in FormFieldGroup}:
             raise ValueError(f"Unsupported form field group: {normalized}")
         return normalized
 
@@ -62,7 +54,7 @@ class FormTemplateField(BaseModel):
 
     @model_validator(mode="after")
     def normalize_dictionary_reference(self) -> "FormTemplateField":
-        if self.type not in {"select", "multiselect"}:
+        if self.type not in {FormFieldType.SELECT.value, FormFieldType.MULTISELECT.value}:
             self.dictionaryId = None
             return self
         if self.dictionaryId is None:
@@ -99,8 +91,8 @@ def normalize_form_template_fields(fields: list["FormTemplateField"]) -> list["F
 
 
 class FormTemplateBase(BaseModel):
-    name: str = Field(min_length=1, max_length=FORM_TEMPLATE_NAME_MAX_LENGTH)
-    description: str | None = Field(default=None, max_length=FORM_TEMPLATE_DESCRIPTION_MAX_LENGTH)
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
     fields: list[FormTemplateField] = Field(default_factory=list)
 
     @field_validator("name")
@@ -146,8 +138,8 @@ class FormTemplateCreateInternal(BaseModel):
 class FormTemplateUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=FORM_TEMPLATE_NAME_MAX_LENGTH)
-    description: str | None = Field(default=None, max_length=FORM_TEMPLATE_DESCRIPTION_MAX_LENGTH)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
     fields: list[FormTemplateField] | None = None
 
     @field_validator("name")
@@ -185,4 +177,3 @@ class FormTemplateDelete(BaseModel):
 
     is_deleted: bool
     deleted_at: datetime
-

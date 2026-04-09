@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import DuplicateValueException, NotFoundException
 from ...assets.service import ensure_assets_belong_to_owner, ensure_assets_exist, serialize_asset
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from ..mail_template_category.service import ensure_category_exists
 from .model import MailTemplate
 from .schema import (
@@ -105,6 +107,14 @@ async def create_mail_template(payload: MailTemplateCreate, db: AsyncSession, *,
     )
     db.add(template)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_TEMPLATE_CREATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_TEMPLATE.value,
+        target_id=template.id,
+        data={"name": template.name, "category_id": template.category_id},
+    )
     await db.refresh(template)
     return await _serialize_template_with_assets(template, db)
 
@@ -145,6 +155,14 @@ async def update_mail_template(template_id: int, payload: MailTemplateUpdate, db
 
     template.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_TEMPLATE_UPDATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_TEMPLATE.value,
+        target_id=template.id,
+        data={"name": template.name, "category_id": template.category_id},
+    )
     await db.refresh(template)
     return await _serialize_template_with_assets(template, db)
 
@@ -155,4 +173,12 @@ async def delete_mail_template(template_id: int, db: AsyncSession, *, admin_user
     template.deleted_at = datetime.now(UTC)
     template.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_TEMPLATE_DELETED.value,
+        target_type=AdminAuditLogTargetType.MAIL_TEMPLATE.value,
+        target_id=template.id,
+        data={"name": template.name, "category_id": template.category_id},
+    )
     return {"message": "Mail template deleted."}

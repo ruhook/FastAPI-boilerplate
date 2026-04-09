@@ -5,15 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ....core.schemas import PersistentDeletion, TimestampSchema
 from .const import (
-    MAIL_ACCOUNT_EMAIL_MAX_LENGTH,
-    MAIL_ACCOUNT_NOTE_MAX_LENGTH,
-    MAIL_ACCOUNT_PROVIDERS,
-    MAIL_ACCOUNT_PROVIDER_MAX_LENGTH,
+    MailAccountProvider,
     MAIL_ACCOUNT_PROVIDER_PRESETS,
-    MAIL_ACCOUNT_SECURITY_MODES,
-    MAIL_ACCOUNT_SECURITY_MODE_MAX_LENGTH,
-    MAIL_ACCOUNT_STATUSES,
-    MAIL_ACCOUNT_STATUS_MAX_LENGTH,
+    MailAccountStatus,
 )
 
 
@@ -25,11 +19,11 @@ def _normalize_text(value: str) -> str:
 
 
 class MailAccountBase(BaseModel):
-    email: str = Field(min_length=1, max_length=MAIL_ACCOUNT_EMAIL_MAX_LENGTH)
-    provider: str = Field(min_length=1, max_length=MAIL_ACCOUNT_PROVIDER_MAX_LENGTH)
+    email: str = Field(min_length=1, max_length=255)
+    provider: str = Field(min_length=1, max_length=32)
     auth_secret: str = Field(min_length=1, max_length=255)
-    status: str = Field(default="pending", min_length=1, max_length=MAIL_ACCOUNT_STATUS_MAX_LENGTH)
-    note: str | None = Field(default=None, max_length=MAIL_ACCOUNT_NOTE_MAX_LENGTH)
+    status: str = Field(default=MailAccountStatus.PENDING.value, min_length=1, max_length=16)
+    note: str | None = Field(default=None, max_length=500)
 
     @field_validator("email", "auth_secret")
     @classmethod
@@ -40,7 +34,7 @@ class MailAccountBase(BaseModel):
     @classmethod
     def validate_provider(cls, value: str) -> str:
         normalized = _normalize_text(value).lower()
-        if normalized not in MAIL_ACCOUNT_PROVIDERS:
+        if normalized not in {item.value for item in MailAccountProvider}:
             raise ValueError(f"Unsupported mail provider: {normalized}")
         return normalized
 
@@ -48,7 +42,7 @@ class MailAccountBase(BaseModel):
     @classmethod
     def validate_status(cls, value: str) -> str:
         normalized = _normalize_text(value).lower()
-        if normalized not in MAIL_ACCOUNT_STATUSES:
+        if normalized not in {item.value for item in MailAccountStatus}:
             raise ValueError(f"Unsupported mail account status: {normalized}")
         return normalized
 
@@ -65,7 +59,7 @@ class MailAccountRead(MailAccountBase):
     smtp_username: str
     smtp_host: str
     smtp_port: int
-    security_mode: str = Field(max_length=MAIL_ACCOUNT_SECURITY_MODE_MAX_LENGTH)
+    security_mode: str = Field(max_length=16)
     provider_label: str
     verified_at: datetime | None = None
     last_tested_at: datetime | None = None
@@ -97,11 +91,11 @@ class MailAccountCreateInternal(BaseModel):
 class MailAccountUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str | None = Field(default=None, min_length=1, max_length=MAIL_ACCOUNT_EMAIL_MAX_LENGTH)
-    provider: str | None = Field(default=None, min_length=1, max_length=MAIL_ACCOUNT_PROVIDER_MAX_LENGTH)
+    email: str | None = Field(default=None, min_length=1, max_length=255)
+    provider: str | None = Field(default=None, min_length=1, max_length=32)
     auth_secret: str | None = Field(default=None, min_length=1, max_length=255)
-    status: str | None = Field(default=None, min_length=1, max_length=MAIL_ACCOUNT_STATUS_MAX_LENGTH)
-    note: str | None = Field(default=None, max_length=MAIL_ACCOUNT_NOTE_MAX_LENGTH)
+    status: str | None = Field(default=None, min_length=1, max_length=16)
+    note: str | None = Field(default=None, max_length=500)
 
     @field_validator("email", "auth_secret")
     @classmethod
@@ -116,7 +110,7 @@ class MailAccountUpdate(BaseModel):
         if value is None:
             return value
         normalized = _normalize_text(value).lower()
-        if normalized not in MAIL_ACCOUNT_PROVIDERS:
+        if normalized not in {item.value for item in MailAccountProvider}:
             raise ValueError(f"Unsupported mail provider: {normalized}")
         return normalized
 
@@ -126,7 +120,7 @@ class MailAccountUpdate(BaseModel):
         if value is None:
             return value
         normalized = _normalize_text(value).lower()
-        if normalized not in MAIL_ACCOUNT_STATUSES:
+        if normalized not in {item.value for item in MailAccountStatus}:
             raise ValueError(f"Unsupported mail account status: {normalized}")
         return normalized
 

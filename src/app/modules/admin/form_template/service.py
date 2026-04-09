@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import DuplicateValueException, NotFoundException
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from ..dictionary.model import AdminDictionary
 from .model import AdminFormTemplate
 from .schema import (
@@ -68,7 +70,7 @@ async def ensure_dictionaries_exist(db: AsyncSession, fields: list[FormTemplateF
         raise NotFoundException(f"Dictionary not found: {missing_ids[0]}")
 
 
-async def create_form_template(payload: FormTemplateCreate, db: AsyncSession) -> dict[str, Any]:
+async def create_form_template(payload: FormTemplateCreate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
     existing = await db.execute(
         select(AdminFormTemplate).where(
             AdminFormTemplate.name == payload.name,
@@ -87,6 +89,14 @@ async def create_form_template(payload: FormTemplateCreate, db: AsyncSession) ->
     )
     db.add(template)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.FORM_TEMPLATE_CREATED.value,
+        target_type=AdminAuditLogTargetType.FORM_TEMPLATE.value,
+        target_id=template.id,
+        data={"name": template.name},
+    )
     await db.refresh(template)
     return serialize_form_template(template)
 
@@ -96,7 +106,13 @@ async def get_form_template(template_id: int, db: AsyncSession) -> dict[str, Any
     return serialize_form_template(template)
 
 
-async def update_form_template(template_id: int, payload: FormTemplateUpdate, db: AsyncSession) -> dict[str, Any]:
+async def update_form_template(
+    template_id: int,
+    payload: FormTemplateUpdate,
+    db: AsyncSession,
+    *,
+    admin_user_id: int,
+) -> dict[str, Any]:
     template = await get_form_template_model(template_id, db)
     if payload.name and payload.name != template.name:
         existing = await db.execute(
@@ -119,15 +135,30 @@ async def update_form_template(template_id: int, payload: FormTemplateUpdate, db
 
     template.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.FORM_TEMPLATE_UPDATED.value,
+        target_type=AdminAuditLogTargetType.FORM_TEMPLATE.value,
+        target_id=template.id,
+        data={"name": template.name},
+    )
     await db.refresh(template)
     return serialize_form_template(template)
 
 
-async def delete_form_template(template_id: int, db: AsyncSession) -> dict[str, str]:
+async def delete_form_template(template_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     template = await get_form_template_model(template_id, db)
     template.is_deleted = True
     template.deleted_at = datetime.now(UTC)
     template.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.FORM_TEMPLATE_DELETED.value,
+        target_type=AdminAuditLogTargetType.FORM_TEMPLATE.value,
+        target_id=template.id,
+        data={"name": template.name},
+    )
     return {"message": "Form template deleted."}
-

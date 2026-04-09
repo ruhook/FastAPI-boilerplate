@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_admin_permission
+from ...dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....core.exceptions.http_exceptions import NotFoundException
 from .....modules.admin.admin_user.schema import AdminUserCreate, AdminUserCreateResponse, AdminUserRead, AdminUserUpdate
@@ -25,6 +25,18 @@ async def read_admin_accounts(
     keyword: str | None = None,
 ) -> list[dict]:
     return await query_admin_accounts(db=db, keyword=keyword)
+
+
+@router.get(
+    "/reviewers",
+    response_model=list[AdminUserRead],
+    dependencies=[Depends(require_any_admin_permission("岗位管理", "测试题判题", "账户管理"))],
+)
+async def read_assessment_reviewer_accounts(
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    keyword: str | None = None,
+) -> list[dict]:
+    return await query_admin_accounts(db=db, keyword=keyword, required_permission="测试题判题")
 
 
 @router.post(

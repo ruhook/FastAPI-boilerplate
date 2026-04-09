@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import DuplicateValueException, NotFoundException
 from ...assets.service import ensure_assets_belong_to_owner, ensure_assets_exist, serialize_asset
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from .model import MailSignature
 from .schema import MailSignatureCreate, MailSignatureRead, MailSignatureUpdate
 
@@ -179,6 +181,14 @@ async def create_mail_signature(payload: MailSignatureCreate, db: AsyncSession, 
     )
     db.add(signature)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_SIGNATURE_CREATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_SIGNATURE.value,
+        target_id=signature.id,
+        data={"name": signature.name, "enabled": signature.enabled},
+    )
     await db.refresh(signature)
     return await serialize_mail_signature(signature, db)
 
@@ -233,6 +243,14 @@ async def update_mail_signature(signature_id: int, payload: MailSignatureUpdate,
 
     signature.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_SIGNATURE_UPDATED.value,
+        target_type=AdminAuditLogTargetType.MAIL_SIGNATURE.value,
+        target_id=signature.id,
+        data={"name": signature.name, "enabled": signature.enabled},
+    )
     await db.refresh(signature)
     return await serialize_mail_signature(signature, db)
 
@@ -243,4 +261,12 @@ async def delete_mail_signature(signature_id: int, db: AsyncSession, *, admin_us
     signature.deleted_at = datetime.now(UTC)
     signature.updated_at = datetime.now(UTC)
     await db.flush()
+    await create_admin_audit_log(
+        db=db,
+        admin_user_id=admin_user_id,
+        action_type=AdminAuditLogActionType.MAIL_SIGNATURE_DELETED.value,
+        target_type=AdminAuditLogTargetType.MAIL_SIGNATURE.value,
+        target_id=signature.id,
+        data={"name": signature.name, "enabled": signature.enabled},
+    )
     return {"message": "Mail signature deleted."}
