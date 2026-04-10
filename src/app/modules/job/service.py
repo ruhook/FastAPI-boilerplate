@@ -21,6 +21,7 @@ from .const import (
     JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_HIGHLIGHTS_KEY,
     JOB_DATA_PUBLISH_CHECKLIST_KEY,
+    JOB_DATA_REJECTION_MAIL_CONFIG_KEY,
     JOB_DATA_SCREENING_RULES_KEY,
 )
 from .model import Job
@@ -30,6 +31,7 @@ from .schema import (
     JobFormStrategy,
     JobListItemRead,
     JobListPage,
+    JobRejectionMailConfig,
     JobRead,
     JobUpdate,
 )
@@ -64,17 +66,21 @@ async def _ensure_form_template_exists(template_id: int, db: AsyncSession) -> No
 
 
 async def _ensure_mail_dependencies_exist(
-    assessment: JobAssessmentConfig,
-    db: AsyncSession,
     *,
+    enabled: bool,
+    mail_account_id: int | None,
+    mail_template_id: int | None,
+    mail_signature_id: int | None,
+    config_label: str,
+    db: AsyncSession,
     admin_user_id: int,
 ) -> None:
-    if not assessment.enabled:
+    if not enabled:
         return
 
     account_result = await db.execute(
         select(MailAccount.id).where(
-            MailAccount.id == assessment.mail_account_id,
+            MailAccount.id == mail_account_id,
             MailAccount.admin_user_id == admin_user_id,
             MailAccount.is_deleted.is_(False),
         )
@@ -84,23 +90,38 @@ async def _ensure_mail_dependencies_exist(
 
     template_result = await db.execute(
         select(MailTemplate.id).where(
-            MailTemplate.id == assessment.mail_template_id,
+            MailTemplate.id == mail_template_id,
             MailTemplate.admin_user_id == admin_user_id,
             MailTemplate.is_deleted.is_(False),
         )
     )
     if template_result.scalar_one_or_none() is None:
-        raise NotFoundException("Assessment mail template not found.")
+        raise NotFoundException(f"{config_label} mail template not found.")
 
     signature_result = await db.execute(
         select(MailSignature.id).where(
-            MailSignature.id == assessment.mail_signature_id,
+            MailSignature.id == mail_signature_id,
             MailSignature.admin_user_id == admin_user_id,
             MailSignature.is_deleted.is_(False),
         )
     )
     if signature_result.scalar_one_or_none() is None:
-        raise NotFoundException("Assessment mail signature not found.")
+        raise NotFoundException(f"{config_label} mail signature not found.")
+
+
+def _build_rejection_mail_config(data: dict[str, Any]) -> JobRejectionMailConfig:
+    raw = data.get(JOB_DATA_REJECTION_MAIL_CONFIG_KEY) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return JobRejectionMailConfig(
+        enabled=bool(raw.get("enabled", False)),
+        mail_account_id=raw.get("mail_account_id"),
+        mail_template_id=raw.get("mail_template_id"),
+        mail_signature_id=raw.get("mail_signature_id"),
+        mail_account_label=raw.get("mail_account_label"),
+        mail_template_name=raw.get("mail_template_name"),
+        mail_signature_name=raw.get("mail_signature_name"),
+    )
 
 
 def _job_data_from_payload(
@@ -160,6 +181,7 @@ def serialize_job(job: Job, owner_name: str | None) -> dict[str, Any]:
         mail_template_name=data.get("assessment_mail_template_name"),
         mail_signature_name=data.get("assessment_mail_signature_name"),
     )
+    rejection_mail_config = _build_rejection_mail_config(data)
     return JobRead(
         id=job.id,
         title=job.title,
@@ -177,6 +199,7 @@ def serialize_job(job: Job, owner_name: str | None) -> dict[str, Any]:
             template_id=job.form_template_id,
         ),
         assessment_config=assessment_config,
+        rejection_mail_config=rejection_mail_config,
         form_fields=list(data.get(JOB_DATA_FORM_FIELDS_KEY) or []),
         automation_rules=data.get(JOB_DATA_AUTOMATION_RULES_KEY) or {"combinator": "and", "rules": []},
         screening_rules=list(data.get(JOB_DATA_SCREENING_RULES_KEY) or []),
@@ -341,8 +364,21 @@ async def create_job(
 ) -> dict[str, Any]:
     await _ensure_form_template_exists(payload.form_strategy.template_id, db)
     await _ensure_mail_dependencies_exist(
-        payload.assessment_config,
-        db,
+        enabled=payload.assessment_config.enabled,
+        mail_account_id=payload.assessment_config.mail_account_id,
+        mail_template_id=payload.assessment_config.mail_template_id,
+        mail_signature_id=payload.assessment_config.mail_signature_id,
+        config_label="Assessment",
+        db=db,
+        admin_user_id=int(current_admin["id"]),
+    )
+    await _ensure_mail_dependencies_exist(
+        enabled=payload.rejection_mail_config.enabled,
+        mail_account_id=payload.rejection_mail_config.mail_account_id,
+        mail_template_id=payload.rejection_mail_config.mail_template_id,
+        mail_signature_id=payload.rejection_mail_config.mail_signature_id,
+        config_label="Rejection",
+        db=db,
         admin_user_id=int(current_admin["id"]),
     )
 
@@ -351,6 +387,7 @@ async def create_job(
     data["assessment_mail_account_label"] = payload.assessment_config.mail_account_label
     data["assessment_mail_template_name"] = payload.assessment_config.mail_template_name
     data["assessment_mail_signature_name"] = payload.assessment_config.mail_signature_name
+    data[JOB_DATA_REJECTION_MAIL_CONFIG_KEY] = payload.rejection_mail_config.model_dump()
 
     job = Job(
         title=payload.title,
@@ -392,14 +429,29 @@ async def update_job(
 
     if payload.assessment_config is not None:
         await _ensure_mail_dependencies_exist(
-            payload.assessment_config,
-            db,
+            enabled=payload.assessment_config.enabled,
+            mail_account_id=payload.assessment_config.mail_account_id,
+            mail_template_id=payload.assessment_config.mail_template_id,
+            mail_signature_id=payload.assessment_config.mail_signature_id,
+            config_label="Assessment",
+            db=db,
             admin_user_id=int(current_admin["id"]),
         )
         job.assessment_enabled = payload.assessment_config.enabled
         job.assessment_mail_account_id = payload.assessment_config.mail_account_id if payload.assessment_config.enabled else None
         job.assessment_mail_template_id = payload.assessment_config.mail_template_id if payload.assessment_config.enabled else None
         job.assessment_mail_signature_id = payload.assessment_config.mail_signature_id if payload.assessment_config.enabled else None
+
+    if payload.rejection_mail_config is not None:
+        await _ensure_mail_dependencies_exist(
+            enabled=payload.rejection_mail_config.enabled,
+            mail_account_id=payload.rejection_mail_config.mail_account_id,
+            mail_template_id=payload.rejection_mail_config.mail_template_id,
+            mail_signature_id=payload.rejection_mail_config.mail_signature_id,
+            config_label="Rejection",
+            db=db,
+            admin_user_id=int(current_admin["id"]),
+        )
 
     if payload.title is not None:
         job.title = payload.title
@@ -431,6 +483,8 @@ async def update_job(
         next_data["assessment_mail_account_label"] = payload.assessment_config.mail_account_label
         next_data["assessment_mail_template_name"] = payload.assessment_config.mail_template_name
         next_data["assessment_mail_signature_name"] = payload.assessment_config.mail_signature_name
+    if payload.rejection_mail_config is not None:
+        next_data[JOB_DATA_REJECTION_MAIL_CONFIG_KEY] = payload.rejection_mail_config.model_dump()
     job.data = next_data
 
     job.updated_at = datetime.now(UTC)

@@ -31,6 +31,16 @@ class JobAssessmentConfig(BaseModel):
     mail_signature_name: str | None = None
 
 
+class JobRejectionMailConfig(BaseModel):
+    enabled: bool = False
+    mail_account_id: int | None = None
+    mail_template_id: int | None = None
+    mail_signature_id: int | None = None
+    mail_account_label: str | None = None
+    mail_template_name: str | None = None
+    mail_signature_name: str | None = None
+
+
 class JobFormField(BaseModel):
     key: str
     label: str
@@ -85,6 +95,7 @@ class JobBase(BaseModel):
     collaborators: list[str] = Field(default_factory=list)
     form_strategy: JobFormStrategy
     assessment_config: JobAssessmentConfig = Field(default_factory=JobAssessmentConfig)
+    rejection_mail_config: JobRejectionMailConfig = Field(default_factory=JobRejectionMailConfig)
     form_fields: list[JobFormField] = Field(default_factory=list)
     automation_rules: JobAutomationRuleGroup = Field(default_factory=JobAutomationRuleGroup)
     screening_rules: list[str] = Field(default_factory=list)
@@ -139,6 +150,13 @@ class JobBase(BaseModel):
                 raise ValueError("Assessment mail template is required when assessment is enabled.")
             if self.assessment_config.mail_signature_id is None:
                 raise ValueError("Assessment mail signature is required when assessment is enabled.")
+        if self.rejection_mail_config.enabled:
+            if self.rejection_mail_config.mail_account_id is None:
+                raise ValueError("Rejection mail account is required when rejection mail is enabled.")
+            if self.rejection_mail_config.mail_template_id is None:
+                raise ValueError("Rejection mail template is required when rejection mail is enabled.")
+            if self.rejection_mail_config.mail_signature_id is None:
+                raise ValueError("Rejection mail signature is required when rejection mail is enabled.")
         return self
 
 
@@ -213,6 +231,7 @@ class JobUpdate(BaseModel):
     collaborators: list[str] | None = None
     form_strategy: JobFormStrategy | None = None
     assessment_config: JobAssessmentConfig | None = None
+    rejection_mail_config: JobRejectionMailConfig | None = None
     form_fields: list[JobFormField] | None = None
     automation_rules: JobAutomationRuleGroup | None = None
     screening_rules: list[str] | None = None

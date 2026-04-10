@@ -6,9 +6,12 @@ from typing import Any
 
 import httpx
 from httpx import ASGITransport
+from sqlalchemy import select
 
+from ..app.core.db.database import local_session
 from ..app.main_admin import app as admin_app
 from ..app.main_web import app as web_app
+from ..app.modules.admin.mail_task.model import MailTask
 from ..app.modules.operation_log.const import OperationLogType
 from .create_assessment_reviewer import (
     DEFAULT_EMAIL as DEFAULT_REVIEWER_EMAIL,
@@ -34,6 +37,7 @@ from .seed_job_progress_demo_flow import (
     DEMO_JOB_DEFINITIONS,
     build_application_items,
     ensure_assessment_mail_dependencies,
+    ensure_rejection_mail_dependencies,
     fetch_progress_payload,
     seed_admin_and_jobs,
 )
@@ -84,6 +88,19 @@ async def login_admin(
     payload = ensure_ok(response, "Admin login failed")
     print_detail(f"admin login succeeded: {payload['user']['username']}")
     return payload
+
+
+async def list_mail_tasks_for_recipient(email: str) -> list[MailTask]:
+    async with local_session() as session:
+        result = await session.execute(
+            select(MailTask).order_by(MailTask.id.asc())
+        )
+        items = []
+        for task in result.scalars().all():
+            recipients = task.to_recipients or []
+            if any(str(item.get("email") or "").strip().lower() == email.strip().lower() for item in recipients):
+                items.append(task)
+        return items
 
 
 async def admin_get_job_progress(
@@ -310,6 +327,7 @@ async def main() -> None:
         admin_access_token = admin_login_payload["access_token"]
         admin_user_id = int(admin_login_payload["user"]["id"])
         mail_ids = await ensure_assessment_mail_dependencies(admin_user_id=admin_user_id)
+        rejection_mail_ids = await ensure_rejection_mail_dependencies(admin_user_id=admin_user_id)
         print_detail(f"admin={seed_payload['admin']['username']} reviewer={reviewer_account['username']}")
         print_detail(f"jobs={[(job.id, job.title) for job in jobs]}")
 
@@ -358,6 +376,17 @@ async def main() -> None:
         no_assessment_case = next(item for item in applications if item["definition"]["key"] == "no_assessment_auto_pass")
         manual_case = next(item for item in applications if item["definition"]["key"] == "assessment_manual_pending")
         rejected_case = next(item for item in applications if item["definition"]["key"] == "no_assessment_auto_rejected")
+
+        auto_mail_tasks = await list_mail_tasks_for_recipient(candidate_email)
+        auto_subjects = {str(task.subject) for task in auto_mail_tasks}
+        if "请完成 {{job_title}} 测试题" not in auto_subjects:
+            raise RuntimeError("Missing auto-created assessment mail task for the assessment-review branch.")
+        if "关于 {{job_title}} 的申请结果通知" not in auto_subjects:
+            raise RuntimeError("Missing auto-created rejection mail task for the auto-rejected branch.")
+        print_detail(
+            "auto mail tasks created: "
+            f"assessment_account={mail_ids['mail_account_id']} rejection_account={rejection_mail_ids['mail_account_id']}"
+        )
 
         print_step("环节 3/10：校验判题权限账号未分配前不可见")
         reviewer_login_payload = await login_admin(

@@ -6,6 +6,7 @@ class CandidateFieldKey(StrEnum):
     EMAIL = "email"
     WHATSAPP = "whatsapp"
     COUNTRY_OF_RESIDENCE = "country_of_residence"
+    CITY = "city"
     NATIONALITY = "nationality"
     NATIVE_LANGUAGES = "native_languages"
     ADDITIONAL_LANGUAGES = "additional_languages"
@@ -29,6 +30,7 @@ CANDIDATE_FIELD_CN_NAME_MAP: dict[CandidateFieldKey, str] = {
     CandidateFieldKey.EMAIL: "邮箱",
     CandidateFieldKey.WHATSAPP: "WhatsApp",
     CandidateFieldKey.COUNTRY_OF_RESIDENCE: "长期居住国家",
+    CandidateFieldKey.CITY: "城市",
     CandidateFieldKey.NATIONALITY: "国籍/公民身份",
     CandidateFieldKey.NATIVE_LANGUAGES: "母语级语言",
     CandidateFieldKey.ADDITIONAL_LANGUAGES: "其他熟练语言",

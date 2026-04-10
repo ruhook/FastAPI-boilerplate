@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import mimetypes
 import smtplib
@@ -15,10 +16,11 @@ from ....core.config import settings
 from ....core.db.database import local_session
 from ....core.exceptions.http_exceptions import NotFoundException
 from ....event import EventType, send_event
-from ...assets.service import ensure_assets_exist, get_asset_file_path
+from ...assets.service import ensure_assets_exist, get_asset_file_path, serialize_asset
 from ..mail_account.model import MailAccount
 from ..mail_account.service import get_mail_account_model
 from ..mail_signature.model import MailSignature
+from ..mail_signature.service import render_mail_signature_html
 from ..mail_signature.service import get_mail_signature_model
 from ..mail_task.const import (
     MAIL_TASK_DATA_RESEND_FROM_TASK_ID_KEY,
@@ -34,6 +36,13 @@ from .model import MailTask
 from .schema import MailTaskCreate, MailTaskRead
 
 logger = logging.getLogger(__name__)
+
+
+def _get_mail_delivery_mode() -> str:
+    configured = (settings.MAIL_DELIVERY_MODE or "").strip().lower()
+    if configured in {"smtp", "preview"}:
+        return configured
+    return "smtp"
 
 
 def serialize_mail_task(
@@ -163,25 +172,53 @@ def build_mail_render_context(
     context: dict[str, str] = {
         "candidate_name": _as_string(
             candidate_context.get("name")
+            or candidate_context.get("candidate_name")
             or first_recipient.get("name")
             or first_recipient.get("email")
         ),
-        "candidate_email": _as_string(candidate_context.get("email") or first_recipient.get("email")),
-        "job_title": _as_string(job_context.get("title")),
-        "assessment_link": _as_string(job_context.get("assessment_link")),
-        "due_date": _as_string(job_context.get("due_date")),
+        "candidate_email": _as_string(
+            candidate_context.get("email")
+            or candidate_context.get("candidate_email")
+            or first_recipient.get("email")
+        ),
+        "job_title": _as_string(
+            job_context.get("title")
+            or job_context.get("job_title")
+            or raw_context.get("job_title")
+        ),
+        "assessment_link": _as_string(
+            job_context.get("assessment_link")
+            or raw_context.get("assessment_link")
+        ),
+        "due_date": _as_string(job_context.get("due_date") or raw_context.get("due_date")),
         "sender_name": _as_string(
             sender_context.get("name")
+            or sender_context.get("sender_name")
             or (signature.full_name if signature and signature.full_name else "")
             or account.email
         ),
-        "sender_email": _as_string(sender_context.get("email") or account.email),
+        "sender_email": _as_string(
+            sender_context.get("email")
+            or sender_context.get("sender_email")
+            or account.email
+        ),
         "company_name": _as_string(
             company_context.get("name")
+            or company_context.get("company_name")
+            or raw_context.get("company_name")
             or (signature.company_name if signature and signature.company_name else "")
         ),
         "template_name": _as_string(template.name if template else ""),
         "signature_name": _as_string(signature.name if signature else ""),
+        "signature_full_name": _as_string(signature.full_name if signature else ""),
+        "signature_job_title": _as_string(signature.job_title if signature else ""),
+        "signature_company_name": _as_string(signature.company_name if signature else ""),
+        "signature_primary_email": _as_string(signature.primary_email if signature else ""),
+        "signature_secondary_email": _as_string(signature.secondary_email if signature else ""),
+        "signature_website": _as_string(signature.website if signature else ""),
+        "signature_linkedin_label": _as_string(signature.linkedin_label if signature else ""),
+        "signature_linkedin_url": _as_string(signature.linkedin_url if signature else ""),
+        "signature_address": _as_string(signature.address if signature else ""),
     }
 
     _merge_scalar_context(context, raw_context)
@@ -220,6 +257,111 @@ def _resolve_attachment_payloads(task: MailTask, assets_by_id: dict[int, Any]) -
         path = get_asset_file_path(asset)
         attachment_payloads.append((asset.original_name, path.read_bytes(), asset.mime_type))
     return attachment_payloads
+
+
+def _merge_attachment_asset_ids(
+    explicit_asset_ids: list[int],
+    *,
+    template: MailTemplate | None,
+) -> list[int]:
+    merged: list[int] = []
+    seen: set[int] = set()
+
+    def append_asset(asset_id: int | None) -> None:
+        if asset_id is None:
+            return
+        if asset_id in seen:
+            return
+        seen.add(asset_id)
+        merged.append(asset_id)
+
+    for item in explicit_asset_ids:
+        append_asset(item)
+
+    for item in template.attachments if template else []:
+        raw_asset_id = item.get("asset_id") if isinstance(item, dict) else None
+        append_asset(int(raw_asset_id) if raw_asset_id is not None else None)
+
+    return merged
+
+
+def _build_asset_data_url(asset: Any) -> str:
+    path = get_asset_file_path(asset)
+    content = path.read_bytes()
+    encoded = base64.b64encode(content).decode("ascii")
+    mime_type = asset.mime_type or mimetypes.guess_type(asset.original_name)[0] or "application/octet-stream"
+    return f"data:{mime_type};base64,{encoded}"
+
+
+async def _build_mail_signature_html_pair(signature: MailSignature | None, db: AsyncSession) -> tuple[str, str]:
+    if signature is None:
+        return "", ""
+
+    asset_ids = [asset_id for asset_id in [signature.avatar_asset_id, signature.banner_asset_id] if asset_id is not None]
+    asset_map: dict[int, Any] = {}
+    if asset_ids:
+        assets = await ensure_assets_exist(db, asset_ids=asset_ids)
+        asset_map = {asset.id: asset for asset in assets}
+
+    avatar_asset = asset_map.get(signature.avatar_asset_id) if signature.avatar_asset_id is not None else None
+    banner_asset = asset_map.get(signature.banner_asset_id) if signature.banner_asset_id is not None else None
+
+    stored_avatar_url = serialize_asset(avatar_asset)["preview_url"] if avatar_asset is not None else None
+    stored_banner_url = serialize_asset(banner_asset)["preview_url"] if banner_asset is not None else None
+    outbound_avatar_url = _build_asset_data_url(avatar_asset) if avatar_asset is not None else None
+    outbound_banner_url = _build_asset_data_url(banner_asset) if banner_asset is not None else None
+
+    return (
+        render_mail_signature_html(signature, avatar_url=stored_avatar_url, banner_url=stored_banner_url),
+        render_mail_signature_html(signature, avatar_url=outbound_avatar_url, banner_url=outbound_banner_url),
+    )
+
+
+def _compose_final_body_html(body_html: str, signature_html: str) -> str:
+    normalized_body = body_html.strip() or "<p><br></p>"
+    if not signature_html:
+        return normalized_body
+    return (
+        '<div style="margin:0;padding:0;background:#ffffff;">'
+        '<div style="max-width:720px;margin:0 auto;font-family:Arial,sans-serif;color:#1f2937;'
+        'font-size:15px;line-height:1.75;">'
+        f"{normalized_body}"
+        '<div style="margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;">'
+        f"{signature_html}"
+        "</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+def _preview_mail_delivery(
+    *,
+    account: MailAccount,
+    task: MailTask,
+    final_subject: str,
+    final_body_html: str,
+    attachment_payloads: list[tuple[str, bytes, str]],
+) -> str:
+    recipients = _format_recipients(task.to_recipients or [])
+    cc_recipients = _format_recipients(task.cc_recipients or [])
+    bcc_recipients = _format_recipients(task.bcc_recipients or [])
+    logger.info(
+        "Mail preview output",
+        extra={
+            "mail_task_id": task.id,
+            "delivery_mode": "preview",
+            "account_email": account.email,
+            "from_email": account.email,
+            "to_recipients": recipients,
+            "cc_recipients": cc_recipients,
+            "bcc_recipients": bcc_recipients,
+            "subject": final_subject,
+            "attachment_names": [item[0] for item in attachment_payloads],
+            "attachment_count": len(attachment_payloads),
+            "final_body_html": final_body_html,
+        },
+    )
+    return f"local-preview:{task.id}"
 
 
 def _send_mail_via_smtp(
@@ -295,10 +437,14 @@ async def create_mail_task(payload: MailTaskCreate, db: AsyncSession, *, admin_u
     signature: MailSignature | None = None
     if payload.signature_id is not None:
         signature = await get_mail_signature_model(payload.signature_id, db, admin_user_id=admin_user_id)
+    merged_attachment_asset_ids = _merge_attachment_asset_ids(
+        payload.attachment_asset_ids,
+        template=template,
+    )
     await ensure_mail_task_attachment_assets(
         db,
         admin_user_id=admin_user_id,
-        asset_ids=payload.attachment_asset_ids,
+        asset_ids=merged_attachment_asset_ids,
     )
 
     task = MailTask(
@@ -310,7 +456,7 @@ async def create_mail_task(payload: MailTaskCreate, db: AsyncSession, *, admin_u
         to_recipients=[item.model_dump() for item in payload.to_recipients],
         cc_recipients=[item.model_dump() for item in payload.cc_recipients],
         bcc_recipients=[item.model_dump() for item in payload.bcc_recipients],
-        attachment_asset_ids=payload.attachment_asset_ids,
+        attachment_asset_ids=merged_attachment_asset_ids,
         status=MailTaskStatus.PENDING.value,
         data={MAIL_TASK_DATA_RENDER_CONTEXT_KEY: payload.render_context},
     )
@@ -366,10 +512,9 @@ async def resend_mail_task(task_id: int, db: AsyncSession, *, admin_user_id: int
         db,
         admin_user_id=admin_user_id,
     )
-    await ensure_assets_belong_to_owner(
+    await ensure_mail_task_attachment_assets(
         db,
-        owner_type="admin_user",
-        owner_id=admin_user_id,
+        admin_user_id=admin_user_id,
         asset_ids=source_task.attachment_asset_ids or [],
     )
 
@@ -480,7 +625,10 @@ async def process_mail_task(task_id: int) -> None:
         try:
             render_context = build_mail_render_context(task, account=account, template=template, signature=signature)
             final_subject = render_template_text(task.subject, render_context)
-            final_body_html = render_template_text(task.body_html, render_context)
+            rendered_body_html = render_template_text(task.body_html, render_context)
+            stored_signature_html, outbound_signature_html = await _build_mail_signature_html_pair(signature, db)
+            final_body_html = _compose_final_body_html(rendered_body_html, stored_signature_html)
+            outbound_body_html = _compose_final_body_html(rendered_body_html, outbound_signature_html)
 
             task.final_subject = final_subject
             task.final_body_html = final_body_html
@@ -494,22 +642,42 @@ async def process_mail_task(task_id: int) -> None:
             assets = await ensure_assets_exist(db, asset_ids=task.attachment_asset_ids or [])
             assets_by_id = {asset.id: asset for asset in assets}
             attachment_payloads = _resolve_attachment_payloads(task, assets_by_id)
-
-            provider_message_id = await asyncio.to_thread(
-                _send_mail_via_smtp,
-                account=account,
-                task=task,
-                final_subject=final_subject,
-                final_body_html=final_body_html,
-                attachment_payloads=attachment_payloads,
-            )
+            if _get_mail_delivery_mode() == "preview":
+                provider_message_id = _preview_mail_delivery(
+                    account=account,
+                    task=task,
+                    final_subject=final_subject,
+                    final_body_html=outbound_body_html,
+                    attachment_payloads=attachment_payloads,
+                )
+            else:
+                provider_message_id = await asyncio.to_thread(
+                    _send_mail_via_smtp,
+                    account=account,
+                    task=task,
+                    final_subject=final_subject,
+                    final_body_html=outbound_body_html,
+                    attachment_payloads=attachment_payloads,
+                )
 
             task.status = MailTaskStatus.SENT.value
             task.provider_message_id = provider_message_id
             task.sent_at = datetime.now(UTC)
             task.updated_at = datetime.now(UTC)
             await db.commit()
+            logger.info(
+                "Mail task sent successfully",
+                extra={
+                    "mail_task_id": task.id,
+                    "account_id": task.account_id,
+                    "provider_message_id": provider_message_id,
+                    "to_recipients": task.to_recipients or [],
+                    "attachment_count": len(task.attachment_asset_ids or []),
+                },
+            )
         except Exception as exc:
+            await db.rollback()
+            task = await get_mail_task_model(task_id, db)
             logger.exception(
                 "Mail task sending failed",
                 extra={

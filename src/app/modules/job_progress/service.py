@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
@@ -14,6 +15,12 @@ from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
 from ..job.const import JOB_DATA_AUTOMATION_RULES_KEY
 from ..job.model import Job
+from ..admin.admin_user.model import AdminUser
+from ..user.model import User
+from ..admin.internal_notification.service import create_admin_internal_notification
+from ..admin.mail_task.schema import MailRecipient, MailTaskCreate
+from ..admin.mail_task.service import create_mail_task
+from ..admin.mail_template.service import get_mail_template_model
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
 from .const import (
@@ -37,6 +44,8 @@ from .schema import (
     JobProgressListPage,
     JobProgressRead,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_text(value: Any) -> str:
@@ -186,6 +195,130 @@ def _resolve_initial_stage(
     )
 
 
+def _get_job_mail_context(job: Job) -> dict[str, Any]:
+    job_data = job.data or {}
+    return {
+        "job": {
+            "title": job.title,
+            "job_title": job.title,
+            "assessment_link": str(job_data.get("assessment_link") or job_data.get("assessmentLink") or ""),
+            "due_date": str(job_data.get("due_date") or job_data.get("dueDate") or ""),
+        },
+        "company": {
+            "name": job.company_name,
+            "company_name": job.company_name,
+        },
+    }
+
+
+def _get_stage_mail_config(job: Job, target_stage: RecruitmentStage) -> dict[str, int] | None:
+    if target_stage == RecruitmentStage.ASSESSMENT_REVIEW:
+        if not (
+            job.assessment_enabled
+            and job.assessment_mail_account_id is not None
+            and job.assessment_mail_template_id is not None
+            and job.assessment_mail_signature_id is not None
+        ):
+            return None
+        return {
+            "account_id": int(job.assessment_mail_account_id),
+            "template_id": int(job.assessment_mail_template_id),
+            "signature_id": int(job.assessment_mail_signature_id),
+        }
+
+    if target_stage == RecruitmentStage.REJECTED:
+        raw_config = (job.data or {}).get("rejection_mail_config") or {}
+        if not isinstance(raw_config, dict) or not raw_config.get("enabled"):
+            return None
+
+        account_id = raw_config.get("mail_account_id")
+        template_id = raw_config.get("mail_template_id")
+        signature_id = raw_config.get("mail_signature_id")
+        if account_id is None or template_id is None or signature_id is None:
+            return None
+
+        return {
+            "account_id": int(account_id),
+            "template_id": int(template_id),
+            "signature_id": int(signature_id),
+        }
+
+    return None
+
+
+async def _trigger_stage_mail_task(
+    *,
+    job: Job,
+    application: CandidateApplication,
+    target_stage: RecruitmentStage,
+    db: AsyncSession,
+) -> None:
+    mail_config = _get_stage_mail_config(job, target_stage)
+    if mail_config is None:
+        return
+
+    user_result = await db.execute(
+        select(User).where(
+            User.id == application.user_id,
+            User.is_deleted.is_(False),
+        )
+    )
+    candidate = user_result.scalar_one_or_none()
+    candidate_email = (candidate.email if candidate is not None else None) or ""
+    candidate_email = candidate_email.strip()
+    if not candidate_email:
+        logger.warning(
+            "Skip auto mail because candidate email is empty",
+            extra={
+                "job_id": job.id,
+                "application_id": application.id,
+                "target_stage": target_stage.value,
+            },
+        )
+        return
+
+    candidate_name = (
+        (candidate.name if candidate is not None else None)
+        or candidate_email
+    )
+
+    try:
+        template = await get_mail_template_model(
+            mail_config["template_id"],
+            db,
+            admin_user_id=job.owner_admin_user_id,
+        )
+        render_context = _get_job_mail_context(job)
+        render_context["candidate"] = {
+            "name": candidate_name,
+            "candidate_name": candidate_name,
+            "email": candidate_email,
+            "candidate_email": candidate_email,
+        }
+        await create_mail_task(
+            MailTaskCreate(
+                account_id=mail_config["account_id"],
+                template_id=mail_config["template_id"],
+                signature_id=mail_config["signature_id"],
+                subject=template.subject_template,
+                body_html=template.body_html,
+                to_recipients=[MailRecipient(name=candidate_name, email=candidate_email)],
+                render_context=render_context,
+            ),
+            db,
+            admin_user_id=job.owner_admin_user_id,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to create automatic stage mail task",
+            extra={
+                "job_id": job.id,
+                "application_id": application.id,
+                "target_stage": target_stage.value,
+            },
+        )
+
+
 async def create_job_progress_for_application(
     *,
     job: Job,
@@ -245,6 +378,14 @@ async def create_job_progress_for_application(
                 "reason": reason,
                 "screening_mode": screening_mode.value,
             },
+        )
+
+    if final_stage in {RecruitmentStage.ASSESSMENT_REVIEW, RecruitmentStage.REJECTED}:
+        await _trigger_stage_mail_task(
+            job=job,
+            application=application,
+            target_stage=final_stage,
+            db=db,
         )
 
     return progress
@@ -736,6 +877,19 @@ async def move_job_progress_stage(
         raise NotFoundException("Job not found.")
 
     progress_items = await get_job_progress_models(job_id=job_id, progress_ids=progress_ids, db=db)
+    application_ids = [progress.application_id for progress in progress_items]
+    application_map: dict[int, CandidateApplication] = {}
+    if application_ids:
+        application_result = await db.execute(
+            select(CandidateApplication).where(
+                CandidateApplication.id.in_(application_ids),
+                CandidateApplication.is_deleted.is_(False),
+            )
+        )
+        application_map = {
+            int(application.id): application
+            for application in application_result.scalars().all()
+        }
 
     for progress in progress_items:
         if (
@@ -783,6 +937,16 @@ async def move_job_progress_stage(
                 "reason": reason or "",
             },
         )
+
+        if normalized_target_stage in {RecruitmentStage.ASSESSMENT_REVIEW, RecruitmentStage.REJECTED}:
+            application = application_map.get(int(progress.application_id))
+            if application is not None:
+                await _trigger_stage_mail_task(
+                    job=job,
+                    application=application,
+                    target_stage=normalized_target_stage,
+                    db=db,
+                )
 
     await db.flush()
     return {
@@ -887,6 +1051,25 @@ async def update_job_progress_assessment_review(
         raise NotFoundException("Job not found.")
 
     progress_items = await get_job_progress_models(job_id=job_id, progress_ids=progress_ids, db=db)
+    candidate_users: dict[int, User] = {}
+    if progress_items:
+        user_result = await db.execute(
+            select(User).where(
+                User.id.in_([progress.user_id for progress in progress_items]),
+                User.is_deleted.is_(False),
+            )
+        )
+        candidate_users = {item.id: item for item in user_result.scalars().all()}
+    sender_admin_name: str | None = None
+    sender_result = await db.execute(
+        select(AdminUser).where(
+            AdminUser.id == admin_user_id,
+            AdminUser.is_deleted.is_(False),
+        )
+    )
+    sender_admin = sender_result.scalar_one_or_none()
+    if sender_admin is not None:
+        sender_admin_name = sender_admin.name
 
     for progress in progress_items:
         if progress.current_stage != RecruitmentStage.ASSESSMENT_REVIEW.value:
@@ -918,6 +1101,36 @@ async def update_job_progress_assessment_review(
         if JobProgressDataKey.ASSESSMENT_REVIEWER_ADMIN_USER_ID in field_updates:
             progress.assessment_reviewer_admin_user_id = assessment_reviewer_admin_user_id
             progress.assessment_assigned_at = datetime.now(UTC)
+
+        if (
+            "assessment_reviewer_admin_user_id" in changed_fields
+            and assessment_reviewer_admin_user_id is not None
+        ):
+            candidate = candidate_users.get(progress.user_id)
+            candidate_name = (
+                (candidate.name if candidate is not None else None)
+                or (candidate.email if candidate is not None else None)
+                or f"候选人#{progress.user_id}"
+            )
+            await create_admin_internal_notification(
+                db=db,
+                recipient_admin_user_id=assessment_reviewer_admin_user_id,
+                sender_admin_user_id=admin_user_id,
+                category="assessment_assignment",
+                title="收到新的测试题判题任务",
+                description=f"已将 {candidate_name} 的测试题分配到您这边，请及时完成评审。",
+                action_url=f"/jobs/{job.id}/progress?stage=assessment&candidateId={progress.user_id}",
+                data={
+                    "job_id": job.id,
+                    "job_title": job.title,
+                    "progress_id": progress.id,
+                    "candidate_user_id": progress.user_id,
+                    "application_id": progress.application_id,
+                    "stage": RecruitmentStage.ASSESSMENT_REVIEW.value,
+                    "sender_name": sender_admin_name,
+                    "candidate_name": candidate_name,
+                },
+            )
 
         await create_operation_log(
             db=db,

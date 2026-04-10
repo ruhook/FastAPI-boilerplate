@@ -16,6 +16,7 @@ from ..modules.admin.admin_audit_log.model import AdminAuditLog
 from ..modules.admin.admin_user.model import AdminUser
 from ..modules.admin.dictionary.model import AdminDictionary
 from ..modules.admin.form_template.model import AdminFormTemplate
+from ..modules.admin.internal_notification.model import AdminInternalNotification
 from ..modules.admin.mail_account.model import MailAccount
 from ..modules.admin.mail_signature.model import MailSignature
 from ..modules.admin.mail_task.model import MailTask
@@ -51,6 +52,7 @@ REGISTERED_MODELS = (
     Role,
     AdminDictionary,
     AdminFormTemplate,
+    AdminInternalNotification,
     Job,
     MailAccount,
     Asset,

@@ -153,6 +153,10 @@ class EventSettings(BaseSettings):
     EVENT_STATS_INTERVAL: int = 30
 
 
+class MailDeliverySettings(BaseSettings):
+    MAIL_DELIVERY_MODE: str | None = None
+
+
 class AssetStorageSettings(BaseSettings):
     ASSET_STORAGE_DIR: str = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
@@ -188,6 +192,7 @@ class Settings(
     TestSettings,
     RedisCacheSettings,
     EventSettings,
+    MailDeliverySettings,
     AssetStorageSettings,
     EnvironmentSettings,
     CORSSettings,

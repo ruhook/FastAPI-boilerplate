@@ -15,6 +15,7 @@ from ..app.modules.candidate_field.const import CandidateFieldKey
 from ..app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.model import JobProgress
+from ..app.modules.admin.mail_task.model import MailTask
 from ..app.modules.user.model import User
 from .run_client_apply_demo import (
     ensure_resume_asset,
@@ -34,7 +35,10 @@ from .seed_apply_demo_flow import (
     ensure_role,
 )
 from .seed_candidate_base_form_template import DICTIONARY_DEFINITIONS
-from .seed_job_progress_demo_flow import ensure_assessment_mail_dependencies
+from .seed_job_progress_demo_flow import (
+    ensure_assessment_mail_dependencies,
+    ensure_rejection_mail_dependencies,
+)
 
 WEB_BASE_URL = "http://testserver/api/v1"
 ADMIN_BASE_URL = "http://testserver/api/v1"
@@ -259,6 +263,7 @@ def build_application_items(
         {"field_key": CandidateFieldKey.EMAIL.value, "value": candidate_email},
         {"field_key": CandidateFieldKey.WHATSAPP.value, "value": whatsapp},
         {"field_key": CandidateFieldKey.COUNTRY_OF_RESIDENCE.value, "value": "Brazil"},
+        {"field_key": CandidateFieldKey.CITY.value, "value": "Sao Paulo"},
         {"field_key": CandidateFieldKey.NATIONALITY.value, "value": "Brazilian"},
         {"field_key": CandidateFieldKey.NATIVE_LANGUAGES.value, "value": "Portuguese"},
         {"field_key": CandidateFieldKey.ADDITIONAL_LANGUAGES.value, "value": "English"},
@@ -323,8 +328,10 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
         form_fields = list(form_template.fields or [])
 
     mail_ids = await ensure_assessment_mail_dependencies(admin_user_id=admin.id)
+    rejection_mail_ids = await ensure_rejection_mail_dependencies(admin_user_id=admin.id)
     jobs: list[Job] = []
     for definition in PORTAL_JOB_DEFINITIONS:
+        rejection_enabled = str(definition["key"]) == "rejected"
         async with local_session() as session:
             result = await session.execute(
                 select(Job).where(
@@ -338,6 +345,16 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
                 JOB_DATA_FORM_FIELDS_KEY: form_fields,
                 JOB_DATA_AUTOMATION_RULES_KEY: definition["automation_rules"],
             }
+            if rejection_enabled:
+                data["rejection_mail_config"] = {
+                    "enabled": True,
+                    "mail_account_id": rejection_mail_ids["mail_account_id"],
+                    "mail_template_id": rejection_mail_ids["mail_template_id"],
+                    "mail_signature_id": rejection_mail_ids["mail_signature_id"],
+                    "mail_account_label": "flow-assessment@example.com",
+                    "mail_template_name": "流程淘汰通知模板",
+                    "mail_signature_name": "流程淘汰签名",
+                }
             if job is None:
                 job = Job(
                     title=definition["title"],
@@ -481,6 +498,22 @@ async def fetch_existing_application(user_id: int, job_id: int) -> dict[str, int
         }
 
 
+async def list_mail_tasks() -> list[MailTask]:
+    async with local_session() as session:
+        result = await session.execute(select(MailTask).order_by(MailTask.id.asc()))
+        return list(result.scalars().all())
+
+
+def _subjects_for_recipient(tasks: list[MailTask], email: str) -> set[str]:
+    normalized_email = email.strip().lower()
+    subjects: set[str] = set()
+    for task in tasks:
+        recipients = task.to_recipients or []
+        if any(str(item.get("email") or "").strip().lower() == normalized_email for item in recipients):
+            subjects.add(str(task.subject))
+    return subjects
+
+
 async def fetch_my_applications(
     client: httpx.AsyncClient,
     *,
@@ -500,16 +533,21 @@ async def fetch_my_applications_page(
     needs_action_only: bool = False,
     keyword: str | None = None,
 ) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "page": page,
+        "page_size": page_size,
+    }
+    if current_stage:
+        params["current_stage"] = current_stage
+    if needs_action_only:
+        params["needs_action_only"] = True
+    if keyword:
+        params["keyword"] = keyword
+
     response = await client.get(
         "/me/applications",
         headers={"Authorization": f"Bearer {access_token}"},
-        params={
-            "page": page,
-            "page_size": page_size,
-            "current_stage": current_stage,
-            "needs_action_only": needs_action_only or None,
-            "keyword": keyword,
-        },
+        params=params,
     )
     payload = ensure_ok(response, "List My Jobs failed")
     return payload
@@ -659,6 +697,13 @@ async def main() -> None:
                 f"Duplicate application should fail with 400, got {duplicate_response.status_code} {duplicate_response.text}"
             )
         print_detail(f"duplicate apply blocked for job_id={duplicate_job.id}: {duplicate_response.json().get('detail')}")
+
+        auto_subjects = _subjects_for_recipient(await list_mail_tasks(), args.candidate_email)
+        if "请完成 {{job_title}} 测试题" not in auto_subjects:
+            raise RuntimeError("Missing auto-created assessment mail task in candidate-portal demo flow.")
+        if "关于 {{job_title}} 的申请结果通知" not in auto_subjects:
+            raise RuntimeError("Missing auto-created rejection mail task in candidate-portal demo flow.")
+        print_detail("auto mail tasks created for assessment-review and rejected branches")
 
         print_step("Step 4/6: shape the seven applications into seven different stages")
         list_payload = await fetch_my_applications(web_client, access_token=access_token)

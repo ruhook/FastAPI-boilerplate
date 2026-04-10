@@ -20,7 +20,12 @@ from ..app.modules.admin.mail_signature.model import MailSignature
 from ..app.modules.admin.mail_template.model import MailTemplate
 from ..app.modules.admin.mail_template_category.model import MailTemplateCategory
 from ..app.modules.candidate_field.const import CandidateFieldKey
-from ..app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
+from ..app.modules.job.const import (
+    JOB_DATA_AUTOMATION_RULES_KEY,
+    JOB_DATA_FORM_FIELDS_KEY,
+    JOB_DATA_REJECTION_MAIL_CONFIG_KEY,
+    JobStatus,
+)
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.service import get_job_progress_by_application_id, serialize_job_progress
 from ..app.main_web import app as web_app
@@ -94,6 +99,7 @@ def build_application_items(
         CandidateFieldKey.EMAIL.value: candidate_email,
         CandidateFieldKey.NATIONALITY.value: "Brazilian",
         CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: "Brazil",
+        CandidateFieldKey.CITY.value: "Sao Paulo",
         CandidateFieldKey.NATIVE_LANGUAGES.value: "Portuguese",
         CandidateFieldKey.ADDITIONAL_LANGUAGES.value: "English",
         CandidateFieldKey.AGE_RANGE.value: ("26_30", "26_30"),
@@ -243,6 +249,9 @@ async def ensure_job(
     assessment_mail_account_id: int | None = None,
     assessment_mail_template_id: int | None = None,
     assessment_mail_signature_id: int | None = None,
+    rejection_mail_account_id: int | None = None,
+    rejection_mail_template_id: int | None = None,
+    rejection_mail_signature_id: int | None = None,
 ) -> Job:
     async with local_session() as session:
         result = await session.execute(
@@ -257,6 +266,16 @@ async def ensure_job(
             JOB_DATA_FORM_FIELDS_KEY: form_fields,
             JOB_DATA_AUTOMATION_RULES_KEY: definition["automation_rules"],
         }
+        if rejection_mail_account_id and rejection_mail_template_id and rejection_mail_signature_id:
+            data[JOB_DATA_REJECTION_MAIL_CONFIG_KEY] = {
+                "enabled": True,
+                "mail_account_id": rejection_mail_account_id,
+                "mail_template_id": rejection_mail_template_id,
+                "mail_signature_id": rejection_mail_signature_id,
+                "mail_account_label": "flow-assessment@example.com",
+                "mail_template_name": "流程淘汰通知模板",
+                "mail_signature_name": "流程淘汰签名",
+            }
         if job is None:
             job = Job(
                 title=definition["title"],
@@ -405,6 +424,114 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
         }
 
 
+async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str, int]:
+    async with local_session() as session:
+        account_email = "flow-assessment@example.com"
+        account_result = await session.execute(
+            select(MailAccount).where(
+                MailAccount.admin_user_id == admin_user_id,
+                MailAccount.email == account_email,
+                MailAccount.is_deleted.is_(False),
+            )
+        )
+        account = account_result.scalar_one_or_none()
+        preset = MAIL_ACCOUNT_PROVIDER_PRESETS[MailAccountProvider.QQ.value]
+        if account is None:
+            account = MailAccount(
+                admin_user_id=admin_user_id,
+                email=account_email,
+                provider=MailAccountProvider.QQ.value,
+                smtp_username=account_email,
+                smtp_host=str(preset["smtp_host"]),
+                smtp_port=int(preset["smtp_port"]),
+                security_mode=str(preset["security_mode"]),
+                auth_secret="flow-demo-auth-code",
+                status=MailAccountStatus.ENABLED.value,
+                note="Seeded for job progress rejection demo.",
+            )
+            session.add(account)
+            await session.flush()
+
+        category_result = await session.execute(
+            select(MailTemplateCategory).where(
+                MailTemplateCategory.admin_user_id == admin_user_id,
+                MailTemplateCategory.name == "流程淘汰通知",
+                MailTemplateCategory.parent_id.is_(None),
+                MailTemplateCategory.is_deleted.is_(False),
+            )
+        )
+        category = category_result.scalar_one_or_none()
+        if category is None:
+            category = MailTemplateCategory(
+                admin_user_id=admin_user_id,
+                parent_id=None,
+                name="流程淘汰通知",
+                sort_order=2,
+                enabled=True,
+            )
+            session.add(category)
+            await session.flush()
+
+        template_result = await session.execute(
+            select(MailTemplate).where(
+                MailTemplate.admin_user_id == admin_user_id,
+                MailTemplate.name == "流程淘汰通知模板",
+                MailTemplate.is_deleted.is_(False),
+            )
+        )
+        template = template_result.scalar_one_or_none()
+        if template is None:
+            template = MailTemplate(
+                admin_user_id=admin_user_id,
+                category_id=category.id,
+                name="流程淘汰通知模板",
+                subject_template="关于 {{job_title}} 的申请结果通知",
+                body_html=(
+                    "<p>Hi {{candidate_name}}，感谢你申请 {{job_title}}。</p>"
+                    "<p>经过本轮评估，我们暂时不会继续推进这次申请。</p>"
+                ),
+                attachments=[],
+            )
+            session.add(template)
+            await session.flush()
+
+        signature_result = await session.execute(
+            select(MailSignature).where(
+                MailSignature.admin_user_id == admin_user_id,
+                MailSignature.name == "流程淘汰签名",
+                MailSignature.is_deleted.is_(False),
+            )
+        )
+        signature = signature_result.scalar_one_or_none()
+        if signature is None:
+            signature = MailSignature(
+                admin_user_id=admin_user_id,
+                name="流程淘汰签名",
+                owner="Recruiting",
+                enabled=True,
+                full_name="Flow Admin",
+                job_title="Recruiting Manager",
+                company_name="T-Maxx",
+                primary_email=account_email,
+                secondary_email=None,
+                website="https://www.t-maxx.cc",
+                linkedin_label="T-Maxx",
+                linkedin_url="https://www.linkedin.com/company/t-maxx",
+                address="Beijing, China",
+                avatar_asset_id=None,
+                banner_asset_id=None,
+            )
+            session.add(signature)
+            await session.flush()
+
+        await session.commit()
+        return {
+            "mail_account_id": int(account.id),
+            "mail_template_id": int(template.id),
+            "mail_signature_id": int(signature.id),
+        }
+
+
 async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
     async with local_session() as session:
         for definition in DICTIONARY_DEFINITIONS:
@@ -417,8 +544,10 @@ async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
         form_fields = list(form_template.fields or [])
 
     assessment_mail_ids = await ensure_assessment_mail_dependencies(admin_user_id=admin.id)
+    rejection_mail_ids = await ensure_rejection_mail_dependencies(admin_user_id=admin.id)
     jobs: list[Job] = []
     for definition in DEMO_JOB_DEFINITIONS:
+        rejection_enabled = definition["key"] == "no_assessment_auto_rejected"
         jobs.append(
             await ensure_job(
                 owner_admin_user_id=admin.id,
@@ -428,6 +557,9 @@ async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
                 assessment_mail_account_id=assessment_mail_ids["mail_account_id"] if definition["assessment_enabled"] else None,
                 assessment_mail_template_id=assessment_mail_ids["mail_template_id"] if definition["assessment_enabled"] else None,
                 assessment_mail_signature_id=assessment_mail_ids["mail_signature_id"] if definition["assessment_enabled"] else None,
+                rejection_mail_account_id=rejection_mail_ids["mail_account_id"] if rejection_enabled else None,
+                rejection_mail_template_id=rejection_mail_ids["mail_template_id"] if rejection_enabled else None,
+                rejection_mail_signature_id=rejection_mail_ids["mail_signature_id"] if rejection_enabled else None,
             )
         )
 

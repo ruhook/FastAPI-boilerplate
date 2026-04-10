@@ -29,6 +29,11 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
         "options": FIELD_CATALOG_OPTIONS,
     },
     {
+        "key": "candidate_city",
+        "label": "候选人所在城市",
+        "options": [],
+    },
+    {
         "key": "candidate_age_range",
         "label": "候选人年龄区间",
         "options": [
@@ -128,6 +133,7 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
 FIELD_DESCRIPTIONS = {
     CandidateFieldKey.WHATSAPP.value: "If we cannot connect you via email, we may try this way.",
     CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: "Please enter the country name in English, such as United Kingdom, the Philippines, or Brazil.",
+    CandidateFieldKey.CITY.value: "Please enter the city name in English, such as Bangkok, Sao Paulo, or Jakarta.",
     CandidateFieldKey.NATIVE_LANGUAGES.value: "e.g. English, Malay, Korea",
     CandidateFieldKey.AGE_RANGE.value: "Required for internal analysis only; this information will not be used for selection decisions. We welcome applicants of all age range groups who pass the test~",
     CandidateFieldKey.EXPECTED_SALARY_USD_PER_HOUR.value: "Please choose your expected rate in USD.",
@@ -172,6 +178,15 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
         "group": "basic",
         "canFilter": True,
         "placeholder": "Please enter the country name in English",
+    },
+    {
+        "key": CandidateFieldKey.CITY.value,
+        "label": "Which city do you currently live in?",
+        "type": "text",
+        "required": False,
+        "group": "basic",
+        "canFilter": True,
+        "placeholder": "Please enter the city name in English",
     },
     {
         "key": CandidateFieldKey.NATIONALITY.value,
