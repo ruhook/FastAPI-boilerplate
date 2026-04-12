@@ -1,0 +1,41 @@
+[program:hr-web]
+directory=/srv/hr-server
+command=/srv/hr-server/.venv/bin/gunicorn -c /srv/hr-server/gunicorn_web.conf.py src.app.main_web:app
+user=root
+autostart=true
+autorestart=true
+startsecs=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+stdout_logfile=/var/log/hr-server/hr-web.stdout.log
+stderr_logfile=/var/log/hr-server/hr-web.stderr.log
+environment=PYTHONPATH="/srv/hr-server",ENVIRONMENT="production",FILE_LOG_DIR="/var/log/hr-server",FILE_LOG_FILENAME="web.app.log"
+
+[program:hr-admin]
+directory=/srv/hr-server
+command=/srv/hr-server/.venv/bin/gunicorn -c /srv/hr-server/gunicorn_admin.conf.py src.app.main_admin:app
+user=root
+autostart=true
+autorestart=true
+startsecs=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+stdout_logfile=/var/log/hr-server/hr-admin.stdout.log
+stderr_logfile=/var/log/hr-server/hr-admin.stderr.log
+environment=PYTHONPATH="/srv/hr-server",ENVIRONMENT="production",FILE_LOG_DIR="/var/log/hr-server",FILE_LOG_FILENAME="admin.app.log"
+
+[program:hr-event-consumer]
+directory=/srv/hr-server
+command=/srv/hr-server/.venv/bin/python /srv/hr-server/event_consumer.py
+user=root
+autostart=true
+autorestart=true
+startsecs=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+stdout_logfile=/var/log/hr-server/hr-event.stdout.log
+stderr_logfile=/var/log/hr-server/hr-event.stderr.log
+environment=PYTHONPATH="/srv/hr-server",ENVIRONMENT="production",FILE_LOG_DIR="/var/log/hr-server",FILE_LOG_FILENAME="event.app.log"
