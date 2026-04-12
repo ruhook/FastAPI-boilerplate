@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
@@ -60,6 +61,15 @@ async def get_dictionary_model(dictionary_id: int, db: AsyncSession) -> AdminDic
     return dictionary
 
 
+def _raise_dictionary_integrity_error(exc: IntegrityError) -> None:
+    message = str(getattr(exc, "orig", exc))
+    if "ix_admin_dictionary_key" in message:
+        raise DuplicateValueException("字典 Key 已存在，请更换一个唯一的 Key。") from exc
+    if "ix_admin_dictionary_label" in message:
+        raise DuplicateValueException("字典名称已存在，请更换一个唯一的名称。") from exc
+    raise BadRequestException("字典保存失败，请检查名称和 Key 是否重复。") from exc
+
+
 async def create_dictionary(payload: DictionaryCreate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
     if payload.key:
         existing_by_key = await db.execute(
@@ -87,7 +97,11 @@ async def create_dictionary(payload: DictionaryCreate, db: AsyncSession, *, admi
         data={},
     )
     db.add(dictionary)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        _raise_dictionary_integrity_error(exc)
     await create_admin_audit_log(
         db=db,
         admin_user_id=admin_user_id,
@@ -137,7 +151,11 @@ async def update_dictionary(
         dictionary.options = [option.model_dump() for option in payload.options]
 
     dictionary.updated_at = datetime.now(UTC)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        _raise_dictionary_integrity_error(exc)
     await create_admin_audit_log(
         db=db,
         admin_user_id=admin_user_id,

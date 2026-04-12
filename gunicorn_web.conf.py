@@ -1,7 +1,7 @@
 import os
 
 bind = os.getenv("WEB_GUNICORN_BIND", "0.0.0.0:8000")
-workers = int(os.getenv("WEB_GUNICORN_WORKERS", "2"))
+workers = int(os.getenv("WEB_GUNICORN_WORKERS", "1"))
 worker_class = "uvicorn.workers.UvicornWorker"
 accesslog = "-"
 errorlog = "-"
