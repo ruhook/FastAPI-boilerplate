@@ -3,13 +3,21 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ..dependencies import get_current_user
 from ...core.db.database import async_get_db
-from ...core.exceptions.http_exceptions import DuplicateValueException
+from ...core.exceptions.http_exceptions import BadRequestException, DuplicateValueException
 from ...core.security import get_password_hash
+from ...core.utils.cache import async_get_redis
 from ...modules.user.crud import crud_users
+from ...modules.user.register_verification_service import (
+    is_register_verification_enabled,
+    send_register_verification_code,
+    verify_register_verification_code,
+)
 from ...modules.user.schema import UserAuth, UserCreateInternal, UserRead
 
 router = APIRouter(prefix="/user", tags=["web-user"])
@@ -27,6 +35,7 @@ class WebRegisterRequest(BaseModel):
     nationality: str | None = Field(default=None, max_length=100)
     native_language: str | None = Field(default=None, max_length=100)
     headline: str | None = Field(default=None, max_length=255)
+    verification_code: str | None = Field(default=None, min_length=4, max_length=12)
 
     @field_validator("name")
     @classmethod
@@ -35,6 +44,17 @@ class WebRegisterRequest(BaseModel):
         if not normalized:
             raise ValueError("Name cannot be empty.")
         return normalized
+
+
+class RegisterVerificationCodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class RegisterVerificationCodeResponse(BaseModel):
+    message: str
+    cooldown_seconds: int
 
 
 def _build_candidate_data(payload: WebRegisterRequest) -> dict[str, Any]:
@@ -63,7 +83,15 @@ async def _generate_available_username(email: str, db: AsyncSession) -> str:
 async def register_user(
     payload: WebRegisterRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
+    redis: Annotated[Redis, Depends(async_get_redis)],
 ) -> dict[str, Any]:
+    if is_register_verification_enabled():
+        await verify_register_verification_code(
+            email=str(payload.email),
+            code=payload.verification_code or "",
+            redis=redis,
+        )
+
     if await crud_users.exists(db=db, email=payload.email):
         raise DuplicateValueException("Email is already registered")
 
@@ -82,6 +110,26 @@ async def register_user(
         schema_to_select=UserRead,
     )
     return created
+
+
+@router.post("/register/send-code", response_model=RegisterVerificationCodeResponse)
+async def send_register_code(
+    payload: RegisterVerificationCodeRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    redis: Annotated[Redis, Depends(async_get_redis)],
+) -> RegisterVerificationCodeResponse:
+    if not settings.CANDIDATE_REGISTER_VERIFICATION_ENABLED:
+        raise BadRequestException("Candidate registration verification is disabled.")
+
+    cooldown_seconds = await send_register_verification_code(
+        email=str(payload.email),
+        redis=redis,
+        db=db,
+    )
+    return RegisterVerificationCodeResponse(
+        message="Verification code sent.",
+        cooldown_seconds=cooldown_seconds,
+    )
 
 
 @router.get("/me", response_model=UserAuth)

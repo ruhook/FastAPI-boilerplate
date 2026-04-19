@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from ..app.core.db.database import async_engine, local_session
 from ..app.modules.candidate_field.const import (
@@ -29,6 +29,22 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
         "options": FIELD_CATALOG_OPTIONS,
     },
     {
+        "key": "country",
+        "label": "国家",
+        "options": [
+            {"label": "Brazil", "admin_label": "巴西", "value": "Brazil"},
+            {"label": "China", "admin_label": "中国", "value": "China"},
+            {"label": "Singapore", "admin_label": "新加坡", "value": "Singapore"},
+            {"label": "Malaysia", "admin_label": "马来西亚", "value": "Malaysia"},
+            {"label": "Indonesia", "admin_label": "印度尼西亚", "value": "Indonesia"},
+            {"label": "Philippines", "admin_label": "菲律宾", "value": "Philippines"},
+            {"label": "Thailand", "admin_label": "泰国", "value": "Thailand"},
+            {"label": "Vietnam", "admin_label": "越南", "value": "Vietnam"},
+            {"label": "India", "admin_label": "印度", "value": "India"},
+            {"label": "Canada", "admin_label": "加拿大", "value": "Canada"},
+        ],
+    },
+    {
         "key": "candidate_city",
         "label": "候选人所在城市",
         "options": [],
@@ -37,71 +53,71 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
         "key": "candidate_age_range",
         "label": "候选人年龄区间",
         "options": [
-            {"label": "18岁以下", "value": "under_18"},
-            {"label": "18-25岁", "value": "18_25"},
-            {"label": "26-30岁", "value": "26_30"},
-            {"label": "31-35岁", "value": "31_35"},
-            {"label": "36-40岁", "value": "36_40"},
-            {"label": "41-45岁", "value": "41_45"},
-            {"label": "46-50岁", "value": "46_50"},
-            {"label": "51-55岁", "value": "51_55"},
-            {"label": "56-60岁", "value": "56_60"},
-            {"label": "61-65岁", "value": "61_65"},
-            {"label": "66-75岁", "value": "66_75"},
-            {"label": "75岁以上", "value": "over_75"},
+            {"label": "Under 18", "admin_label": "18岁以下", "value": "under_18"},
+            {"label": "18-25", "admin_label": "18-25岁", "value": "18_25"},
+            {"label": "26-30", "admin_label": "26-30岁", "value": "26_30"},
+            {"label": "31-35", "admin_label": "31-35岁", "value": "31_35"},
+            {"label": "36-40", "admin_label": "36-40岁", "value": "36_40"},
+            {"label": "41-45", "admin_label": "41-45岁", "value": "41_45"},
+            {"label": "46-50", "admin_label": "46-50岁", "value": "46_50"},
+            {"label": "51-55", "admin_label": "51-55岁", "value": "51_55"},
+            {"label": "56-60", "admin_label": "56-60岁", "value": "56_60"},
+            {"label": "61-65", "admin_label": "61-65岁", "value": "61_65"},
+            {"label": "66-75", "admin_label": "66-75岁", "value": "66_75"},
+            {"label": "Over 75", "admin_label": "75岁以上", "value": "over_75"},
         ],
     },
     {
         "key": "candidate_max_working_hours_per_day",
         "label": "候选人每日最大工作时长",
         "options": [
-            {"label": "8小时以上", "value": "over_8_hours"},
-            {"label": "4-8小时", "value": "4_8_hours"},
-            {"label": "少于4小时", "value": "under_4_hours"},
+            {"label": "More than 8 hours", "admin_label": "8小时以上", "value": "over_8_hours"},
+            {"label": "4-8 hours", "admin_label": "4-8小时", "value": "4_8_hours"},
+            {"label": "Less than 4 hours", "admin_label": "少于4小时", "value": "under_4_hours"},
         ],
     },
     {
         "key": "candidate_accepts_hourly_payment",
         "label": "候选人是否接受时薪结算",
         "options": [
-            {"label": "接受", "value": "yes"},
-            {"label": "不接受，请说明原因", "value": "no_state_reason"},
+            {"label": "Yes", "admin_label": "接受", "value": "yes"},
+            {"label": "No, please explain why", "admin_label": "不接受，请说明原因", "value": "no_state_reason"},
         ],
     },
     {
         "key": "candidate_expected_salary_usd_per_hour",
         "label": "候选人期望时薪（USD/小时）",
         "options": [
-            {"label": "2-5美元/小时", "value": "2_5"},
-            {"label": "6-10美元/小时", "value": "6_10"},
-            {"label": "11-15美元/小时", "value": "11_15"},
-            {"label": "16-20美元/小时", "value": "16_20"},
-            {"label": "20美元/小时以上", "value": "over_20"},
+            {"label": "USD 2-5 / hour", "admin_label": "2-5美元/小时", "value": "2_5"},
+            {"label": "USD 6-10 / hour", "admin_label": "6-10美元/小时", "value": "6_10"},
+            {"label": "USD 11-15 / hour", "admin_label": "11-15美元/小时", "value": "11_15"},
+            {"label": "USD 16-20 / hour", "admin_label": "16-20美元/小时", "value": "16_20"},
+            {"label": "Above USD 20 / hour", "admin_label": "20美元/小时以上", "value": "over_20"},
         ],
     },
     {
         "key": "candidate_education_status",
         "label": "候选人学历状态",
         "options": [
-            {"label": "高中在读", "value": "high_school_in_progress"},
-            {"label": "高中毕业", "value": "high_school_completed"},
-            {"label": "本科在读", "value": "bachelor_in_progress"},
-            {"label": "本科毕业", "value": "bachelor_completed"},
-            {"label": "硕士在读", "value": "master_in_progress"},
-            {"label": "硕士毕业", "value": "master_completed"},
-            {"label": "博士", "value": "phd"},
+            {"label": "High school in progress", "admin_label": "高中在读", "value": "high_school_in_progress"},
+            {"label": "High school completed", "admin_label": "高中毕业", "value": "high_school_completed"},
+            {"label": "Bachelor in progress", "admin_label": "本科在读", "value": "bachelor_in_progress"},
+            {"label": "Bachelor completed", "admin_label": "本科毕业", "value": "bachelor_completed"},
+            {"label": "Master in progress", "admin_label": "硕士在读", "value": "master_in_progress"},
+            {"label": "Master completed", "admin_label": "硕士毕业", "value": "master_completed"},
+            {"label": "PhD", "admin_label": "博士", "value": "phd"},
         ],
     },
     {
         "key": "candidate_ai_data_annotation_experience",
         "label": "候选人AI数据标注经验",
         "options": [
-            {"label": "0-3个月", "value": "0_3_months"},
-            {"label": "3-6个月", "value": "3_6_months"},
-            {"label": "6-12个月", "value": "6_12_months"},
-            {"label": "1-2年", "value": "1_2_years"},
-            {"label": "2-3年", "value": "2_3_years"},
-            {"label": "3年以上", "value": "over_3_years"},
+            {"label": "0-3 months", "admin_label": "0-3个月", "value": "0_3_months"},
+            {"label": "3-6 months", "admin_label": "3-6个月", "value": "3_6_months"},
+            {"label": "6-12 months", "admin_label": "6-12个月", "value": "6_12_months"},
+            {"label": "1-2 years", "admin_label": "1-2年", "value": "1_2_years"},
+            {"label": "2-3 years", "admin_label": "2-3年", "value": "2_3_years"},
+            {"label": "Over 3 years", "admin_label": "3年以上", "value": "over_3_years"},
         ],
     },
     {
@@ -109,22 +125,27 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
         "label": "候选人签证支持需求",
         "options": [
             {
-                "label": "不需要，我现在和未来都不需要签证支持",
+                "label": "No, I do not require sponsorship now or in the future",
+                "admin_label": "不需要，我现在和未来都不需要签证支持",
                 "value": "no_sponsorship_required",
             },
-            {"label": "需要，我需要签证支持", "value": "sponsorship_required"},
-            {"label": "其他", "value": "other"},
+            {"label": "Yes, I require sponsorship", "admin_label": "需要，我需要签证支持", "value": "sponsorship_required"},
+            {"label": "Other", "admin_label": "其他", "value": "other"},
         ],
     },
     {
         "key": "candidate_job_source",
         "label": "候选人岗位来源渠道",
         "options": [
-            {"label": "LinkedIn职位发布", "value": "linkedin_job_post"},
-            {"label": "Indeed职位发布", "value": "indeed_job_post"},
-            {"label": "JobThai", "value": "jobthai"},
-            {"label": "在职T-Maxx数据标注员推荐", "value": "referral_from_current_annotator"},
-            {"label": "其他", "value": "other"},
+            {"label": "LinkedIn job post", "admin_label": "LinkedIn职位发布", "value": "linkedin_job_post"},
+            {"label": "Indeed job post", "admin_label": "Indeed职位发布", "value": "indeed_job_post"},
+            {"label": "JobThai", "admin_label": "JobThai", "value": "jobthai"},
+            {
+                "label": "Referral from a current T-Maxx annotator",
+                "admin_label": "在职T-Maxx数据标注员推荐",
+                "value": "referral_from_current_annotator",
+            },
+            {"label": "Other", "admin_label": "其他", "value": "other"},
         ],
     },
 ]
@@ -173,11 +194,11 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
     {
         "key": CandidateFieldKey.COUNTRY_OF_RESIDENCE.value,
         "label": "Which country do you reside in on a long-term basis?",
-        "type": "text",
+        "type": "select",
         "required": True,
         "group": "basic",
         "canFilter": True,
-        "placeholder": "Please enter the country name in English",
+        "dictionary_key": "country",
     },
     {
         "key": CandidateFieldKey.CITY.value,
@@ -334,12 +355,18 @@ async def upsert_dictionary(
         logger.info("Created dictionary: %s", key)
         return dictionary
 
-    dictionary.label = label
-    dictionary.options = options
-    dictionary.data = {**(dictionary.data or {}), "seed_key": key}
-    dictionary.is_deleted = False
-    dictionary.deleted_at = None
-    await session.flush()
+    await session.execute(
+        update(AdminDictionary)
+        .where(AdminDictionary.id == dictionary.id)
+        .values(
+            label=label,
+            options=options,
+            data={**(dictionary.data or {}), "seed_key": key},
+            is_deleted=False,
+            deleted_at=None,
+        )
+    )
+    await session.refresh(dictionary)
     logger.info("Updated dictionary: %s", key)
     return dictionary
 

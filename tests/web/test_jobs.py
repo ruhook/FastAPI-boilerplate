@@ -3,8 +3,10 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.modules.admin.dictionary.model import AdminDictionary
 from tests.helpers.talent import build_form_fields, create_form_template, create_open_job
 
 
@@ -18,6 +20,21 @@ async def test_web_jobs_list_only_shows_open_jobs_and_supports_basic_filters(
 ) -> None:
     suffix = uuid4().hex[:8]
     fields = build_form_fields()
+    country_dictionary = (
+        await db_session.execute(select(AdminDictionary).where(AdminDictionary.key == "country"))
+    ).scalar_one_or_none()
+    if country_dictionary is None:
+        country_dictionary = AdminDictionary(
+            key="country",
+            label=f"Country {suffix}",
+            options=[{"label": "Brazil Label", "value": "Brazil"}],
+            data={},
+        )
+        db_session.add(country_dictionary)
+    else:
+        country_dictionary.label = f"Country {suffix}"
+        country_dictionary.options = [{"label": "Brazil Label", "value": "Brazil"}]
+    await db_session.commit()
     template = await create_form_template(db_session, suffix=f"jobs-{suffix}", fields=fields)
 
     open_job = await create_open_job(
@@ -50,6 +67,9 @@ async def test_web_jobs_list_only_shows_open_jobs_and_supports_basic_filters(
     item_ids = [item["id"] for item in list_payload["items"]]
     assert open_job.id in item_ids
     assert paused_job.id not in item_ids
+    open_item = next(item for item in list_payload["items"] if item["id"] == open_job.id)
+    assert open_item["country_label"] == "Brazil Label"
+    assert open_item["show_compensation"] is True
 
     keyword_response = await web_client.get("/api/v1/jobs", params={"keyword": open_job.title})
     assert keyword_response.status_code == 200, keyword_response.text
@@ -73,6 +93,21 @@ async def test_web_job_detail_returns_public_fields_and_form_snapshot(
 ) -> None:
     suffix = uuid4().hex[:8]
     fields = build_form_fields()
+    country_dictionary = (
+        await db_session.execute(select(AdminDictionary).where(AdminDictionary.key == "country"))
+    ).scalar_one_or_none()
+    if country_dictionary is None:
+        country_dictionary = AdminDictionary(
+            key="country",
+            label=f"Country Detail {suffix}",
+            options=[{"label": "Brazil Label", "value": "Brazil"}],
+            data={},
+        )
+        db_session.add(country_dictionary)
+    else:
+        country_dictionary.label = f"Country Detail {suffix}"
+        country_dictionary.options = [{"label": "Brazil Label", "value": "Brazil"}]
+    await db_session.commit()
     template = await create_form_template(db_session, suffix=f"detail-{suffix}", fields=fields)
     job = await create_open_job(
         db_session,
@@ -93,6 +128,8 @@ async def test_web_job_detail_returns_public_fields_and_form_snapshot(
     assert detail_payload["id"] == job.id
     assert detail_payload["title"] == job.title
     assert detail_payload["status"] == "在招"
+    assert detail_payload["country_label"] == "Brazil Label"
+    assert detail_payload["show_compensation"] is True
     assert detail_payload["form_template_id"] == template.id
     assert len(detail_payload["form_fields"]) == len(fields)
     assert detail_payload["form_fields"][0]["key"] == "full_name"

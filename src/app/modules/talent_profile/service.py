@@ -18,7 +18,7 @@ from ..candidate_application.schema import (
 )
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
 from ..candidate_field.const import CandidateFieldKey
-from ..job.const import JOB_DATA_FORM_FIELDS_KEY, JobStatus
+from ..job.const import JOB_DATA_APPLICATION_SUMMARY_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..job.model import Job
 from ..job_progress.model import JobProgress
 from ..job_progress.const import get_recruitment_stage_cn_name
@@ -529,6 +529,16 @@ async def create_application_and_sync_talent(
     )
     db.add(application)
     await db.flush()
+
+    job.applicant_count = int(job.applicant_count or 0) + 1
+    if isinstance(job.data, dict):
+        application_summary = job.data.get(JOB_DATA_APPLICATION_SUMMARY_KEY)
+        if isinstance(application_summary, dict):
+            next_summary = dict(application_summary)
+            next_summary["applicants"] = int(job.applicant_count)
+            next_data = dict(job.data)
+            next_data[JOB_DATA_APPLICATION_SUMMARY_KEY] = next_summary
+            job.data = next_data
 
     next_order = 0
     for item in payload.items:

@@ -13,7 +13,8 @@ from ..candidate_application_field_value.model import CandidateApplicationFieldV
 from ..assets.model import Asset
 from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
-from ..job.const import JOB_DATA_AUTOMATION_RULES_KEY
+from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
+from ..job.const import JOB_DATA_AUTOMATION_RULES_KEY, JOB_DATA_SHOW_COMPENSATION_KEY
 from ..job.model import Job
 from ..admin.admin_user.model import AdminUser
 from ..user.model import User
@@ -86,7 +87,9 @@ def _evaluate_automation_rule(
     display_value = field_entry.get("display_value")
     raw_value = field_entry.get("raw_value")
     asset_id = field_entry.get("asset_id")
-    actual_value = display_value if display_value is not None else raw_value
+    actual_value = raw_value if raw_value is not None else display_value
+    raw_text = _normalize_text(raw_value).lower()
+    display_text = _normalize_text(display_value).lower()
 
     if operator == "uploaded":
         return asset_id is not None or _normalize_text(actual_value) != ""
@@ -118,28 +121,27 @@ def _evaluate_automation_rule(
             return lower is not None and upper is not None and lower <= left <= upper
 
     actual_text = _normalize_text(actual_value).lower()
+    normalized_actual_parts = {
+        value.strip().lower()
+        for source in {actual_text, raw_text, display_text}
+        for value in source.replace("/", ",").split(",")
+        if value.strip()
+    }
     if operator == "contains":
-        return _normalize_text(configured_value).lower() in actual_text
+        target = _normalize_text(configured_value).lower()
+        return any(target in source for source in {actual_text, raw_text, display_text})
     if operator == "not_contains":
-        return _normalize_text(configured_value).lower() not in actual_text
+        target = _normalize_text(configured_value).lower()
+        return all(target not in source for source in {actual_text, raw_text, display_text})
     if operator == "includes":
         target_values = configured_value if isinstance(configured_value, list) else [configured_value]
-        normalized_actual_parts = {
-            value.strip().lower()
-            for value in actual_text.replace("/", ",").split(",")
-            if value.strip()
-        }
         return any(_normalize_text(item).lower() in normalized_actual_parts for item in target_values)
     if operator == "not_includes":
         target_values = configured_value if isinstance(configured_value, list) else [configured_value]
-        normalized_actual_parts = {
-            value.strip().lower()
-            for value in actual_text.replace("/", ",").split(",")
-            if value.strip()
-        }
         return all(_normalize_text(item).lower() not in normalized_actual_parts for item in target_values)
     if operator == "eq":
-        return actual_text == _normalize_text(configured_value).lower()
+        target = _normalize_text(configured_value).lower()
+        return target in {actual_text, raw_text, display_text}
 
     return False
 
@@ -450,6 +452,10 @@ def _build_candidate_compensation_label(job: Job) -> str:
     min_text = f"{min_value:.2f}".rstrip("0").rstrip(".")
     max_text = f"{max_value:.2f}".rstrip("0").rstrip(".")
     return f"USD {min_text} - {max_text} {job.compensation_unit}"
+
+
+def _should_show_candidate_compensation(job: Job) -> bool:
+    return bool((job.data or {}).get(JOB_DATA_SHOW_COMPENSATION_KEY, True))
 
 
 def _serialize_application_snapshot(
@@ -789,6 +795,7 @@ async def get_candidate_job_application_detail(
     application_id: int,
     db: AsyncSession,
 ) -> dict[str, Any]:
+    country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
     result = await db.execute(
         select(JobProgress, CandidateApplication, Job)
         .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
@@ -841,8 +848,10 @@ async def get_candidate_job_application_detail(
         applied_at=application.submitted_at,
         description_html=job.description,
         country=job.country,
+        country_label=country_label_map.get(job.country.strip()) if job.country.strip() else None,
         work_mode=job.work_mode,
-        compensation_label=_build_candidate_compensation_label(job),
+        show_compensation=_should_show_candidate_compensation(job),
+        compensation_label=_build_candidate_compensation_label(job) if _should_show_candidate_compensation(job) else "-",
         assessment_enabled=job.assessment_enabled,
         application_snapshot=_serialize_application_snapshot(field_rows),
         application_assets=_serialize_application_assets(field_rows, asset_map),

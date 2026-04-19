@@ -13,12 +13,21 @@ def _normalize_text(value: str) -> str:
 
 class DictionaryOption(BaseModel):
     label: str = Field(min_length=1, max_length=100)
+    admin_label: str | None = Field(default=None, max_length=100)
     value: str = Field(min_length=1, max_length=100)
 
     @field_validator("label", "value")
     @classmethod
     def normalize_fields(cls, value: str) -> str:
         return _normalize_text(value)
+
+    @field_validator("admin_label")
+    @classmethod
+    def normalize_admin_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        return normalized or None
 
 
 def normalize_dictionary_options(options: list[DictionaryOption]) -> list[DictionaryOption]:
@@ -74,7 +83,7 @@ class DictionaryCreate(DictionaryBase):
 class DictionaryCreateInternal(BaseModel):
     key: str | None = None
     label: str
-    options: list[dict[str, str]] = Field(default_factory=list)
+    options: list[dict[str, Any]] = Field(default_factory=list)
     data: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -111,7 +120,7 @@ class DictionaryUpdate(BaseModel):
 class DictionaryUpdateInternal(BaseModel):
     key: str | None = None
     label: str | None = None
-    options: list[dict[str, str]] | None = None
+    options: list[dict[str, Any]] | None = None
     data: dict[str, Any] | None = None
     updated_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
 

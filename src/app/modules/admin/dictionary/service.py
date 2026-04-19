@@ -61,6 +61,29 @@ async def get_dictionary_model(dictionary_id: int, db: AsyncSession) -> AdminDic
     return dictionary
 
 
+async def get_dictionary_option_label_map_by_key(
+    *,
+    key: str,
+    db: AsyncSession,
+) -> dict[str, str]:
+    result = await db.execute(
+        select(AdminDictionary).where(
+            AdminDictionary.key == key,
+            AdminDictionary.is_deleted.is_(False),
+        )
+    )
+    dictionary = result.scalar_one_or_none()
+    if dictionary is None:
+        return {}
+
+    label_map: dict[str, str] = {}
+    for option in dictionary_options_from_model(dictionary):
+        normalized_value = option.value.strip()
+        if normalized_value:
+            label_map[normalized_value] = option.label
+    return label_map
+
+
 def _raise_dictionary_integrity_error(exc: IntegrityError) -> None:
     message = str(getattr(exc, "orig", exc))
     if "ix_admin_dictionary_key" in message:

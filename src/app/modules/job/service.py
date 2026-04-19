@@ -23,6 +23,7 @@ from .const import (
     JOB_DATA_PUBLISH_CHECKLIST_KEY,
     JOB_DATA_REJECTION_MAIL_CONFIG_KEY,
     JOB_DATA_SCREENING_RULES_KEY,
+    JOB_DATA_SHOW_COMPENSATION_KEY,
 )
 from .model import Job
 from .schema import (
@@ -141,6 +142,7 @@ def _job_data_from_payload(
     data[JOB_DATA_APPLICATION_SUMMARY_KEY] = (
         payload.application_summary.model_dump() if payload.application_summary else None
     )
+    data[JOB_DATA_SHOW_COMPENSATION_KEY] = payload.show_compensation
     return data
 
 
@@ -167,6 +169,8 @@ def _merge_job_data(
         next_data[JOB_DATA_PUBLISH_CHECKLIST_KEY] = payload.publish_checklist
     if payload.application_summary is not None:
         next_data[JOB_DATA_APPLICATION_SUMMARY_KEY] = payload.application_summary.model_dump()
+    if payload.show_compensation is not None:
+        next_data[JOB_DATA_SHOW_COMPENSATION_KEY] = payload.show_compensation
     return next_data
 
 
@@ -192,6 +196,7 @@ def serialize_job(job: Job, owner_name: str | None) -> dict[str, Any]:
         compensation_min=job.compensation_min,
         compensation_max=job.compensation_max,
         compensation_unit=job.compensation_unit,
+        show_compensation=bool(data.get(JOB_DATA_SHOW_COMPENSATION_KEY, True)),
         description=job.description,
         owner_name=owner_name or data.get("owner_name"),
         collaborators=list(data.get(JOB_DATA_COLLABORATORS_KEY) or []),
@@ -467,9 +472,9 @@ async def update_job(
         job.compensation_unit = payload.compensation_unit
     if payload.description is not None:
         job.description = payload.description
-    if payload.compensation_min is not None:
+    if "compensation_min" in payload.model_fields_set:
         job.compensation_min = payload.compensation_min
-    if payload.compensation_max is not None:
+    if "compensation_max" in payload.model_fields_set:
         job.compensation_max = payload.compensation_max
 
     next_owner_name = payload.owner_name

@@ -39,6 +39,7 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
             "compensation_min": "6",
             "compensation_max": "10",
             "compensation_unit": "Per Hour",
+            "show_compensation": True,
             "description": "<p>Review Portuguese content.</p>",
             "owner_name": "Super Admin",
             "collaborators": ["Ops A"],
@@ -86,12 +87,18 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
         headers=admin_auth_headers,
         json={
             "company": "T-Maxx Updated",
+            "compensation_min": None,
+            "compensation_max": None,
+            "show_compensation": False,
             "description": "<p>Updated description.</p>",
         },
     )
     assert update_response.status_code == 200, update_response.text
     updated_payload = update_response.json()
     assert updated_payload["company"] == "T-Maxx Updated"
+    assert updated_payload["compensation_min"] is None
+    assert updated_payload["compensation_max"] is None
+    assert updated_payload["show_compensation"] is False
 
     filtered_list_response = await client.get(
         "/api/v1/jobs",

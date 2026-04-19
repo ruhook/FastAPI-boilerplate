@@ -161,7 +161,9 @@ class CandidateJobApplicationDetailRead(BaseModel):
     applied_at: datetime
     description_html: str
     country: str
+    country_label: str | None = None
     work_mode: str
+    show_compensation: bool = True
     compensation_label: str
     assessment_enabled: bool
     application_snapshot: dict[str, Any] = Field(default_factory=dict)

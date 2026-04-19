@@ -157,6 +157,23 @@ class MailDeliverySettings(BaseSettings):
     MAIL_DELIVERY_MODE: str | None = None
 
 
+class CandidateRegisterVerificationSettings(BaseSettings):
+    CANDIDATE_REGISTER_VERIFICATION_ENABLED: bool = False
+    CANDIDATE_REGISTER_VERIFICATION_SENDER_NAME: str = "Primnota Recruitment"
+    CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL: str = ""
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME: str = ""
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST: str = ""
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_PORT: int = 465
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_SECURITY_MODE: str = "ssl"
+    CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET: SecretStr = SecretStr("")
+    CANDIDATE_REGISTER_VERIFICATION_SUBJECT: str = "Your verification code"
+    CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS: int = 600
+    CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS: int = 60
+    CANDIDATE_REGISTER_VERIFICATION_MAX_ATTEMPTS: int = 5
+    CANDIDATE_REGISTER_VERIFICATION_CODE_LENGTH: int = 6
+    CANDIDATE_REGISTER_VERIFICATION_REDIS_PREFIX: str = "candidate:register:verification:"
+
+
 class AssetStorageSettings(BaseSettings):
     ASSET_STORAGE_DIR: str = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
@@ -193,6 +210,7 @@ class Settings(
     RedisCacheSettings,
     EventSettings,
     MailDeliverySettings,
+    CandidateRegisterVerificationSettings,
     AssetStorageSettings,
     EnvironmentSettings,
     CORSSettings,

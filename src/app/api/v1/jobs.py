@@ -15,9 +15,11 @@ from ...modules.candidate_application.schema import (
     CandidateApplicationSubmitRequest,
     CandidateApplicationSubmitResponse,
 )
+from ...modules.admin.dictionary.service import get_dictionary_option_label_map_by_key
 from ...modules.candidate_field.service import hydrate_candidate_field_options
 from ...modules.job.const import (
     JOB_DATA_FORM_FIELDS_KEY,
+    JOB_DATA_SHOW_COMPENSATION_KEY,
     JobStatus,
 )
 from ...modules.job.model import Job
@@ -39,7 +41,9 @@ class WebJobListItemRead(BaseModel):
     title: str
     status: str
     country: str
+    country_label: str | None = None
     work_mode: str
+    show_compensation: bool = True
     compensation_min: Decimal | None = None
     compensation_max: Decimal | None = None
     compensation_unit: str
@@ -60,7 +64,9 @@ class WebJobDetailRead(BaseModel):
     title: str
     status: str
     country: str
+    country_label: str | None = None
     work_mode: str
+    show_compensation: bool = True
     compensation_min: Decimal | None = None
     compensation_max: Decimal | None = None
     compensation_unit: str
@@ -101,39 +107,63 @@ def _build_process(job: Job) -> list[str]:
     return base
 
 
-def _serialize_job_list_item(job: Job) -> dict[str, Any]:
+def _should_show_compensation(job: Job) -> bool:
+    return bool((job.data or {}).get(JOB_DATA_SHOW_COMPENSATION_KEY, True))
+
+
+def _resolve_country_label(country: str, country_label_map: dict[str, str]) -> str | None:
+    normalized = country.strip()
+    if not normalized:
+        return None
+    return country_label_map.get(normalized)
+
+
+def _serialize_job_list_item(job: Job, *, country_label_map: dict[str, str]) -> dict[str, Any]:
     return WebJobListItemRead(
         id=job.id,
         title=job.title,
         status=job.status,
         country=job.country,
+        country_label=_resolve_country_label(job.country, country_label_map),
         work_mode=job.work_mode,
+        show_compensation=_should_show_compensation(job),
         compensation_min=job.compensation_min,
         compensation_max=job.compensation_max,
         compensation_unit=job.compensation_unit,
-        compensation_label=_build_compensation_label(job),
+        compensation_label=_build_compensation_label(job) if _should_show_compensation(job) else "-",
         summary=_build_summary(job),
         published_at=job.created_at,
     ).model_dump()
 
 
-def _serialize_job_detail(job: Job) -> dict[str, Any]:
+async def _serialize_job_detail(
+    job: Job,
+    *,
+    country_label_map: dict[str, str],
+    db: AsyncSession,
+) -> dict[str, Any]:
     data = job.data or {}
+    form_fields = await hydrate_candidate_field_options(
+        list(data.get(JOB_DATA_FORM_FIELDS_KEY) or []),
+        db=db,
+    )
     return WebJobDetailRead(
         id=job.id,
         title=job.title,
         status=job.status,
         country=job.country,
+        country_label=_resolve_country_label(job.country, country_label_map),
         work_mode=job.work_mode,
+        show_compensation=_should_show_compensation(job),
         compensation_min=job.compensation_min,
         compensation_max=job.compensation_max,
         compensation_unit=job.compensation_unit,
-        compensation_label=_build_compensation_label(job),
+        compensation_label=_build_compensation_label(job) if _should_show_compensation(job) else "-",
         description_html=job.description,
         summary=_build_summary(job),
         process=_build_process(job),
         form_template_id=job.form_template_id,
-        form_fields=hydrate_candidate_field_options(list(data.get(JOB_DATA_FORM_FIELDS_KEY) or [])),
+        form_fields=form_fields,
         published_at=job.created_at,
         assessment_enabled=job.assessment_enabled,
     ).model_dump()
@@ -149,6 +179,7 @@ async def list_public_jobs(
     country: str | None = Query(default=None),
 ) -> dict[str, Any]:
     conditions = [Job.is_deleted.is_(False), Job.status == JobStatus.OPEN.value]
+    country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
 
     if keyword:
         term = f"%{keyword.strip()}%"
@@ -170,7 +201,7 @@ async def list_public_jobs(
     )
     jobs = result.scalars().all()
     return WebJobListPage(
-        items=[_serialize_job_list_item(job) for job in jobs],
+        items=[_serialize_job_list_item(job, country_label_map=country_label_map) for job in jobs],
         total=total,
         page=page,
         page_size=page_size,
@@ -192,7 +223,8 @@ async def get_public_job(
     job = result.scalar_one_or_none()
     if job is None:
         raise NotFoundException("Job not found.")
-    return _serialize_job_detail(job)
+    country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
+    return await _serialize_job_detail(job, country_label_map=country_label_map, db=db)
 
 
 @router.post("/{job_id}/apply", response_model=CandidateApplicationSubmitResponse)

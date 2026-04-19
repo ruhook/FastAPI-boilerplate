@@ -2,8 +2,10 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.modules.admin.dictionary.model import AdminDictionary
 from tests.helpers.talent import (
     build_application_items,
     build_form_fields,
@@ -25,6 +27,21 @@ async def test_web_me_applications_returns_current_users_records(
 ) -> None:
     suffix = uuid4().hex[:8]
     fields = build_form_fields()
+    country_dictionary = (
+        await db_session.execute(select(AdminDictionary).where(AdminDictionary.key == "country"))
+    ).scalar_one_or_none()
+    if country_dictionary is None:
+        country_dictionary = AdminDictionary(
+            key="country",
+            label=f"Country Applications {suffix}",
+            options=[{"label": "Brazil Label", "value": "Brazil"}],
+            data={},
+        )
+        db_session.add(country_dictionary)
+    else:
+        country_dictionary.label = f"Country Applications {suffix}"
+        country_dictionary.options = [{"label": "Brazil Label", "value": "Brazil"}]
+    await db_session.commit()
     template = await create_form_template(db_session, suffix=f"me-{suffix}", fields=fields)
     job = await create_open_job(
         db_session,
@@ -75,4 +92,6 @@ async def test_web_me_applications_returns_current_users_records(
     assert detail_payload["application_id"] == application_id
     assert detail_payload["job_id"] == job.id
     assert detail_payload["job_title"] == job.title
+    assert detail_payload["country_label"] == "Brazil Label"
+    assert detail_payload["show_compensation"] is True
     assert detail_payload["description_html"]

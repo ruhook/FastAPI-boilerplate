@@ -90,6 +90,7 @@ class JobBase(BaseModel):
     compensation_min: Decimal | None = None
     compensation_max: Decimal | None = None
     compensation_unit: str = Field(default="Per Hour", min_length=1, max_length=20)
+    show_compensation: bool = True
     description: str = Field(min_length=1)
     owner_name: str | None = Field(default=None, max_length=100)
     collaborators: list[str] = Field(default_factory=list)
@@ -226,6 +227,7 @@ class JobUpdate(BaseModel):
     compensation_min: Decimal | None = None
     compensation_max: Decimal | None = None
     compensation_unit: str | None = Field(default=None, min_length=1, max_length=20)
+    show_compensation: bool | None = None
     description: str | None = Field(default=None, min_length=1)
     owner_name: str | None = Field(default=None, max_length=100)
     collaborators: list[str] | None = None

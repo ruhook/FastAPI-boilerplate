@@ -44,6 +44,7 @@ from .config import (
 from .db.database import Base
 from .db.database import async_engine as engine
 from .logger import init_logging
+from .exception_logging import register_exception_logging
 from .utils import cache
 
 REGISTERED_MODELS = (
@@ -202,6 +203,7 @@ def create_application(
 
     application = FastAPI(lifespan=lifespan, **kwargs)
     application.include_router(router)
+    register_exception_logging(application)
 
     if isinstance(settings, CORSSettings):
         allow_all_origins = settings.CORS_ORIGINS == ["*"]
