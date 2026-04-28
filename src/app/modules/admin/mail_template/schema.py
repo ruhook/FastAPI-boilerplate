@@ -45,6 +45,9 @@ class MailTemplateRead(MailTemplateBase):
     id: int
     attachments: list[MailTemplateAttachmentRead] = Field(default_factory=list)
     variables: list[str] = Field(default_factory=list)
+    owner_scope: str = "private"
+    owner_admin_user_id: int | None = None
+    owner_name: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
     data: dict[str, Any] = Field(default_factory=dict)

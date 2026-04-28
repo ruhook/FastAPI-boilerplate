@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
+from ...dependencies import get_current_admin_superuser, get_current_admin_user, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....core.exceptions.http_exceptions import NotFoundException
 from .....modules.admin.admin_user.schema import AdminUserCreate, AdminUserCreateResponse, AdminUserRead, AdminUserUpdate
@@ -19,7 +19,7 @@ from .....modules.admin.admin_user.service import (
 router = APIRouter(prefix="/accounts", tags=["admin-accounts"])
 
 
-@router.get("", response_model=list[AdminUserRead], dependencies=[Depends(require_admin_permission("账户管理"))])
+@router.get("", response_model=list[AdminUserRead], dependencies=[Depends(get_current_admin_superuser)])
 async def read_admin_accounts(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     keyword: str | None = None,
@@ -43,7 +43,7 @@ async def read_assessment_reviewer_accounts(
     "",
     response_model=AdminUserCreateResponse,
     status_code=201,
-    dependencies=[Depends(require_admin_permission("账户管理"))],
+    dependencies=[Depends(get_current_admin_superuser)],
 )
 async def create_admin_account(
     payload: AdminUserCreate,
@@ -52,7 +52,7 @@ async def create_admin_account(
     return await create_admin_account_service(payload=payload, db=db)
 
 
-@router.get("/{account_id}", response_model=AdminUserRead, dependencies=[Depends(require_admin_permission("账户管理"))])
+@router.get("/{account_id}", response_model=AdminUserRead, dependencies=[Depends(get_current_admin_superuser)])
 async def read_admin_account(
     account_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
@@ -64,11 +64,11 @@ async def read_admin_account(
     return serialize_admin_user(account, role_name, effective_role_id)
 
 
-@router.patch("/{account_id}", response_model=AdminUserRead, dependencies=[Depends(require_admin_permission("账户管理"))])
+@router.patch("/{account_id}", response_model=AdminUserRead, dependencies=[Depends(get_current_admin_superuser)])
 async def update_admin_account(
     account_id: int,
     payload: AdminUserUpdate,
-    current_admin: Annotated[dict, Depends(get_current_admin_user)],
+    current_admin: Annotated[dict, Depends(get_current_admin_superuser)],
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict:
     return await update_admin_account_service(
@@ -79,10 +79,10 @@ async def update_admin_account(
     )
 
 
-@router.delete("/{account_id}", dependencies=[Depends(require_admin_permission("账户管理"))])
+@router.delete("/{account_id}", dependencies=[Depends(get_current_admin_superuser)])
 async def delete_admin_account(
     account_id: int,
-    current_admin: Annotated[dict, Depends(get_current_admin_user)],
+    current_admin: Annotated[dict, Depends(get_current_admin_superuser)],
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, str]:
     return await delete_admin_account_service(account_id=account_id, current_admin=current_admin, db=db)

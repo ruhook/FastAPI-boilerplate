@@ -18,7 +18,6 @@ class CandidateApplication(DataBackedSoftDeleteEntityMixin, Base):
         index=True,
     )
     job_snapshot_title: Mapped[str] = mapped_column(String(160), nullable=False)
-    job_snapshot_company_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="submitted")
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

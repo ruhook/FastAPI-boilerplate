@@ -4,6 +4,12 @@ from enum import StrEnum
 class AdminAuditLogActionType(StrEnum):
     ADMIN_LOGIN = "admin_login"
     ADMIN_PASSWORD_CHANGED = "admin_password_changed"
+    COMPANY_CREATED = "company_created"
+    COMPANY_UPDATED = "company_updated"
+    COMPANY_DELETED = "company_deleted"
+    COMPANY_PROJECT_CREATED = "company_project_created"
+    COMPANY_PROJECT_UPDATED = "company_project_updated"
+    COMPANY_PROJECT_DELETED = "company_project_deleted"
     DICTIONARY_CREATED = "dictionary_created"
     DICTIONARY_UPDATED = "dictionary_updated"
     DICTIONARY_DELETED = "dictionary_deleted"
@@ -26,6 +32,8 @@ class AdminAuditLogActionType(StrEnum):
 
 class AdminAuditLogTargetType(StrEnum):
     ADMIN_AUTH = "admin_auth"
+    COMPANY = "company"
+    COMPANY_PROJECT = "company_project"
     DICTIONARY = "dictionary"
     FORM_TEMPLATE = "form_template"
     MAIL_ACCOUNT = "mail_account"

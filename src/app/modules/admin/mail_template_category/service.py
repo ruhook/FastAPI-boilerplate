@@ -1,36 +1,49 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
 from ..admin_audit_log.service import create_admin_audit_log
+from ..admin_user.model import AdminUser
 from ..mail_template.model import MailTemplate
 from .model import MailTemplateCategory
 from .schema import MailTemplateCategoryCreate, MailTemplateCategoryRead, MailTemplateCategoryUpdate
 
 
-def serialize_mail_template_category(category: MailTemplateCategory) -> dict[str, Any]:
+def serialize_mail_template_category(
+    category: MailTemplateCategory,
+    *,
+    owner_scope: str = "private",
+    owner_name: str | None = None,
+) -> dict[str, Any]:
     return MailTemplateCategoryRead(
         id=category.id,
         parent_id=category.parent_id,
         name=category.name,
         sort_order=category.sort_order,
         enabled=category.enabled,
+        owner_scope=owner_scope,
+        owner_admin_user_id=category.admin_user_id,
+        owner_name=owner_name,
         created_at=category.created_at,
         updated_at=category.updated_at,
         data=category.data or {},
     ).model_dump()
 
 
-async def list_mail_template_categories(db: AsyncSession, *, admin_user_id: int) -> list[dict[str, Any]]:
+async def list_mail_template_categories(db: AsyncSession, *, admin_user_id: int, include_public: bool = False) -> list[dict[str, Any]]:
+    visibility_filters = [MailTemplateCategory.admin_user_id == admin_user_id]
+    if include_public:
+        visibility_filters.append(AdminUser.is_superuser.is_(True))
     result = await db.execute(
-        select(MailTemplateCategory)
+        select(MailTemplateCategory, AdminUser.name, AdminUser.is_superuser)
+        .outerjoin(AdminUser, AdminUser.id == MailTemplateCategory.admin_user_id)
         .where(
-            MailTemplateCategory.admin_user_id == admin_user_id,
             MailTemplateCategory.is_deleted.is_(False),
+            or_(*visibility_filters),
         )
         .order_by(
             MailTemplateCategory.parent_id.asc(),
@@ -38,7 +51,14 @@ async def list_mail_template_categories(db: AsyncSession, *, admin_user_id: int)
             MailTemplateCategory.id.asc(),
         )
     )
-    return [serialize_mail_template_category(item) for item in result.scalars().all()]
+    return [
+        serialize_mail_template_category(
+            category,
+            owner_scope="public" if owner_is_superuser and category.admin_user_id != admin_user_id else "private",
+            owner_name=owner_name,
+        )
+        for category, owner_name, owner_is_superuser in result.all()
+    ]
 
 
 async def get_mail_template_category_model(category_id: int, db: AsyncSession, *, admin_user_id: int) -> MailTemplateCategory:

@@ -34,7 +34,7 @@ class AdminUserBase(BaseModel):
 
 
 class AdminUser(TimestampSchema, AdminUserBase, PersistentDeletion):
-    username: Annotated[str, Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["admin"])]
+    username: Annotated[str, Field(min_length=2, max_length=20, pattern=r"^[A-Za-z0-9]+$", examples=["admin"])]
     hashed_password: str
     is_superuser: bool = False
     last_login_at: datetime | None = None
@@ -72,7 +72,7 @@ class AdminUserCreate(AdminUserBase):
     model_config = ConfigDict(extra="forbid")
 
     username: Annotated[
-        str | None, Field(default=None, min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["admin"])
+        str | None, Field(default=None, min_length=2, max_length=20, pattern=r"^[A-Za-z0-9]+$", examples=["admin"])
     ]
     password: Annotated[str | None, Field(default=None, min_length=8, max_length=128)]
 
@@ -107,7 +107,7 @@ class AdminUserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Annotated[str | None, Field(default=None, min_length=2, max_length=30)]
-    username: Annotated[str | None, Field(default=None, min_length=2, max_length=20, pattern=r"^[a-z0-9]+$")]
+    username: Annotated[str | None, Field(default=None, min_length=2, max_length=20, pattern=r"^[A-Za-z0-9]+$")]
     email: Annotated[EmailStr | None, Field(default=None)]
     phone: Annotated[str | None, Field(default=None, max_length=32)]
     note: Annotated[str | None, Field(default=None, max_length=500)]

@@ -38,7 +38,6 @@ class JobProgressDataKey(StrEnum):
     CONTRACT_NUMBER = "contract_number"
     CONTRACT_DRAFT_ATTACHMENT = "contract_draft_attachment"
     CONTRACT_DRAFT_ATTACHMENT_ASSET_ID = "contract_draft_attachment_asset_id"
-    ID_ATTACHMENT = "id_attachment"
     SUBMITTED_CONTRACT_ATTACHMENT = "submitted_contract_attachment"
     SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID = "submitted_contract_attachment_asset_id"
     SUBMITTED_CONTRACT_AT = "submitted_contract_at"
@@ -163,7 +162,6 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "accepted_rate",
         "contract_number",
         "contract_draft_attachment",
-        "id_attachment",
         "submitted_contract_attachment",
         "submitted_contract_at",
         "contract_review",
@@ -223,8 +221,6 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
         RecruitmentStage.REJECTED,
     ),
     RecruitmentStage.SCREENING_PASSED: (
-        RecruitmentStage.CONTRACT_POOL,
-        RecruitmentStage.ASSESSMENT_REVIEW,
         RecruitmentStage.REJECTED,
     ),
     RecruitmentStage.CONTRACT_POOL: (

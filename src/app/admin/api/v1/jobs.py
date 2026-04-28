@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
 from ....core.db.database import async_get_db
+from ....modules.admin.role.const import is_assessment_reviewer_only_permissions
 from ....modules.job.schema import JobCreate, JobListPage, JobRead, JobUpdate
 from ....modules.job_progress.schema import (
     JobProgressAssessmentAutomationRequest,
@@ -12,8 +13,12 @@ from ....modules.job_progress.schema import (
     JobProgressAssessmentReviewUpdateRequest,
     JobProgressAssessmentReviewUpdateResponse,
     JobProgressCompanySealedContractUploadResponse,
+    JobProgressContractRecordUpdateRequest,
+    JobProgressContractRecordUpdateResponse,
     JobProgressContractDraftUploadResponse,
     JobProgressListPage,
+    JobProgressNotifySignContractRequest,
+    JobProgressNotifySignContractResponse,
     JobProgressStageMoveRequest,
     JobProgressStageMoveResponse,
 )
@@ -22,13 +27,22 @@ from ....modules.job_progress.service import (
     execute_job_progress_assessment_automation,
     list_job_progress,
     move_job_progress_stage,
+    notify_job_progress_sign_contract,
     upload_job_progress_company_sealed_contract,
     upload_job_progress_contract_draft,
+    update_job_progress_contract_record,
     update_job_progress_assessment_review,
 )
 from ....modules.job.service import create_job, get_job_for_admin, list_jobs, update_job
 
 router = APIRouter(prefix="/jobs", tags=["admin-jobs"])
+
+
+def _is_assessment_reviewer_only(current_admin: dict[str, Any]) -> bool:
+    return is_assessment_reviewer_only_permissions(
+        current_admin.get("permissions") or [],
+        is_superuser=bool(current_admin.get("is_superuser")),
+    )
 
 
 @router.get("", response_model=JobListPage, dependencies=[Depends(require_any_admin_permission("岗位管理", "测试题判题"))])
@@ -39,7 +53,7 @@ async def read_jobs(
     page_size: int = Query(default=10, ge=1, le=100),
     keyword: str | None = None,
     status: str | None = None,
-    company: str | None = None,
+    company_id: int | None = Query(default=None, ge=1),
     country: str | None = None,
 ) -> dict[str, Any]:
     return await list_jobs(
@@ -48,7 +62,7 @@ async def read_jobs(
         page_size=page_size,
         keyword=keyword,
         status=status,
-        company=company,
+        company_id=company_id,
         country=country,
         current_admin=current_admin,
     )
@@ -82,10 +96,9 @@ async def read_job_progress(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    current_permissions = set(current_admin.get("permissions") or [])
     current_stages = None
     reviewer_admin_user_id = None
-    if not current_admin.get("is_superuser") and "岗位管理" not in current_permissions and "测试题判题" in current_permissions:
+    if _is_assessment_reviewer_only(current_admin):
         current_stages = [RecruitmentStage.ASSESSMENT_REVIEW.value]
         reviewer_admin_user_id = int(current_admin["id"])
     return await list_job_progress(
@@ -129,9 +142,8 @@ async def execute_job_progress_assessment_automation_endpoint(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    current_permissions = set(current_admin.get("permissions") or [])
     reviewer_scope_admin_user_id = None
-    if not current_admin.get("is_superuser") and "岗位管理" not in current_permissions and "测试题判题" in current_permissions:
+    if _is_assessment_reviewer_only(current_admin):
         reviewer_scope_admin_user_id = int(current_admin["id"])
     return await execute_job_progress_assessment_automation(
         job_id=job_id,
@@ -139,6 +151,59 @@ async def execute_job_progress_assessment_automation_endpoint(
         admin_user_id=int(current_admin["id"]),
         reviewer_scope_admin_user_id=reviewer_scope_admin_user_id,
         db=db,
+    )
+
+
+@router.patch(
+    "/{job_id}/progress/contract-record",
+    response_model=JobProgressContractRecordUpdateResponse,
+    dependencies=[Depends(require_admin_permission("岗位管理"))],
+)
+async def update_job_progress_contract_record_endpoint(
+    job_id: int,
+    payload: JobProgressContractRecordUpdateRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    return await update_job_progress_contract_record(
+        job_id=job_id,
+        progress_ids=payload.progress_ids,
+        ensure_contract_record=payload.ensure_contract_record,
+        agreement_ref_no=payload.agreement_ref_no,
+        signing_status=payload.signing_status,
+        contract_review=payload.contract_review,
+        rate=payload.rate,
+        end_date=payload.end_date,
+        admin_user_id=int(current_admin["id"]),
+        db=db,
+    )
+
+
+@router.post(
+    "/{job_id}/progress/notify-sign-contract",
+    response_model=JobProgressNotifySignContractResponse,
+    dependencies=[Depends(require_admin_permission("岗位管理"))],
+)
+async def notify_job_progress_sign_contract_endpoint(
+    job_id: int,
+    payload: JobProgressNotifySignContractRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    return await notify_job_progress_sign_contract(
+        job_id=job_id,
+        progress_ids=payload.progress_ids,
+        admin_user_id=int(current_admin["id"]),
+        db=db,
+        account_id=payload.account_id,
+        template_id=payload.template_id,
+        signature_id=payload.signature_id,
+        subject=payload.subject,
+        body_html=payload.body_html,
+        cc_recipients=payload.cc_recipients,
+        bcc_recipients=payload.bcc_recipients,
+        attachment_asset_ids=payload.attachment_asset_ids,
+        render_context=payload.render_context,
     )
 
 
@@ -153,9 +218,8 @@ async def update_job_progress_assessment_review_endpoint(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    current_permissions = set(current_admin.get("permissions") or [])
     reviewer_scope_admin_user_id = None
-    if not current_admin.get("is_superuser") and "岗位管理" not in current_permissions and "测试题判题" in current_permissions:
+    if _is_assessment_reviewer_only(current_admin):
         reviewer_scope_admin_user_id = int(current_admin["id"])
     return await update_job_progress_assessment_review(
         job_id=job_id,
@@ -164,6 +228,8 @@ async def update_job_progress_assessment_review_endpoint(
         assessment_review_comment=payload.assessment_review_comment,
         assessment_reviewer=payload.assessment_reviewer,
         assessment_reviewer_admin_user_id=payload.assessment_reviewer_admin_user_id,
+        qa_status=payload.qa_status,
+        qa_feedback=payload.qa_feedback,
         admin_user_id=int(current_admin["id"]),
         reviewer_scope_admin_user_id=reviewer_scope_admin_user_id,
         db=db,

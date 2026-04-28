@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.security import get_password_hash
 from src.app.modules.admin.form_template.model import AdminFormTemplate
 from src.app.modules.assets.model import Asset
+from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from src.app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from src.app.modules.job.model import Job
 from src.app.modules.operation_log.model import OperationLog
@@ -138,9 +139,35 @@ async def create_open_job(
     assessment_enabled: bool = False,
     automation_rules: dict[str, object] | None = None,
 ) -> Job:
+    company_result = await db_session.execute(
+        select(AdminCompany).where(
+            AdminCompany.name == company_name,
+            AdminCompany.is_deleted.is_(False),
+        )
+    )
+    company = company_result.scalar_one_or_none()
+    if company is None:
+        company = AdminCompany(name=company_name, description=None, data={})
+        db_session.add(company)
+        await db_session.flush()
+
+    project_result = await db_session.execute(
+        select(AdminCompanyProject).where(
+            AdminCompanyProject.company_id == company.id,
+            AdminCompanyProject.name == "Default Project",
+            AdminCompanyProject.is_deleted.is_(False),
+        )
+    )
+    project = project_result.scalar_one_or_none()
+    if project is None:
+        project = AdminCompanyProject(company_id=company.id, name="Default Project", data={})
+        db_session.add(project)
+        await db_session.flush()
+
     job = Job(
         title=title,
-        company_name=company_name,
+        company_id=company.id,
+        project_id=project.id,
         country="Brazil",
         status=JobStatus.OPEN.value,
         work_mode="Remote",

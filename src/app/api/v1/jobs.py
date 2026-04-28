@@ -16,8 +16,10 @@ from ...modules.candidate_application.schema import (
     CandidateApplicationSubmitResponse,
 )
 from ...modules.admin.dictionary.service import get_dictionary_option_label_map_by_key
+from ...modules.admin.company.model import AdminCompany
 from ...modules.candidate_field.service import hydrate_candidate_field_options
 from ...modules.job.const import (
+    JOB_DATA_CONTRACT_EXAMPLE_KEY,
     JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_SHOW_COMPENSATION_KEY,
     JobStatus,
@@ -39,6 +41,7 @@ router = APIRouter(prefix="/jobs", tags=["web-jobs"])
 class WebJobListItemRead(BaseModel):
     id: int
     title: str
+    company: str
     status: str
     country: str
     country_label: str | None = None
@@ -62,6 +65,7 @@ class WebJobListPage(BaseModel):
 class WebJobDetailRead(BaseModel):
     id: int
     title: str
+    company: str
     status: str
     country: str
     country_label: str | None = None
@@ -72,6 +76,7 @@ class WebJobDetailRead(BaseModel):
     compensation_unit: str
     compensation_label: str
     description_html: str
+    contract_example_html: str = ""
     summary: str
     process: list[str] = Field(default_factory=list)
     form_template_id: int
@@ -118,10 +123,16 @@ def _resolve_country_label(country: str, country_label_map: dict[str, str]) -> s
     return country_label_map.get(normalized)
 
 
-def _serialize_job_list_item(job: Job, *, country_label_map: dict[str, str]) -> dict[str, Any]:
+def _serialize_job_list_item(
+    job: Job,
+    *,
+    company_name: str,
+    country_label_map: dict[str, str],
+) -> dict[str, Any]:
     return WebJobListItemRead(
         id=job.id,
         title=job.title,
+        company=company_name,
         status=job.status,
         country=job.country,
         country_label=_resolve_country_label(job.country, country_label_map),
@@ -139,6 +150,7 @@ def _serialize_job_list_item(job: Job, *, country_label_map: dict[str, str]) -> 
 async def _serialize_job_detail(
     job: Job,
     *,
+    company_name: str,
     country_label_map: dict[str, str],
     db: AsyncSession,
 ) -> dict[str, Any]:
@@ -150,6 +162,7 @@ async def _serialize_job_detail(
     return WebJobDetailRead(
         id=job.id,
         title=job.title,
+        company=company_name,
         status=job.status,
         country=job.country,
         country_label=_resolve_country_label(job.country, country_label_map),
@@ -160,6 +173,7 @@ async def _serialize_job_detail(
         compensation_unit=job.compensation_unit,
         compensation_label=_build_compensation_label(job) if _should_show_compensation(job) else "-",
         description_html=job.description,
+        contract_example_html=str(data.get(JOB_DATA_CONTRACT_EXAMPLE_KEY) or ""),
         summary=_build_summary(job),
         process=_build_process(job),
         form_template_id=job.form_template_id,
@@ -183,25 +197,34 @@ async def list_public_jobs(
 
     if keyword:
         term = f"%{keyword.strip()}%"
-        conditions.append(or_(Job.title.ilike(term), Job.country.ilike(term)))
+        conditions.append(or_(Job.title.ilike(term), AdminCompany.name.ilike(term), Job.country.ilike(term)))
     if work_mode:
         conditions.append(Job.work_mode == work_mode)
     if country:
         conditions.append(Job.country == country)
 
-    total_result = await db.execute(select(func.count()).select_from(Job).where(*conditions))
+    total_result = await db.execute(
+        select(func.count())
+        .select_from(Job)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .where(*conditions)
+    )
     total = int(total_result.scalar() or 0)
 
     result = await db.execute(
-        select(Job)
+        select(Job, AdminCompany.name)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
         .where(*conditions)
         .order_by(Job.created_at.desc(), Job.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    jobs = result.scalars().all()
+    rows = result.all()
     return WebJobListPage(
-        items=[_serialize_job_list_item(job, country_label_map=country_label_map) for job in jobs],
+        items=[
+            _serialize_job_list_item(job, company_name=company_name or "-", country_label_map=country_label_map)
+            for job, company_name in rows
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -214,17 +237,25 @@ async def get_public_job(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, Any]:
     result = await db.execute(
-        select(Job).where(
+        select(Job, AdminCompany.name)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .where(
             Job.id == job_id,
             Job.is_deleted.is_(False),
             Job.status == JobStatus.OPEN.value,
         )
     )
-    job = result.scalar_one_or_none()
-    if job is None:
+    row = result.first()
+    if row is None:
         raise NotFoundException("Job not found.")
+    job, company_name = row
     country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
-    return await _serialize_job_detail(job, country_label_map=country_label_map, db=db)
+    return await _serialize_job_detail(
+        job,
+        company_name=company_name or "-",
+        country_label_map=country_label_map,
+        db=db,
+    )
 
 
 @router.post("/{job_id}/apply", response_model=CandidateApplicationSubmitResponse)

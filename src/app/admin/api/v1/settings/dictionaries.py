@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
+from ...dependencies import get_current_admin_superuser, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.dictionary.schema import DictionaryCreate, DictionaryRead, DictionaryUpdate
 from .....modules.admin.dictionary.service import (
@@ -27,11 +27,11 @@ async def read_dictionaries(db: Annotated[AsyncSession, Depends(async_get_db)]) 
     return await list_dictionaries(db)
 
 
-@router.post("", response_model=DictionaryRead, status_code=201, dependencies=[Depends(require_admin_permission("常量字典"))])
+@router.post("", response_model=DictionaryRead, status_code=201, dependencies=[Depends(get_current_admin_superuser)])
 async def create_dictionary_endpoint(
     payload: DictionaryCreate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_superuser)],
 ) -> dict[str, Any]:
     return await create_dictionary(payload, db, admin_user_id=int(current_admin["id"]))
 
@@ -46,20 +46,20 @@ async def read_dictionary(dictionary_id: int, db: Annotated[AsyncSession, Depend
     return serialize_dictionary(dictionary)
 
 
-@router.patch("/{dictionary_id}", response_model=DictionaryRead, dependencies=[Depends(require_admin_permission("常量字典"))])
+@router.patch("/{dictionary_id}", response_model=DictionaryRead, dependencies=[Depends(get_current_admin_superuser)])
 async def update_dictionary_endpoint(
     dictionary_id: int,
     payload: DictionaryUpdate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_superuser)],
 ) -> dict[str, Any]:
     return await update_dictionary(dictionary_id, payload, db, admin_user_id=int(current_admin["id"]))
 
 
-@router.delete("/{dictionary_id}", dependencies=[Depends(require_admin_permission("常量字典"))])
+@router.delete("/{dictionary_id}", dependencies=[Depends(get_current_admin_superuser)])
 async def delete_dictionary_endpoint(
     dictionary_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_superuser)],
 ) -> dict[str, str]:
     return await delete_dictionary(dictionary_id, db, admin_user_id=int(current_admin["id"]))

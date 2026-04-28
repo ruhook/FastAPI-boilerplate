@@ -27,6 +27,9 @@ class MailTemplateCategoryBase(BaseModel):
 class MailTemplateCategoryRead(MailTemplateCategoryBase):
     id: int
     parent_id: int | None = None
+    owner_scope: str = "private"
+    owner_admin_user_id: int | None = None
+    owner_name: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
     data: dict[str, Any] = Field(default_factory=dict)

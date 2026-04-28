@@ -34,20 +34,22 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
     suffix = uuid4().hex[:8]
     fields = build_form_fields()
     template = await create_form_template(db_session, suffix=f"admin-{suffix}", fields=fields)
+    first_company_name = f"Initial Company {suffix}"
     first_job = await create_open_job(
         db_session,
         suffix=f"admin-{suffix}-1",
         title=f"Initial Annotation Role {suffix}",
-        company_name=f"Initial Company {suffix}",
+        company_name=first_company_name,
         owner_admin_user_id=int(superadmin_credentials["id"]),
         form_template_id=template.id,
         form_fields=fields,
     )
+    second_company_name = f"Updated Company {suffix}"
     second_job = await create_open_job(
         db_session,
         suffix=f"admin-{suffix}-2",
         title=f"Promotion Review Role {suffix}",
-        company_name=f"Updated Company {suffix}",
+        company_name=second_company_name,
         owner_admin_user_id=int(superadmin_credentials["id"]),
         form_template_id=template.id,
         form_fields=fields,
@@ -118,11 +120,11 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
     assert detail_payload["resume_asset_id"] == first_resume.id
     assert len(detail_payload["applications"]) == 2
     assert next(item for item in detail_payload["applications"] if item["id"] == first_apply["application_id"])[
-        "job_snapshot_company_name"
-    ] == first_job.company_name
+        "job_company_name"
+    ] == first_company_name
     assert next(item for item in detail_payload["applications"] if item["id"] == second_apply["application_id"])[
-        "job_snapshot_company_name"
-    ] == second_job.company_name
+        "job_company_name"
+    ] == second_company_name
     assert len(detail_payload["logs"]) >= 4
     assert detail_payload["logs"][0]["title"]
     assert detail_payload["logs"][0]["summary"]

@@ -1,13 +1,14 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import DuplicateValueException, NotFoundException
 from ...assets.service import ensure_assets_belong_to_owner, ensure_assets_exist, serialize_asset
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
 from ..admin_audit_log.service import create_admin_audit_log
+from ..admin_user.model import AdminUser
 from ..mail_template_category.service import ensure_category_exists
 from .model import MailTemplate
 from .schema import (
@@ -22,6 +23,9 @@ from .schema import (
 def serialize_mail_template(
     template: MailTemplate,
     attachment_payloads: list[dict[str, Any]],
+    *,
+    owner_scope: str = "private",
+    owner_name: str | None = None,
 ) -> dict[str, Any]:
     return MailTemplateRead(
         id=template.id,
@@ -31,13 +35,23 @@ def serialize_mail_template(
         body_html=template.body_html,
         attachments=[MailTemplateAttachmentRead(**item) for item in attachment_payloads],
         variables=extract_template_variables(template.subject_template, template.body_html),
+        owner_scope=owner_scope,
+        owner_admin_user_id=template.admin_user_id,
+        owner_name=owner_name,
         created_at=template.created_at,
         updated_at=template.updated_at,
         data=template.data or {},
     ).model_dump()
 
 
-async def _serialize_template_with_assets(template: MailTemplate, db: AsyncSession) -> dict[str, Any]:
+async def _serialize_template_with_assets(
+    template: MailTemplate,
+    db: AsyncSession,
+    *,
+    admin_user_id: int,
+    owner_name: str | None = None,
+    owner_is_superuser: bool = False,
+) -> dict[str, Any]:
     attachment_ids = [int(item["asset_id"]) for item in (template.attachments or []) if "asset_id" in item]
     assets = await ensure_assets_exist(db, asset_ids=attachment_ids)
     asset_map = {asset.id: serialize_asset(asset) for asset in assets}
@@ -52,28 +66,53 @@ async def _serialize_template_with_assets(template: MailTemplate, db: AsyncSessi
         for asset_id in attachment_ids
         if asset_id in asset_map
     ]
-    return serialize_mail_template(template, attachment_payloads)
+    owner_scope = "public" if owner_is_superuser and template.admin_user_id != admin_user_id else "private"
+    return serialize_mail_template(template, attachment_payloads, owner_scope=owner_scope, owner_name=owner_name)
 
 
-async def list_mail_templates(db: AsyncSession, *, admin_user_id: int) -> list[dict[str, Any]]:
+async def list_mail_templates(db: AsyncSession, *, admin_user_id: int, include_public: bool = False) -> list[dict[str, Any]]:
+    visibility_filters = [MailTemplate.admin_user_id == admin_user_id]
+    if include_public:
+        visibility_filters.append(AdminUser.is_superuser.is_(True))
     result = await db.execute(
-        select(MailTemplate)
+        select(MailTemplate, AdminUser.name, AdminUser.is_superuser)
+        .outerjoin(AdminUser, AdminUser.id == MailTemplate.admin_user_id)
         .where(
-            MailTemplate.admin_user_id == admin_user_id,
             MailTemplate.is_deleted.is_(False),
+            or_(*visibility_filters),
         )
         .order_by(MailTemplate.name.asc(), MailTemplate.id.asc())
     )
-    templates = result.scalars().all()
-    return [await _serialize_template_with_assets(item, db) for item in templates]
+    rows = result.all()
+    return [
+        await _serialize_template_with_assets(
+            template,
+            db,
+            admin_user_id=admin_user_id,
+            owner_name=owner_name,
+            owner_is_superuser=bool(owner_is_superuser),
+        )
+        for template, owner_name, owner_is_superuser in rows
+    ]
 
 
-async def get_mail_template_model(template_id: int, db: AsyncSession, *, admin_user_id: int) -> MailTemplate:
+async def get_mail_template_model(
+    template_id: int,
+    db: AsyncSession,
+    *,
+    admin_user_id: int,
+    include_public: bool = False,
+) -> MailTemplate:
+    visibility_filters = [MailTemplate.admin_user_id == admin_user_id]
+    if include_public:
+        visibility_filters.append(AdminUser.is_superuser.is_(True))
     result = await db.execute(
-        select(MailTemplate).where(
+        select(MailTemplate)
+        .outerjoin(AdminUser, AdminUser.id == MailTemplate.admin_user_id)
+        .where(
             MailTemplate.id == template_id,
-            MailTemplate.admin_user_id == admin_user_id,
             MailTemplate.is_deleted.is_(False),
+            or_(*visibility_filters),
         )
     )
     template = result.scalar_one_or_none()
@@ -116,12 +155,12 @@ async def create_mail_template(payload: MailTemplateCreate, db: AsyncSession, *,
         data={"name": template.name, "category_id": template.category_id},
     )
     await db.refresh(template)
-    return await _serialize_template_with_assets(template, db)
+    return await _serialize_template_with_assets(template, db, admin_user_id=admin_user_id)
 
 
 async def get_mail_template(template_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
     template = await get_mail_template_model(template_id, db, admin_user_id=admin_user_id)
-    return await _serialize_template_with_assets(template, db)
+    return await _serialize_template_with_assets(template, db, admin_user_id=admin_user_id)
 
 
 async def update_mail_template(template_id: int, payload: MailTemplateUpdate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
@@ -164,7 +203,7 @@ async def update_mail_template(template_id: int, payload: MailTemplateUpdate, db
         data={"name": template.name, "category_id": template.category_id},
     )
     await db.refresh(template)
-    return await _serialize_template_with_assets(template, db)
+    return await _serialize_template_with_assets(template, db, admin_user_id=admin_user_id)
 
 
 async def delete_mail_template(template_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:

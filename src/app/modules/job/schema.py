@@ -83,7 +83,8 @@ class JobAutomationRuleGroup(BaseModel):
 
 class JobBase(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    company: str = Field(default="DA", min_length=1, max_length=100)
+    company_id: int = Field(ge=1)
+    project_id: int = Field(ge=1)
     country: str = Field(min_length=1, max_length=64)
     status: str = Field(default=JobStatus.OPEN.value, min_length=1, max_length=20)
     work_mode: str = Field(default=JobWorkMode.REMOTE.value, min_length=1, max_length=20)
@@ -92,6 +93,7 @@ class JobBase(BaseModel):
     compensation_unit: str = Field(default="Per Hour", min_length=1, max_length=20)
     show_compensation: bool = True
     description: str = Field(min_length=1)
+    contract_example: str | None = None
     owner_name: str | None = Field(default=None, max_length=100)
     collaborators: list[str] = Field(default_factory=list)
     form_strategy: JobFormStrategy
@@ -104,7 +106,7 @@ class JobBase(BaseModel):
     highlights: list[str] = Field(default_factory=list)
     application_summary: JobApplicationSummary | None = None
 
-    @field_validator("title", "company", "country", "description")
+    @field_validator("title", "country", "description")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         return _normalize_text(value)
@@ -163,6 +165,8 @@ class JobBase(BaseModel):
 
 class JobRead(JobBase):
     id: int
+    company: str
+    project: str
     applicant_count: int
     owner_admin_user_id: int
     created_at: datetime
@@ -174,6 +178,9 @@ class JobListItemRead(BaseModel):
     id: int
     title: str
     company: str
+    company_id: int
+    project: str
+    project_id: int
     country: str
     status: str
     applicants: int
@@ -198,7 +205,8 @@ class JobCreate(JobBase):
 
 class JobCreateInternal(BaseModel):
     title: str
-    company_name: str
+    company_id: int
+    project_id: int
     country: str
     status: str
     work_mode: str
@@ -220,7 +228,8 @@ class JobUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, min_length=1, max_length=120)
-    company: str | None = Field(default=None, min_length=1, max_length=100)
+    company_id: int | None = None
+    project_id: int | None = None
     country: str | None = Field(default=None, min_length=1, max_length=64)
     status: str | None = Field(default=None, min_length=1, max_length=20)
     work_mode: str | None = Field(default=None, min_length=1, max_length=20)
@@ -229,6 +238,7 @@ class JobUpdate(BaseModel):
     compensation_unit: str | None = Field(default=None, min_length=1, max_length=20)
     show_compensation: bool | None = None
     description: str | None = Field(default=None, min_length=1)
+    contract_example: str | None = None
     owner_name: str | None = Field(default=None, max_length=100)
     collaborators: list[str] | None = None
     form_strategy: JobFormStrategy | None = None
@@ -241,7 +251,7 @@ class JobUpdate(BaseModel):
     highlights: list[str] | None = None
     application_summary: JobApplicationSummary | None = None
 
-    @field_validator("title", "company", "country", "description")
+    @field_validator("title", "country", "description")
     @classmethod
     def normalize_optional_required_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -285,7 +295,8 @@ class JobUpdate(BaseModel):
 
 class JobUpdateInternal(BaseModel):
     title: str | None = None
-    company_name: str | None = None
+    company_id: int | None = None
+    project_id: int | None = None
     country: str | None = None
     status: str | None = None
     work_mode: str | None = None

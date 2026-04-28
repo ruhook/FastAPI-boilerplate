@@ -12,7 +12,12 @@ from ..app.main_admin import app as admin_app
 from ..app.main_web import app as web_app
 from ..app.modules.candidate_application.model import CandidateApplication
 from ..app.modules.candidate_field.const import CandidateFieldKey
-from ..app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
+from ..app.modules.job.const import (
+    JOB_DATA_AUTOMATION_RULES_KEY,
+    JOB_DATA_CONTRACT_EXAMPLE_KEY,
+    JOB_DATA_FORM_FIELDS_KEY,
+    JobStatus,
+)
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.model import JobProgress
 from ..app.modules.admin.mail_task.model import MailTask
@@ -29,7 +34,10 @@ from .seed_apply_demo_flow import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_PASSWORD,
     DEMO_ADMIN_USERNAME,
+    build_contract_example_html,
     ensure_admin_user,
+    ensure_company,
+    ensure_company_project,
     ensure_dictionary,
     ensure_form_template,
     ensure_role,
@@ -43,7 +51,7 @@ from .seed_job_progress_demo_flow import (
 WEB_BASE_URL = "http://testserver/api/v1"
 ADMIN_BASE_URL = "http://testserver/api/v1"
 DEFAULT_CANDIDATE_NAME = "Ruan Hao Kang"
-DEFAULT_CANDIDATE_EMAIL = "712696306@qq.com"
+DEFAULT_CANDIDATE_EMAIL = "712696307@qq.com"
 DEFAULT_CANDIDATE_PASSWORD = "12345678"
 
 
@@ -61,6 +69,10 @@ def print_step(title: str) -> None:
 
 def print_detail(message: str) -> None:
     print(f"  - {message}")
+
+
+def should_auto_apply(definition: dict[str, Any]) -> bool:
+    return bool(definition.get("auto_apply", True))
 
 
 def ensure_ok(response: httpx.Response, message: str) -> dict[str, Any]:
@@ -85,6 +97,28 @@ def build_rule_group(*rules: dict[str, Any], combinator: str = "and") -> dict[st
 
 PORTAL_JOB_DEFINITIONS = [
     {
+        "key": "fresh_apply_flow",
+        "title": "Candidate Portal Demo - Fresh Apply Flow",
+        "company_name": "TMX Fresh Flow Lab",
+        "country": "Brazil",
+        "work_mode": "Remote",
+        "description": "<p>This role is intentionally left without an application so the candidate can test the end-to-end flow from the public jobs page.</p>",
+        "compensation_min": Decimal("9.50"),
+        "compensation_max": Decimal("13.50"),
+        "compensation_unit": "Per Hour",
+        "assessment_enabled": True,
+        "automation_rules": build_rule_group(
+            build_rule(
+                field_key=CandidateFieldKey.EDUCATION_STATUS,
+                operator="contains",
+                value="bachelor_completed",
+            )
+        ),
+        "application_scenario": "assessment_manual_pending",
+        "target_stage": "assessment_review",
+        "auto_apply": False,
+    },
+    {
         "key": "pending_screening",
         "title": "Candidate Portal Demo - Pending Screening",
         "company_name": "TMX Pending Lab",
@@ -98,6 +132,7 @@ PORTAL_JOB_DEFINITIONS = [
         "automation_rules": {"combinator": "and", "rules": []},
         "application_scenario": "assessment_manual_pending",
         "target_stage": "pending_screening",
+        "auto_apply": True,
     },
     {
         "key": "assessment_review",
@@ -119,6 +154,7 @@ PORTAL_JOB_DEFINITIONS = [
         ),
         "application_scenario": "assessment_auto_pass",
         "target_stage": "assessment_review",
+        "auto_apply": True,
     },
     {
         "key": "screening_passed",
@@ -129,7 +165,7 @@ PORTAL_JOB_DEFINITIONS = [
         "description": "<p>This role lands in screening passed so the candidate can see a no-action, in-progress state.</p>",
         "compensation_min": Decimal("10.00"),
         "compensation_max": Decimal("14.00"),
-        "compensation_unit": "Per Hour",
+        "compensation_unit": "Per Day",
         "assessment_enabled": False,
         "automation_rules": build_rule_group(
             build_rule(
@@ -140,6 +176,7 @@ PORTAL_JOB_DEFINITIONS = [
         ),
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "screening_passed",
+        "auto_apply": True,
     },
     {
         "key": "contract_pool",
@@ -150,7 +187,7 @@ PORTAL_JOB_DEFINITIONS = [
         "description": "<p>This role reaches contract pool so the candidate can review the draft contract and upload a signed copy.</p>",
         "compensation_min": Decimal("11.00"),
         "compensation_max": Decimal("15.00"),
-        "compensation_unit": "Per Hour",
+        "compensation_unit": "Per Line",
         "assessment_enabled": False,
         "automation_rules": build_rule_group(
             build_rule(
@@ -161,6 +198,7 @@ PORTAL_JOB_DEFINITIONS = [
         ),
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "contract_pool",
+        "auto_apply": True,
     },
     {
         "key": "active",
@@ -171,7 +209,7 @@ PORTAL_JOB_DEFINITIONS = [
         "description": "<p>This role reaches active so the candidate can verify the active placement state.</p>",
         "compensation_min": Decimal("12.00"),
         "compensation_max": Decimal("16.00"),
-        "compensation_unit": "Per Hour",
+        "compensation_unit": "Per Month",
         "assessment_enabled": False,
         "automation_rules": build_rule_group(
             build_rule(
@@ -182,6 +220,7 @@ PORTAL_JOB_DEFINITIONS = [
         ),
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "active",
+        "auto_apply": True,
     },
     {
         "key": "rejected",
@@ -203,6 +242,7 @@ PORTAL_JOB_DEFINITIONS = [
         ),
         "application_scenario": "no_assessment_auto_rejected",
         "target_stage": "rejected",
+        "auto_apply": True,
     },
     {
         "key": "replaced",
@@ -224,6 +264,7 @@ PORTAL_JOB_DEFINITIONS = [
         ),
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "replaced",
+        "auto_apply": True,
     },
 ]
 
@@ -333,6 +374,12 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
     for definition in PORTAL_JOB_DEFINITIONS:
         rejection_enabled = str(definition["key"]) == "rejected"
         async with local_session() as session:
+            company = await ensure_company(session, name=definition["company_name"])
+            project = await ensure_company_project(
+                session,
+                company_id=company.id,
+                name=definition.get("project_name", "Default Project"),
+            )
             result = await session.execute(
                 select(Job).where(
                     Job.title == definition["title"],
@@ -344,6 +391,12 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
             data = {
                 JOB_DATA_FORM_FIELDS_KEY: form_fields,
                 JOB_DATA_AUTOMATION_RULES_KEY: definition["automation_rules"],
+                JOB_DATA_CONTRACT_EXAMPLE_KEY: definition.get("contract_example")
+                or build_contract_example_html(
+                    job_title=definition["title"],
+                    company_name=company.name,
+                    compensation_unit=str(definition["compensation_unit"]),
+                ),
             }
             if rejection_enabled:
                 data["rejection_mail_config"] = {
@@ -351,14 +404,15 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
                     "mail_account_id": rejection_mail_ids["mail_account_id"],
                     "mail_template_id": rejection_mail_ids["mail_template_id"],
                     "mail_signature_id": rejection_mail_ids["mail_signature_id"],
-                    "mail_account_label": "flow-assessment@example.com",
+                    "mail_account_label": rejection_mail_ids.get("mail_account_label"),
                     "mail_template_name": "流程淘汰通知模板",
                     "mail_signature_name": "流程淘汰签名",
                 }
             if job is None:
                 job = Job(
                     title=definition["title"],
-                    company_name=definition["company_name"],
+                    company_id=company.id,
+                    project_id=project.id,
                     country=definition["country"],
                     status=JobStatus.OPEN.value,
                     work_mode=definition["work_mode"],
@@ -377,7 +431,8 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
                 )
                 session.add(job)
             else:
-                job.company_name = definition["company_name"]
+                job.company_id = company.id
+                job.project_id = project.id
                 job.country = definition["country"]
                 job.status = JobStatus.OPEN.value
                 job.work_mode = definition["work_mode"]
@@ -455,6 +510,7 @@ async def admin_upload_contract_draft(
     access_token: str,
     job_id: int,
     progress_id: int,
+    file_name: str = "draft-contract.pdf",
 ) -> None:
     response = await client.post(
         f"/jobs/{job_id}/progress/contract-draft/upload",
@@ -462,9 +518,9 @@ async def admin_upload_contract_draft(
         files={
             "progress_id": (None, str(progress_id)),
             "file": (
-                "draft-contract.pdf",
+                file_name,
                 build_demo_pdf_bytes(
-                    candidate_email="draft-contract",
+                    candidate_email=file_name,
                     note="Candidate portal contract-pool demo file.",
                 ),
                 "application/pdf",
@@ -472,6 +528,57 @@ async def admin_upload_contract_draft(
         },
     )
     ensure_ok(response, "Upload contract draft failed")
+
+
+async def admin_upload_company_sealed_contract(
+    client: httpx.AsyncClient,
+    *,
+    access_token: str,
+    job_id: int,
+    progress_id: int,
+    file_name: str = "company-sealed-contract.pdf",
+) -> None:
+    response = await client.post(
+        f"/jobs/{job_id}/progress/company-sealed-contract/upload",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={
+            "progress_id": (None, str(progress_id)),
+            "file": (
+                file_name,
+                build_demo_pdf_bytes(
+                    candidate_email=file_name,
+                    note="Candidate portal company sealed contract demo file.",
+                ),
+                "application/pdf",
+            ),
+        },
+    )
+    ensure_ok(response, "Upload company sealed contract failed")
+
+
+async def admin_update_contract_record(
+    client: httpx.AsyncClient,
+    *,
+    access_token: str,
+    job_id: int,
+    progress_ids: list[int],
+    agreement_ref_no: str | None = None,
+    signing_status: str | None = None,
+    contract_review: str | None = None,
+    rate: str | None = None,
+) -> dict[str, Any]:
+    response = await client.patch(
+        f"/jobs/{job_id}/progress/contract-record",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "progress_ids": progress_ids,
+            "agreement_ref_no": agreement_ref_no,
+            "signing_status": signing_status,
+            "contract_review": contract_review,
+            "rate": rate,
+        },
+    )
+    return ensure_ok(response, "Update contract record failed")
 
 
 async def fetch_existing_application(user_id: int, job_id: int) -> dict[str, int] | None:
@@ -566,24 +673,52 @@ async def fetch_my_application_detail(
     return ensure_ok(response, "Load My Job detail failed")
 
 
+async def fetch_my_contracts_page(
+    client: httpx.AsyncClient,
+    *,
+    access_token: str,
+    page: int = 1,
+    page_size: int = 10,
+    keyword: str | None = None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "page": page,
+        "page_size": page_size,
+    }
+    if keyword:
+        params["keyword"] = keyword
+
+    response = await client.get(
+        "/me/contracts",
+        headers={"Authorization": f"Bearer {access_token}"},
+        params=params,
+    )
+    return ensure_ok(response, "List My Contracts failed")
+
+
 async def candidate_upload_signed_contract_response(
     client: httpx.AsyncClient,
     *,
     access_token: str,
     job_id: int,
-    file_name: str = "candidate-signed-contract.pdf",
+    file_name: str = "candidate-signed-contract.docx",
 ) -> httpx.Response:
+    media_type = (
+        "application/msword"
+        if file_name.lower().endswith(".doc")
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
     return await client.post(
         f"/jobs/{job_id}/signed-contract/upload",
         headers={"Authorization": f"Bearer {access_token}"},
         files={
             "file": (
                 file_name,
-                build_demo_pdf_bytes(
-                    candidate_email=file_name,
-                    note="Candidate portal signed contract upload assertion.",
-                ),
-                "application/pdf",
+                (
+                    f"Signed contract placeholder for {file_name}\n"
+                    "This file is used by the local demo script.\n"
+                ).encode("utf-8"),
+                media_type,
             )
         },
     )
@@ -604,7 +739,7 @@ async def download_asset(
 async def main() -> None:
     args = parse_args()
 
-    print_step("Step 1/6: seed admin and seven candidate demo jobs")
+    print_step("Step 1/6: seed admin, one fresh job, and seven candidate demo jobs")
     seed_payload, jobs = await ensure_candidate_portal_jobs()
     for job in jobs:
         print_detail(f"job ready: {job.id} {job.title}")
@@ -648,9 +783,12 @@ async def main() -> None:
         )
         admin_access_token = admin_login_payload["access_token"]
 
-        print_step("Step 3/6: apply to each job once and prove duplicate apply is blocked")
+        print_step("Step 3/6: apply to each demo job once, and leave one fresh role for manual end-to-end testing")
         cases_by_key: dict[str, dict[str, Any]] = {}
         for definition, job in zip(PORTAL_JOB_DEFINITIONS, jobs, strict=True):
+            if not should_auto_apply(definition):
+                print_detail(f"left unapplied for manual testing: {job.title} (job_id={job.id})")
+                continue
             items = build_application_items(
                 scenario_key=str(definition["application_scenario"]),
                 candidate_name=args.candidate_name,
@@ -680,9 +818,9 @@ async def main() -> None:
                 "application_id": application_id,
             }
 
-        duplicate_job = jobs[0]
+        duplicate_job = next(job for definition, job in zip(PORTAL_JOB_DEFINITIONS, jobs, strict=True) if should_auto_apply(definition))
         duplicate_items = build_application_items(
-            scenario_key=str(PORTAL_JOB_DEFINITIONS[0]["application_scenario"]),
+            scenario_key=str(next(definition["application_scenario"] for definition in PORTAL_JOB_DEFINITIONS if should_auto_apply(definition))),
             candidate_name=args.candidate_name,
             candidate_email=args.candidate_email,
             resume_asset_id=resume_asset.id,
@@ -726,91 +864,222 @@ async def main() -> None:
         )
         print_detail("assessment_review job received one candidate submission")
 
+        screening_case = cases_by_key["screening_passed"]
+        await admin_update_contract_record(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(screening_case["job"].id),
+            progress_ids=[int(screening_case["job_progress_id"])],
+            agreement_ref_no="SCREEN-2026-001",
+            signing_status="已通知人选签合同",
+            rate="4.20",
+        )
+        await admin_upload_contract_draft(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(screening_case["job"].id),
+            progress_id=int(screening_case["job_progress_id"]),
+            file_name="Screen 2026 001 Draft Contract.pdf",
+        )
+        print_detail("screening_passed job now has a ready-to-sign draft contract")
+
         contract_case = cases_by_key["contract_pool"]
-        await admin_move_stage(
+        contract_case_stage = str(contract_case["detail"]["current_stage"])
+        contract_case_record = dict(contract_case["detail"].get("contract_record_data") or {})
+        contract_case_update_kwargs: dict[str, Any] = {
+            "agreement_ref_no": "POOL-2026-002",
+            "rate": "6.80",
+        }
+        if contract_case_stage == "screening_passed":
+            contract_case_update_kwargs["signing_status"] = "已通知人选签合同"
+
+        await admin_update_contract_record(
             admin_client,
             access_token=admin_access_token,
             job_id=int(contract_case["job"].id),
             progress_ids=[int(contract_case["job_progress_id"])],
-            target_stage="contract_pool",
-            reason="candidate_portal_demo_contract_pool",
+            **contract_case_update_kwargs,
         )
-        failed_signed_upload = await candidate_upload_signed_contract_response(
-            web_client,
-            access_token=access_token,
-            job_id=int(contract_case["job"].id),
-            file_name="candidate-signed-before-draft.pdf",
-        )
-        if failed_signed_upload.status_code != 400:
-            raise RuntimeError(
-                "Signed contract upload should fail before the draft contract exists, "
-                f"got {failed_signed_upload.status_code} {failed_signed_upload.text}"
+        if contract_case_stage != "contract_pool":
+            await admin_move_stage(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(contract_case["job"].id),
+                progress_ids=[int(contract_case["job_progress_id"])],
+                target_stage="contract_pool",
+                reason="candidate_portal_demo_contract_pool",
             )
-        print_detail(
-            f"signed contract upload blocked before draft: {failed_signed_upload.json().get('detail')}"
-        )
+
+        if not contract_case_record.get("draft_contract_attachment"):
+            failed_signed_upload = await candidate_upload_signed_contract_response(
+                web_client,
+                access_token=access_token,
+                job_id=int(contract_case["job"].id),
+                file_name="candidate-signed-before-draft.docx",
+            )
+            if failed_signed_upload.status_code != 400:
+                raise RuntimeError(
+                    "Signed contract upload should fail before the draft contract exists, "
+                    f"got {failed_signed_upload.status_code} {failed_signed_upload.text}"
+                )
+            print_detail(
+                f"signed contract upload blocked before draft: {failed_signed_upload.json().get('detail')}"
+            )
         await admin_upload_contract_draft(
             admin_client,
             access_token=admin_access_token,
             job_id=int(contract_case["job"].id),
             progress_id=int(contract_case["job_progress_id"]),
+            file_name="Pool 2026 002 Draft Contract.pdf",
         )
-        print_detail("contract_pool job moved and draft contract uploaded")
+        if contract_case_record.get("candidate_signed_contract_attachment") and contract_case_record.get("contract_review") != "待修改":
+            await admin_update_contract_record(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(contract_case["job"].id),
+                progress_ids=[int(contract_case["job_progress_id"])],
+                contract_review="待修改",
+            )
+        successful_signed_upload = await candidate_upload_signed_contract_response(
+            web_client,
+            access_token=access_token,
+            job_id=int(contract_case["job"].id),
+            file_name="candidate-signed-contract-pool.docx",
+        )
+        if successful_signed_upload.status_code not in {200, 201}:
+            raise RuntimeError(
+                "Signed contract upload should succeed after the draft exists, "
+                f"got {successful_signed_upload.status_code} {successful_signed_upload.text}"
+            )
+        await admin_update_contract_record(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(contract_case["job"].id),
+            progress_ids=[int(contract_case["job_progress_id"])],
+            contract_review="待修改",
+        )
+        print_detail("contract_pool job moved, draft uploaded, signed contract submitted, and review reset to 待修改")
 
         active_case = cases_by_key["active"]
-        await admin_move_stage(
-            admin_client,
-            access_token=admin_access_token,
-            job_id=int(active_case["job"].id),
-            progress_ids=[int(active_case["job_progress_id"])],
-            target_stage="contract_pool",
-            reason="candidate_portal_demo_active_contract_pool",
-        )
-        await admin_move_stage(
-            admin_client,
-            access_token=admin_access_token,
-            job_id=int(active_case["job"].id),
-            progress_ids=[int(active_case["job_progress_id"])],
-            target_stage="active",
-            reason="candidate_portal_demo_active",
-        )
-        print_detail("active job moved to active")
+        active_case_stage = str(active_case["detail"]["current_stage"])
+        active_case_record = dict(active_case["detail"].get("contract_record_data") or {})
+        if active_case_stage == "active" and active_case_record.get("company_sealed_contract_attachment"):
+            print_detail("active job already has company-signed contract data and remains active")
+        else:
+            active_case_update_kwargs: dict[str, Any] = {
+                "agreement_ref_no": "ACTIVE-2026-003",
+                "rate": "3500",
+            }
+            if active_case_stage == "screening_passed":
+                active_case_update_kwargs["signing_status"] = "已通知人选签合同"
+            await admin_update_contract_record(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(active_case["job"].id),
+                progress_ids=[int(active_case["job_progress_id"])],
+                **active_case_update_kwargs,
+            )
+            if active_case_stage != "contract_pool":
+                await admin_move_stage(
+                    admin_client,
+                    access_token=admin_access_token,
+                    job_id=int(active_case["job"].id),
+                    progress_ids=[int(active_case["job_progress_id"])],
+                    target_stage="contract_pool",
+                    reason="candidate_portal_demo_active_contract_pool",
+                )
+            await admin_upload_contract_draft(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(active_case["job"].id),
+                progress_id=int(active_case["job_progress_id"]),
+                file_name="Active 2026 003 Draft Contract.pdf",
+            )
+            if active_case_record.get("candidate_signed_contract_attachment") and active_case_record.get("contract_review") != "待修改":
+                await admin_update_contract_record(
+                    admin_client,
+                    access_token=admin_access_token,
+                    job_id=int(active_case["job"].id),
+                    progress_ids=[int(active_case["job_progress_id"])],
+                    contract_review="待修改",
+                )
+            active_signed_upload = await candidate_upload_signed_contract_response(
+                web_client,
+                access_token=access_token,
+                job_id=int(active_case["job"].id),
+                file_name="candidate-signed-contract-active.docx",
+            )
+            if active_signed_upload.status_code not in {200, 201}:
+                raise RuntimeError(
+                    "Active-path signed contract upload should succeed, "
+                    f"got {active_signed_upload.status_code} {active_signed_upload.text}"
+                )
+            await admin_update_contract_record(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(active_case["job"].id),
+                progress_ids=[int(active_case["job_progress_id"])],
+                contract_review="审核通过",
+            )
+            await admin_upload_company_sealed_contract(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(active_case["job"].id),
+                progress_id=int(active_case["job_progress_id"]),
+                file_name="Active 2026 003 Company Returned Contract.pdf",
+            )
+            await admin_move_stage(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(active_case["job"].id),
+                progress_ids=[int(active_case["job_progress_id"])],
+                target_stage="active",
+                reason="candidate_portal_demo_active",
+            )
+            print_detail("active job now has draft, signed, company-returned contracts and is active")
 
         replaced_case = cases_by_key["replaced"]
-        await admin_move_stage(
-            admin_client,
-            access_token=admin_access_token,
-            job_id=int(replaced_case["job"].id),
-            progress_ids=[int(replaced_case["job_progress_id"])],
-            target_stage="contract_pool",
-            reason="candidate_portal_demo_replaced_contract_pool",
-        )
-        await admin_move_stage(
-            admin_client,
-            access_token=admin_access_token,
-            job_id=int(replaced_case["job"].id),
-            progress_ids=[int(replaced_case["job_progress_id"])],
-            target_stage="active",
-            reason="candidate_portal_demo_replaced_active",
-        )
-        await admin_move_stage(
-            admin_client,
-            access_token=admin_access_token,
-            job_id=int(replaced_case["job"].id),
-            progress_ids=[int(replaced_case["job_progress_id"])],
-            target_stage="replaced",
-            reason="candidate_portal_demo_replaced",
-        )
-        print_detail("replaced job moved to replaced")
+        replaced_case_stage = str(replaced_case["detail"]["current_stage"])
+        if replaced_case_stage == "replaced":
+            print_detail("replaced job already sits in replaced stage")
+        else:
+            if replaced_case_stage != "contract_pool":
+                await admin_move_stage(
+                    admin_client,
+                    access_token=admin_access_token,
+                    job_id=int(replaced_case["job"].id),
+                    progress_ids=[int(replaced_case["job_progress_id"])],
+                    target_stage="contract_pool",
+                    reason="candidate_portal_demo_replaced_contract_pool",
+                )
+            await admin_move_stage(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(replaced_case["job"].id),
+                progress_ids=[int(replaced_case["job_progress_id"])],
+                target_stage="active",
+                reason="candidate_portal_demo_replaced_active",
+            )
+            await admin_move_stage(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(replaced_case["job"].id),
+                progress_ids=[int(replaced_case["job_progress_id"])],
+                target_stage="replaced",
+                reason="candidate_portal_demo_replaced",
+            )
+            print_detail("replaced job moved to replaced")
 
         print_step("Step 5/6: verify My Jobs list and candidate-facing detail APIs")
         refreshed_items = await fetch_my_applications(web_client, access_token=access_token)
         refreshed_by_title = {str(item["job_title"]): item for item in refreshed_items}
-        expected_titles = {str(definition["title"]) for definition in PORTAL_JOB_DEFINITIONS}
+        expected_titles = {str(definition["title"]) for definition in PORTAL_JOB_DEFINITIONS if should_auto_apply(definition)}
         missing_titles = expected_titles.difference(refreshed_by_title.keys())
         if missing_titles:
             raise RuntimeError(f"My Jobs missing titles: {sorted(missing_titles)}")
         for definition in PORTAL_JOB_DEFINITIONS:
+            if not should_auto_apply(definition):
+                continue
             item = refreshed_by_title[str(definition["title"])]
             expected_stage = str(definition["target_stage"])
             if str(item["current_stage"]) != expected_stage:
@@ -824,6 +1093,16 @@ async def main() -> None:
             access_token=access_token,
             application_id=int(cases_by_key["contract_pool"]["application_id"]),
         )
+        screening_contract_detail = await fetch_my_application_detail(
+            web_client,
+            access_token=access_token,
+            application_id=int(cases_by_key["screening_passed"]["application_id"]),
+        )
+        active_contract_detail = await fetch_my_application_detail(
+            web_client,
+            access_token=access_token,
+            application_id=int(cases_by_key["active"]["application_id"]),
+        )
         assessment_detail = await fetch_my_application_detail(
             web_client,
             access_token=access_token,
@@ -833,11 +1112,21 @@ async def main() -> None:
             f"assessment detail submissions={len(assessment_detail.get('process_data', {}).get('assessment_submissions', []))}"
         )
         print_detail(
-            f"contract detail draft={bool(contract_detail.get('process_assets', {}).get('contract_draft_attachment'))}"
+            f"contract detail draft={bool((contract_detail.get('contract_record_data') or {}).get('draft_contract_attachment'))}"
         )
+        if not screening_contract_detail.get("contract_example_html"):
+            raise RuntimeError("Screening-passed contract detail is missing the contract example content.")
+        if not (screening_contract_detail.get("contract_record_data") or {}).get("draft_contract_attachment"):
+            raise RuntimeError("Screening-passed contract detail is missing its draft contract.")
+        if (contract_detail.get("contract_record_data") or {}).get("contract_review") != "待修改":
+            raise RuntimeError("Contract-pool detail should be in 待修改 review status for re-upload testing.")
+        if not (active_contract_detail.get("contract_record_data") or {}).get("company_sealed_contract_attachment"):
+            raise RuntimeError("Active contract detail is missing the company returned contract attachment.")
+        if (active_contract_detail.get("contract_record_data") or {}).get("contract_status") != "Active":
+            raise RuntimeError("Active contract detail should already be marked Active.")
         draft_download_url = (
-            contract_detail.get("process_assets", {})
-            .get("contract_draft_attachment", {})
+            (screening_contract_detail.get("contract_record_data") or {})
+            .get("draft_contract_attachment", {})
             .get("download_url")
         )
         if not draft_download_url:
@@ -850,8 +1139,23 @@ async def main() -> None:
         if download_response.status_code != 200:
             raise RuntimeError(
                 f"Draft contract download should succeed, got {download_response.status_code} {download_response.text}"
-            )
+        )
         print_detail("contract draft download returned 200 for the candidate user")
+
+        my_contracts_payload = await fetch_my_contracts_page(
+            web_client,
+            access_token=access_token,
+        )
+        my_contract_titles = {str(item["job_title"]): item for item in my_contracts_payload.get("items", [])}
+        expected_contract_titles = {
+            str(cases_by_key["screening_passed"]["job"].title),
+            str(cases_by_key["contract_pool"]["job"].title),
+            str(cases_by_key["active"]["job"].title),
+        }
+        missing_contract_titles = expected_contract_titles.difference(my_contract_titles.keys())
+        if missing_contract_titles:
+            raise RuntimeError(f"My Contracts missing titles: {sorted(missing_contract_titles)}")
+        print_detail(f"my contracts endpoint works: items={my_contracts_payload['total']}")
 
         paged_payload = await fetch_my_applications_page(
             web_client,
@@ -886,17 +1190,41 @@ async def main() -> None:
         )
         if not needs_action_payload.get("items"):
             raise RuntimeError("Needs-action filter returned no items.")
-        if any(item.get("current_stage") not in {"assessment_review", "contract_pool"} for item in needs_action_payload["items"]):
+        if any(item.get("current_stage") not in {"assessment_review", "screening_passed", "contract_pool"} for item in needs_action_payload["items"]):
             raise RuntimeError("Needs-action filter returned a non-action stage.")
+        needs_action_titles = {str(item["job_title"]) for item in needs_action_payload["items"]}
+        expected_needs_action_titles = {
+            str(cases_by_key["assessment_review"]["job"].title),
+            str(cases_by_key["screening_passed"]["job"].title),
+            str(cases_by_key["contract_pool"]["job"].title),
+        }
+        if expected_needs_action_titles.difference(needs_action_titles):
+            raise RuntimeError(
+                "Needs-action filter is missing expected workspaces: "
+                f"{sorted(expected_needs_action_titles.difference(needs_action_titles))}"
+            )
         print_detail(f"needs-action filter works: items={len(needs_action_payload['items'])}")
 
         print_step("Step 6/6: ready-to-test summary")
         print(f"candidate email: {args.candidate_email}")
         print(f"candidate password: {args.candidate_password}")
+        fresh_job = next(job for definition, job in zip(PORTAL_JOB_DEFINITIONS, jobs, strict=True) if not should_auto_apply(definition))
+        print(f"fresh job title: {fresh_job.title}")
+        print(f"fresh job id: {fresh_job.id}")
         print("my jobs summary:")
         for definition in PORTAL_JOB_DEFINITIONS:
+            if not should_auto_apply(definition):
+                continue
             item = refreshed_by_title[str(definition["title"])]
             print(f"  - {definition['title']}: {item['current_stage']}")
+        print("my contracts summary:")
+        for title in sorted(expected_contract_titles):
+            contract_item = my_contract_titles[title]
+            print(
+                "  - "
+                f"{title}: stage={contract_item['current_stage']} "
+                f"status={(contract_item.get('contract_record_data') or {}).get('contract_status')}"
+            )
 
 
 if __name__ == "__main__":

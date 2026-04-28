@@ -38,6 +38,9 @@ def reset_mysql_database() -> None:
 
 
 def clear_asset_storage() -> None:
+    if settings.ASSET_STORAGE_PROVIDER.strip().lower() != "local":
+        print("[reset] skipping remote asset cleanup for non-local storage provider")
+        return
     root = Path(settings.ASSET_STORAGE_DIR)
     if not root.exists():
         return

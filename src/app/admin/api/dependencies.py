@@ -9,7 +9,21 @@ from ...core.security import TokenType, admin_oauth2_scheme, verify_token
 from ...modules.admin.admin_user.crud import crud_admin_users
 from ...modules.admin.admin_user.schema import AdminUserDBRead
 from ...modules.admin.admin_user.service import resolve_admin_role_assignment
-from ...modules.admin.role.const import ALL_ADMIN_PERMISSIONS
+from ...modules.admin.role.const import (
+    ALL_ADMIN_PERMISSIONS,
+    BUSINESS_ADMIN_PERMISSIONS,
+    is_assessment_reviewer_only_permissions,
+)
+
+
+BUSINESS_ADMIN_PERMISSION_SET = set(BUSINESS_ADMIN_PERMISSIONS)
+
+
+def _is_assessment_reviewer_only(current_admin: dict[str, Any]) -> bool:
+    return is_assessment_reviewer_only_permissions(
+        current_admin.get("permissions") or [],
+        is_superuser=bool(current_admin.get("is_superuser")),
+    )
 
 
 async def _get_admin_from_subject(
@@ -68,6 +82,8 @@ def require_admin_permission(permission: str):
     async def permission_dependency(current_admin: Annotated[dict, Depends(get_current_admin_user)]) -> dict[str, Any]:
         if current_admin["is_superuser"]:
             return current_admin
+        if permission in BUSINESS_ADMIN_PERMISSION_SET and not _is_assessment_reviewer_only(current_admin):
+            return current_admin
         if permission not in current_admin["permissions"]:
             raise ForbiddenException(f"Missing admin permission: {permission}")
         return current_admin
@@ -80,6 +96,11 @@ def require_any_admin_permission(*permissions: str):
         current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
     ) -> dict[str, Any]:
         if current_admin["is_superuser"]:
+            return current_admin
+        if (
+            any(permission in BUSINESS_ADMIN_PERMISSION_SET for permission in permissions)
+            and not _is_assessment_reviewer_only(current_admin)
+        ):
             return current_admin
         current_permissions = set(current_admin.get("permissions") or [])
         if not any(permission in current_permissions for permission in permissions):

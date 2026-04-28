@@ -24,6 +24,7 @@ from app.modules.candidate_application.model import CandidateApplication
 from app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
 from app.modules.job.model import Job
 from app.modules.operation_log.model import OperationLog
+from app.modules.project_timesheet_record.model import ProjectTimesheetRecord
 from app.modules.talent_profile.model import TalentProfile
 from app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from app.modules.user.model import User
@@ -58,6 +59,7 @@ REGISTERED_MODELS = (
     CandidateApplication,
     CandidateApplicationFieldValue,
     OperationLog,
+    ProjectTimesheetRecord,
     TalentProfile,
     TalentProfileMergeLog,
 )

@@ -33,6 +33,7 @@ dependencies = [
     "mypy>=1.16.0",
     "structlog>=25.1.0,<=25.5.0",
     "rich>=14.2.0",
+    "oss2>=2.19.1",
 ]
 
 [project.optional-dependencies]

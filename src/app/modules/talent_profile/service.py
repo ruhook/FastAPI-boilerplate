@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..assets.model import Asset
+from ..assets.service import ensure_assets_belong_to_owner
 from ..admin.admin_user.model import AdminUser
+from ..admin.company.model import AdminCompany
 from ..candidate_application.model import CandidateApplication
 from ..candidate_application.const import get_candidate_application_status_cn_name
 from ..candidate_application.schema import (
@@ -17,6 +19,7 @@ from ..candidate_application.schema import (
     CandidateApplicationSummaryRead,
 )
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
+from ..candidate_field.service import hydrate_candidate_field_options
 from ..candidate_field.const import CandidateFieldKey
 from ..job.const import JOB_DATA_APPLICATION_SUMMARY_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..job.model import Job
@@ -85,10 +88,20 @@ def _get_operation_log_title(log_type: str) -> str:
         return "提交人选签回合同"
     if log_type == OperationLogType.JOB_PROGRESS_ASSESSMENT_REVIEW_UPDATED.value:
         return "更新测试题评审"
+    if log_type == OperationLogType.JOB_PROGRESS_QA_REVIEW_UPDATED.value:
+        return "更新质检结果"
+    if log_type == OperationLogType.JOB_PROGRESS_CONTRACT_RECORD_UPDATED.value:
+        return "更新合同信息"
     if log_type == OperationLogType.JOB_PROGRESS_CONTRACT_DRAFT_UPLOADED.value:
         return "上传待签合同"
     if log_type == OperationLogType.JOB_PROGRESS_COMPANY_SEALED_CONTRACT_UPLOADED.value:
-        return "上传公司盖章合同"
+        return "上传公司签回合同"
+    if log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_CREATED.value:
+        return "自动邮件任务已创建"
+    if log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_SKIPPED.value:
+        return "自动邮件已跳过"
+    if log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_FAILED.value:
+        return "自动邮件创建失败"
     return log_type
 
 
@@ -103,6 +116,8 @@ def _get_operation_log_actor_type(log_type: str) -> str:
         return "system"
     if log_type in {
         OperationLogType.JOB_PROGRESS_ASSESSMENT_REVIEW_UPDATED.value,
+        OperationLogType.JOB_PROGRESS_QA_REVIEW_UPDATED.value,
+        OperationLogType.JOB_PROGRESS_CONTRACT_RECORD_UPDATED.value,
         OperationLogType.JOB_PROGRESS_CONTRACT_DRAFT_UPLOADED.value,
         OperationLogType.JOB_PROGRESS_COMPANY_SEALED_CONTRACT_UPLOADED.value,
     }:
@@ -151,12 +166,31 @@ def _build_operation_log_summary(log: OperationLog, job_title: str | None) -> st
         updated_fields = data.get("updated_fields") or {}
         field_count = len(updated_fields) if isinstance(updated_fields, dict) else 0
         return f"{resolved_job_title} 已更新测试题评审信息（变更字段 {field_count} 项）"
+    if log.log_type == OperationLogType.JOB_PROGRESS_QA_REVIEW_UPDATED.value:
+        updated_fields = data.get("updated_fields") or {}
+        field_count = len(updated_fields) if isinstance(updated_fields, dict) else 0
+        return f"{resolved_job_title} 已更新质检信息（变更字段 {field_count} 项）"
+    if log.log_type == OperationLogType.JOB_PROGRESS_CONTRACT_RECORD_UPDATED.value:
+        updated_fields = data.get("contract_updated_fields") or []
+        field_count = len(updated_fields) if isinstance(updated_fields, list) else 0
+        return f"{resolved_job_title} 已更新合同信息（变更字段 {field_count} 项）"
     if log.log_type == OperationLogType.JOB_PROGRESS_CONTRACT_DRAFT_UPLOADED.value:
         attachment_name = data.get("contract_draft_attachment") or "-"
         return f"{resolved_job_title} 已上传待签合同：{attachment_name}"
     if log.log_type == OperationLogType.JOB_PROGRESS_COMPANY_SEALED_CONTRACT_UPLOADED.value:
         attachment_name = data.get("company_sealed_contract_attachment") or "-"
-        return f"{resolved_job_title} 已上传公司盖章合同：{attachment_name}"
+        return f"{resolved_job_title} 已上传公司签回合同：{attachment_name}"
+    if log.log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_CREATED.value:
+        target_stage = data.get("target_stage_cn_name") or data.get("target_stage") or "-"
+        return f"{resolved_job_title} 已创建自动邮件任务（目标阶段：{target_stage}）"
+    if log.log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_SKIPPED.value:
+        target_stage = data.get("target_stage_cn_name") or data.get("target_stage") or "-"
+        reason = data.get("reason") or "-"
+        return f"{resolved_job_title} 自动邮件已跳过（目标阶段：{target_stage}，原因：{reason}）"
+    if log.log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_FAILED.value:
+        target_stage = data.get("target_stage_cn_name") or data.get("target_stage") or "-"
+        reason = data.get("reason") or "-"
+        return f"{resolved_job_title} 自动邮件创建失败（目标阶段：{target_stage}，原因：{reason}）"
     return json.dumps(data, ensure_ascii=False) if data else "-"
 
 
@@ -171,13 +205,131 @@ def _serialize_raw_value(value: Any) -> str | None:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _build_field_snapshot_map(job: Job) -> dict[str, dict[str, Any]]:
-    data = job.data or {}
-    return {
-        str(field.get("key")): field
-        for field in list(data.get(JOB_DATA_FORM_FIELDS_KEY) or [])
+def _is_blank_application_value(value: Any, display_value: str | None) -> bool:
+    if value is None:
+        return not (display_value or "").strip()
+    if isinstance(value, str):
+        return not value.strip() and not (display_value or "").strip()
+    if isinstance(value, list):
+        return not [item for item in value if str(item).strip()]
+    return False
+
+
+def _normalize_option_values(raw_options: Any) -> set[str]:
+    if not isinstance(raw_options, list):
+        return set()
+    normalized: set[str] = set()
+    for option in raw_options:
+        if isinstance(option, dict):
+            for key in ("value", "label"):
+                value = str(option.get(key) or "").strip()
+                if value:
+                    normalized.add(value)
+            continue
+        value = str(option or "").strip()
+        if value:
+            normalized.add(value)
+    return normalized
+
+
+def _normalize_submitted_option_values(value: Any, display_value: str | None) -> list[str]:
+    if isinstance(value, list):
+        values = [str(item).strip() for item in value if str(item).strip()]
+    elif value is None:
+        values = []
+    else:
+        normalized = str(value).strip()
+        values = [normalized] if normalized else []
+    if not values and display_value:
+        values = [item.strip() for item in display_value.split(",") if item.strip()]
+    return values
+
+
+async def _validate_application_items(
+    *,
+    job: Job,
+    payload: CandidateApplicationSubmitRequest,
+    current_user: dict[str, Any],
+    db: AsyncSession,
+) -> tuple[dict[str, dict[str, Any]], list[Any]]:
+    raw_fields = [
+        dict(field)
+        for field in list((job.data or {}).get(JOB_DATA_FORM_FIELDS_KEY) or [])
+        if isinstance(field, dict) and field.get("key")
+    ]
+    hydrated_fields = await hydrate_candidate_field_options(raw_fields, db=db)
+    field_snapshot_map = {
+        str(field.get("key")): dict(field)
+        for field in hydrated_fields
         if isinstance(field, dict) and field.get("key")
     }
+    submitted_keys: set[str] = set()
+    asset_ids: list[int] = []
+
+    for item in payload.items:
+        field_key = str(item.field_key)
+        if field_key in submitted_keys:
+            raise BadRequestException(f"Duplicate application field: {field_key}.")
+        submitted_keys.add(field_key)
+        snapshot = field_snapshot_map.get(field_key)
+        if snapshot is None:
+            raise BadRequestException(f"Unsupported application field: {field_key}.")
+
+        field_type = str(snapshot.get("type") or "text").strip().lower()
+        is_file_field = field_type == "file"
+        is_blank = _is_blank_application_value(item.value, item.display_value)
+
+        if bool(snapshot.get("required")):
+            if is_file_field:
+                if item.asset_id in (None, 0, ""):
+                    raise BadRequestException(f"{snapshot.get('label') or field_key} is required.")
+            elif is_blank:
+                raise BadRequestException(f"{snapshot.get('label') or field_key} is required.")
+
+        if item.asset_id not in (None, 0, ""):
+            if not is_file_field:
+                raise BadRequestException(f"{snapshot.get('label') or field_key} does not accept attachments.")
+            asset_ids.append(int(item.asset_id))
+
+        if field_type in {"select", "dictionary", "multiselect"} and not is_blank:
+            allowed_values = _normalize_option_values(snapshot.get("options"))
+            if allowed_values:
+                submitted_values = _normalize_submitted_option_values(item.value, item.display_value)
+                unsupported_values = [value for value in submitted_values if value not in allowed_values]
+                if unsupported_values:
+                    raise BadRequestException(f"Invalid option for {snapshot.get('label') or field_key}.")
+
+        if field_type == "number" and not is_blank:
+            try:
+                float(str(item.value).strip())
+            except (TypeError, ValueError):
+                raise BadRequestException(f"{snapshot.get('label') or field_key} must be a number.")
+
+    missing_required_fields = [
+        field
+        for field in hydrated_fields
+        if bool(field.get("required")) and str(field.get("key")) not in submitted_keys
+    ]
+    if missing_required_fields:
+        first_missing = missing_required_fields[0]
+        raise BadRequestException(f"{first_missing.get('label') or first_missing.get('key')} is required.")
+
+    if asset_ids:
+        assets = await ensure_assets_belong_to_owner(
+            db,
+            owner_type="user",
+            owner_id=int(current_user["id"]),
+            asset_ids=asset_ids,
+        )
+        invalid_assets = [
+            asset.id
+            for asset in assets
+            if asset.module != "candidate_application" or asset.is_deleted
+        ]
+        if invalid_assets:
+            raise BadRequestException("Invalid application attachment.")
+
+    return field_snapshot_map, list(payload.items)
 
 
 def _merge_fields_into_profile(
@@ -272,6 +424,20 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
         .limit(20)
     )
     application_models = list(applications_result.scalars().all())
+    job_company_name_map: dict[int, str | None] = {}
+    if application_models:
+        job_result = await db.execute(
+            select(Job.id, AdminCompany.name)
+            .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+            .where(
+                Job.id.in_([application.job_id for application in application_models]),
+                Job.is_deleted.is_(False),
+            )
+        )
+        job_company_name_map = {
+            int(job_id): company_name
+            for job_id, company_name in job_result.all()
+        }
     application_ids = [application.id for application in application_models]
     progress_map: dict[int, JobProgress] = {}
     if application_ids:
@@ -291,7 +457,7 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
             id=application.id,
             job_id=application.job_id,
             job_snapshot_title=application.job_snapshot_title,
-            job_snapshot_company_name=application.job_snapshot_company_name,
+            job_company_name=job_company_name_map.get(application.job_id),
             status=application.status,
             status_cn_name=get_candidate_application_status_cn_name(application.status),
             current_stage=progress_map.get(application.id).current_stage if progress_map.get(application.id) else None,
@@ -515,17 +681,21 @@ async def create_application_and_sync_talent(
     )
     if existing_application_result.scalar_one_or_none() is not None:
         raise BadRequestException("You have already applied to this role.")
-    field_snapshot_map = _build_field_snapshot_map(job)
+    field_snapshot_map, validated_items = await _validate_application_items(
+        job=job,
+        payload=payload,
+        current_user=current_user,
+        db=db,
+    )
 
     application = CandidateApplication(
         user_id=current_user["id"],
         job_id=job.id,
         form_template_id=job.form_template_id,
         job_snapshot_title=job.title,
-        job_snapshot_company_name=job.company_name,
         status="submitted",
         submitted_at=datetime.now(UTC),
-        data={"submitted_items_count": len(payload.items)},
+        data={"submitted_items_count": len(validated_items)},
     )
     db.add(application)
     await db.flush()
@@ -541,7 +711,7 @@ async def create_application_and_sync_talent(
             job.data = next_data
 
     next_order = 0
-    for item in payload.items:
+    for item in validated_items:
         snapshot = field_snapshot_map.get(item.field_key, {})
         display_value = item.display_value or _normalize_display_value(item.value)
         row = CandidateApplicationFieldValue(
@@ -570,7 +740,7 @@ async def create_application_and_sync_talent(
             "application_id": application.id,
             "job_id": job.id,
             "job_title": job.title,
-            "submitted_items_count": len(payload.items),
+            "submitted_items_count": len(validated_items),
         },
     )
 
@@ -743,6 +913,8 @@ async def list_talent_profiles(
     page: int,
     page_size: int,
     keyword: str | None = None,
+    company_id: int | None = None,
+    project_id: int | None = None,
 ) -> dict[str, Any]:
     conditions = [TalentProfile.is_deleted.is_(False)]
     if keyword:
@@ -758,6 +930,25 @@ async def list_talent_profiles(
                 TalentProfile.latest_applied_job_title.ilike(term),
                 TalentProfile.note.ilike(term),
             )
+        )
+
+    if company_id is not None or project_id is not None:
+        application_conditions = [
+            CandidateApplication.user_id == TalentProfile.user_id,
+            CandidateApplication.is_deleted.is_(False),
+            Job.id == CandidateApplication.job_id,
+            Job.is_deleted.is_(False),
+        ]
+        if company_id is not None:
+            application_conditions.append(Job.company_id == company_id)
+        if project_id is not None:
+            application_conditions.append(Job.project_id == project_id)
+
+        conditions.append(
+            select(CandidateApplication.id)
+            .join(Job, Job.id == CandidateApplication.job_id)
+            .where(*application_conditions)
+            .exists()
         )
 
     total_result = await db.execute(select(func.count()).select_from(TalentProfile).where(*conditions))

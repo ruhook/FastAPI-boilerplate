@@ -10,16 +10,19 @@ from ...job_progress.const import RecruitmentStage
 from ...job_progress.model import JobProgress
 from ...operation_log.const import OperationLogType
 from ...operation_log.model import OperationLog
+from ..role.const import is_assessment_reviewer_only_permissions
 from .schema import AdminDashboardMetricsRead, DashboardRange
 
 _ADMIN_DASHBOARD_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _is_assessment_reviewer_only(current_admin: dict[str, Any] | None) -> bool:
-    if not current_admin or current_admin.get("is_superuser"):
+    if not current_admin:
         return False
-    permissions = set(current_admin.get("permissions") or [])
-    return "测试题判题" in permissions and "岗位管理" not in permissions
+    return is_assessment_reviewer_only_permissions(
+        current_admin.get("permissions") or [],
+        is_superuser=bool(current_admin.get("is_superuser")),
+    )
 
 
 def _get_period_start(period: DashboardRange) -> tuple[datetime, str]:

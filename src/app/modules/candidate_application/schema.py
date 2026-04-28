@@ -30,7 +30,7 @@ class CandidateApplicationSummaryRead(BaseModel):
     id: int
     job_id: int
     job_snapshot_title: str
-    job_snapshot_company_name: str | None = None
+    job_company_name: str | None = None
     status: str
     status_cn_name: str
     current_stage: str | None = None

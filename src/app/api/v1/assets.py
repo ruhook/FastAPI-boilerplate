@@ -2,7 +2,7 @@ from urllib.parse import quote
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,7 @@ from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import NotFoundException
 from ...modules.job_progress.const import JobProgressDataKey
 from ...modules.assets.schema import AssetRead, AssetUploadPayload
-from ...modules.assets.service import get_asset, get_asset_preview, upload_asset
+from ...modules.assets.service import get_asset, get_asset_content, upload_asset
 
 router = APIRouter(prefix="/assets", tags=["web-assets"])
 
@@ -81,7 +81,28 @@ async def current_user_can_access_asset(
         ),
         {"asset_id": asset_id, "user_id": current_user_id},
     )
-    return process_asset_result.first() is not None
+    if process_asset_result.first() is not None:
+        return True
+
+    contract_asset_result = await db.execute(
+        text(
+            """
+            SELECT 1
+            FROM contract_record cr
+            WHERE cr.user_id = :user_id
+              AND cr.is_deleted = 0
+              AND (
+                    cr.draft_contract_asset_id = :asset_id
+                 OR cr.candidate_signed_contract_asset_id = :asset_id
+                 OR cr.company_sealed_contract_asset_id = :asset_id
+                 OR cr.contract_attachment_asset_id = :asset_id
+              )
+            LIMIT 1
+            """
+        ),
+        {"asset_id": asset_id, "user_id": current_user_id},
+    )
+    return contract_asset_result.first() is not None
 
 
 async def ensure_current_user_can_access_asset_async(
@@ -134,8 +155,8 @@ async def preview_user_asset(
     asset_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict[str, Any], Depends(get_current_user)],
-) -> FileResponse:
-    asset, path = await get_asset_preview(asset_id, db)
+) -> Response:
+    asset, content = await get_asset_content(asset_id, db)
     await ensure_current_user_can_access_asset_async(
         db,
         asset={
@@ -145,7 +166,7 @@ async def preview_user_asset(
         },
         current_user_id=int(current_user["id"]),
     )
-    response = FileResponse(path, media_type=asset.mime_type, filename=asset.original_name)
+    response = Response(content=content, media_type=asset.mime_type)
     response.headers["Content-Disposition"] = build_content_disposition("inline", asset.original_name)
     return response
 
@@ -155,8 +176,8 @@ async def download_user_asset(
     asset_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict[str, Any], Depends(get_current_user)],
-) -> FileResponse:
-    asset, path = await get_asset_preview(asset_id, db)
+) -> Response:
+    asset, content = await get_asset_content(asset_id, db)
     await ensure_current_user_can_access_asset_async(
         db,
         asset={
@@ -166,6 +187,6 @@ async def download_user_asset(
         },
         current_user_id=int(current_user["id"]),
     )
-    response = FileResponse(path, media_type=asset.mime_type, filename=asset.original_name)
+    response = Response(content=content, media_type=asset.mime_type)
     response.headers["Content-Disposition"] = build_content_disposition("attachment", asset.original_name)
     return response

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import DuplicateValueException, NotFoundException
 from ..admin_user.model import AdminUser
-from .const import ALL_ADMIN_PERMISSIONS, deduplicate_permissions
+from .const import CONFIGURABLE_ADMIN_PERMISSIONS, deduplicate_permissions
 from .crud import crud_roles
 from .model import Role
 from .schema import RoleCreate, RoleCreateInternal, RoleRead, RoleUpdate
@@ -29,7 +29,7 @@ def build_role_update_values(payload: RoleUpdate, existing_data: dict[str, Any] 
 
 
 def sanitize_role_permissions(permissions: list[str]) -> list[str]:
-    return deduplicate_permissions([permission for permission in permissions if permission in ALL_ADMIN_PERMISSIONS])
+    return deduplicate_permissions([permission for permission in permissions if permission in CONFIGURABLE_ADMIN_PERMISSIONS])
 
 
 def serialize_role(role: Role) -> dict[str, Any]:
@@ -60,7 +60,7 @@ async def create_role(payload: RoleCreate, db: AsyncSession) -> dict[str, Any]:
         schema_to_select=RoleRead,
         return_as_model=True,
     )
-    return created_role.model_dump()
+    return await get_role(created_role.id, db)
 
 
 async def get_role(role_id: int, db: AsyncSession) -> dict[str, Any]:
@@ -83,7 +83,7 @@ async def update_role(role_id: int, payload: RoleUpdate, db: AsyncSession) -> di
     refreshed = await crud_roles.get(db=db, id=role_id, schema_to_select=RoleRead)
     if refreshed is None:
         raise NotFoundException("Role not found.")
-    return refreshed
+    return await get_role(role_id, db)
 
 
 async def delete_role(role_id: int, db: AsyncSession) -> dict[str, str]:

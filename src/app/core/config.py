@@ -53,6 +53,8 @@ class ConsoleLoggerSettings(BaseSettings):
 
 class DatabaseSettings(BaseSettings):
     DATABASE_BACKEND: str = "mysql"
+    DATABASE_POOL_PRE_PING: bool = True
+    DATABASE_POOL_RECYCLE_SECONDS: int = 1800
 
 
 class SQLiteSettings(DatabaseSettings):
@@ -158,14 +160,14 @@ class MailDeliverySettings(BaseSettings):
 
 
 class CandidateRegisterVerificationSettings(BaseSettings):
-    CANDIDATE_REGISTER_VERIFICATION_ENABLED: bool = False
-    CANDIDATE_REGISTER_VERIFICATION_SENDER_NAME: str = "Primnota Recruitment"
-    CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL: str = ""
-    CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME: str = ""
-    CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST: str = ""
+    CANDIDATE_REGISTER_VERIFICATION_ENABLED: bool = True
+    CANDIDATE_REGISTER_VERIFICATION_SENDER_NAME: str = "T-Maxx Recruit"
+    CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL: str = "betty-recruit@t-maxx.cc"
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME: str = "betty-recruit@t-maxx.cc"
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST: str = "smtp.feishu.cn"
     CANDIDATE_REGISTER_VERIFICATION_SMTP_PORT: int = 465
     CANDIDATE_REGISTER_VERIFICATION_SMTP_SECURITY_MODE: str = "ssl"
-    CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET: SecretStr = SecretStr("")
+    CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET: SecretStr = SecretStr("iojfbFwhmtFZdh2m")
     CANDIDATE_REGISTER_VERIFICATION_SUBJECT: str = "Your verification code"
     CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS: int = 600
     CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS: int = 60
@@ -175,6 +177,7 @@ class CandidateRegisterVerificationSettings(BaseSettings):
 
 
 class AssetStorageSettings(BaseSettings):
+    ASSET_STORAGE_PROVIDER: str = "local"
     ASSET_STORAGE_DIR: str = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         "..",
@@ -182,6 +185,22 @@ class AssetStorageSettings(BaseSettings):
         "storage",
         "assets",
     )
+    ASSET_STORAGE_KEY_PREFIX: str = "hr-assets"
+
+
+class AliyunOSSSettings(BaseSettings):
+    ALIYUN_OSS_ENDPOINT: str = ""
+    ALIYUN_OSS_ACCESS_KEY_ID: str = ""
+    ALIYUN_OSS_ACCESS_KEY_SECRET: SecretStr = SecretStr("")
+    ALIYUN_OSS_BUCKET_PRODUCTION: str = "primnota"
+    ALIYUN_OSS_BUCKET_NON_PRODUCTION: str = "primnota-test"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def ALIYUN_OSS_BUCKET(self) -> str:
+        if self.ENVIRONMENT == EnvironmentOption.PRODUCTION:
+            return self.ALIYUN_OSS_BUCKET_PRODUCTION
+        return self.ALIYUN_OSS_BUCKET_NON_PRODUCTION
 
 
 class EnvironmentOption(str, Enum):
@@ -212,6 +231,7 @@ class Settings(
     MailDeliverySettings,
     CandidateRegisterVerificationSettings,
     AssetStorageSettings,
+    AliyunOSSSettings,
     EnvironmentSettings,
     CORSSettings,
     FileLoggerSettings,

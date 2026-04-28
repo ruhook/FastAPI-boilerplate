@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...dependencies import get_current_admin_user, require_admin_permission
@@ -21,8 +21,9 @@ router = APIRouter()
 async def read_mail_templates(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    include_public: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
-    return await list_mail_templates(db, admin_user_id=int(current_admin["id"]))
+    return await list_mail_templates(db, admin_user_id=int(current_admin["id"]), include_public=include_public)
 
 
 @router.post("/templates", response_model=MailTemplateRead, status_code=201, dependencies=[Depends(require_admin_permission("邮件与模板"))])

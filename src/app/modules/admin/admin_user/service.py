@@ -19,7 +19,7 @@ from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTarget
 from ..admin_audit_log.service import create_admin_audit_log
 from ..role.crud import crud_roles
 from ..role.model import Role
-from ..role.const import validate_permissions
+from ..role.const import normalize_effective_role_permissions, validate_permissions
 from ..role.schema import RoleRead
 from .const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from .crud import crud_admin_users
@@ -109,7 +109,8 @@ async def resolve_admin_role_assignment(
         return None, []
 
     try:
-        permissions = validate_permissions(role.permissions or [])
+        validated_permissions = validate_permissions(role.permissions or [])
+        permissions = normalize_effective_role_permissions(validated_permissions)
     except ValueError:
         await crud_admin_users.update(
             db=db,

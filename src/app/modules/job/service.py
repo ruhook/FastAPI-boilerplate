@@ -6,18 +6,21 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.exceptions.http_exceptions import ForbiddenException, NotFoundException
+from ...core.exceptions.http_exceptions import BadRequestException, ForbiddenException, NotFoundException
+from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.admin_user.model import AdminUser
 from ..admin.form_template.model import AdminFormTemplate
 from ..admin.mail_account.model import MailAccount
 from ..admin.mail_signature.model import MailSignature
 from ..admin.mail_template.model import MailTemplate
+from ..admin.role.const import is_assessment_reviewer_only_permissions
 from ..job_progress.const import RecruitmentStage
 from ..job_progress.model import JobProgress
 from .const import (
     JOB_DATA_APPLICATION_SUMMARY_KEY,
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_COLLABORATORS_KEY,
+    JOB_DATA_CONTRACT_EXAMPLE_KEY,
     JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_HIGHLIGHTS_KEY,
     JOB_DATA_PUBLISH_CHECKLIST_KEY,
@@ -66,6 +69,80 @@ async def _ensure_form_template_exists(template_id: int, db: AsyncSession) -> No
         raise NotFoundException("Form template not found.")
 
 
+async def _resolve_company_snapshot(
+    *,
+    company_id: int | None,
+    db: AsyncSession,
+) -> int:
+    if company_id is not None:
+        result = await db.execute(
+            select(AdminCompany.id).where(
+                AdminCompany.id == company_id,
+                AdminCompany.is_deleted.is_(False),
+            )
+        )
+        resolved_id = result.scalar_one_or_none()
+        if resolved_id is None:
+            raise NotFoundException("Company not found.")
+        return int(resolved_id)
+
+    raise BadRequestException("Company selection is required.")
+
+
+async def _resolve_project_selection(
+    *,
+    company_id: int,
+    project_id: int | None,
+    db: AsyncSession,
+) -> int:
+    if project_id is None:
+        raise BadRequestException("Project selection is required.")
+
+    result = await db.execute(
+        select(AdminCompanyProject.id).where(
+            AdminCompanyProject.id == project_id,
+            AdminCompanyProject.company_id == company_id,
+            AdminCompanyProject.is_deleted.is_(False),
+        )
+    )
+    resolved_id = result.scalar_one_or_none()
+    if resolved_id is None:
+        raise NotFoundException("Project not found.")
+    return int(resolved_id)
+
+
+async def _get_company_name_map(
+    db: AsyncSession,
+    company_ids: Sequence[int],
+) -> dict[int, str]:
+    normalized_ids = sorted({int(company_id) for company_id in company_ids if company_id})
+    if not normalized_ids:
+        return {}
+    result = await db.execute(
+        select(AdminCompany.id, AdminCompany.name).where(
+            AdminCompany.id.in_(normalized_ids),
+            AdminCompany.is_deleted.is_(False),
+        )
+    )
+    return {int(company_id): company_name for company_id, company_name in result.all()}
+
+
+async def _get_project_name_map(
+    db: AsyncSession,
+    project_ids: Sequence[int],
+) -> dict[int, str]:
+    normalized_ids = sorted({int(project_id) for project_id in project_ids if project_id})
+    if not normalized_ids:
+        return {}
+    result = await db.execute(
+        select(AdminCompanyProject.id, AdminCompanyProject.name).where(
+            AdminCompanyProject.id.in_(normalized_ids),
+            AdminCompanyProject.is_deleted.is_(False),
+        )
+    )
+    return {int(project_id): project_name for project_id, project_name in result.all()}
+
+
 async def _ensure_mail_dependencies_exist(
     *,
     enabled: bool,
@@ -90,10 +167,15 @@ async def _ensure_mail_dependencies_exist(
         raise NotFoundException("Mail account not found.")
 
     template_result = await db.execute(
-        select(MailTemplate.id).where(
+        select(MailTemplate.id)
+        .outerjoin(AdminUser, AdminUser.id == MailTemplate.admin_user_id)
+        .where(
             MailTemplate.id == mail_template_id,
-            MailTemplate.admin_user_id == admin_user_id,
             MailTemplate.is_deleted.is_(False),
+            or_(
+                MailTemplate.admin_user_id == admin_user_id,
+                AdminUser.is_superuser.is_(True),
+            ),
         )
     )
     if template_result.scalar_one_or_none() is None:
@@ -143,6 +225,7 @@ def _job_data_from_payload(
         payload.application_summary.model_dump() if payload.application_summary else None
     )
     data[JOB_DATA_SHOW_COMPENSATION_KEY] = payload.show_compensation
+    data[JOB_DATA_CONTRACT_EXAMPLE_KEY] = payload.contract_example or ""
     return data
 
 
@@ -171,10 +254,12 @@ def _merge_job_data(
         next_data[JOB_DATA_APPLICATION_SUMMARY_KEY] = payload.application_summary.model_dump()
     if payload.show_compensation is not None:
         next_data[JOB_DATA_SHOW_COMPENSATION_KEY] = payload.show_compensation
+    if payload.contract_example is not None:
+        next_data[JOB_DATA_CONTRACT_EXAMPLE_KEY] = payload.contract_example
     return next_data
 
 
-def serialize_job(job: Job, owner_name: str | None) -> dict[str, Any]:
+def serialize_job(job: Job, owner_name: str | None, company_name: str, project_name: str) -> dict[str, Any]:
     data = job.data or {}
     assessment_config = JobAssessmentConfig(
         enabled=job.assessment_enabled,
@@ -189,7 +274,10 @@ def serialize_job(job: Job, owner_name: str | None) -> dict[str, Any]:
     return JobRead(
         id=job.id,
         title=job.title,
-        company=job.company_name,
+        company=company_name,
+        company_id=job.company_id,
+        project=project_name,
+        project_id=job.project_id,
         country=job.country,
         status=job.status,
         work_mode=job.work_mode,
@@ -198,6 +286,7 @@ def serialize_job(job: Job, owner_name: str | None) -> dict[str, Any]:
         compensation_unit=job.compensation_unit,
         show_compensation=bool(data.get(JOB_DATA_SHOW_COMPENSATION_KEY, True)),
         description=job.description,
+        contract_example=data.get(JOB_DATA_CONTRACT_EXAMPLE_KEY) or "",
         owner_name=owner_name or data.get("owner_name"),
         collaborators=list(data.get(JOB_DATA_COLLABORATORS_KEY) or []),
         form_strategy=JobFormStrategy(
@@ -244,14 +333,23 @@ async def get_job_model(job_id: int, db: AsyncSession) -> Job:
 async def get_job(job_id: int, db: AsyncSession) -> dict[str, Any]:
     job = await get_job_model(job_id, db)
     owner_name_map = await _get_owner_name_map(db, [job.owner_admin_user_id])
-    return serialize_job(job, owner_name_map.get(job.owner_admin_user_id))
+    company_name_map = await _get_company_name_map(db, [job.company_id])
+    project_name_map = await _get_project_name_map(db, [job.project_id])
+    return serialize_job(
+        job,
+        owner_name_map.get(job.owner_admin_user_id),
+        company_name_map.get(job.company_id, "-"),
+        project_name_map.get(job.project_id, "-"),
+    )
 
 
 def _is_assessment_reviewer_only(current_admin: dict[str, Any] | None) -> bool:
-    if not current_admin or current_admin.get("is_superuser"):
+    if not current_admin:
         return False
-    permissions = set(current_admin.get("permissions") or [])
-    return "测试题判题" in permissions and "岗位管理" not in permissions
+    return is_assessment_reviewer_only_permissions(
+        current_admin.get("permissions") or [],
+        is_superuser=bool(current_admin.get("is_superuser")),
+    )
 
 
 async def _has_assessment_assignment(
@@ -288,7 +386,14 @@ async def get_job_for_admin(
         if not has_assignment:
             raise ForbiddenException("You are not assigned to review this job.")
     owner_name_map = await _get_owner_name_map(db, [job.owner_admin_user_id])
-    return serialize_job(job, owner_name_map.get(job.owner_admin_user_id))
+    company_name_map = await _get_company_name_map(db, [job.company_id])
+    project_name_map = await _get_project_name_map(db, [job.project_id])
+    return serialize_job(
+        job,
+        owner_name_map.get(job.owner_admin_user_id),
+        company_name_map.get(job.company_id, "-"),
+        project_name_map.get(job.project_id, "-"),
+    )
 
 
 async def list_jobs(
@@ -298,24 +403,25 @@ async def list_jobs(
     page_size: int,
     keyword: str | None = None,
     status: str | None = None,
-    company: str | None = None,
+    company_id: int | None = None,
     country: str | None = None,
     current_admin: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     conditions = [Job.is_deleted.is_(False)]
+    base_query = select(Job).outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
     if keyword:
         term = f"%{keyword.strip()}%"
         conditions.append(
             or_(
                 Job.title.ilike(term),
-                Job.company_name.ilike(term),
+                AdminCompany.name.ilike(term),
                 Job.country.ilike(term),
             )
         )
     if status:
         conditions.append(Job.status == status)
-    if company:
-        conditions.append(Job.company_name == company)
+    if company_id is not None:
+        conditions.append(Job.company_id == company_id)
     if country:
         conditions.append(Job.country == country)
     if _is_assessment_reviewer_only(current_admin):
@@ -329,11 +435,16 @@ async def list_jobs(
             )
         )
 
-    total_result = await db.execute(select(func.count()).select_from(Job).where(*conditions))
+    total_result = await db.execute(
+        select(func.count())
+        .select_from(Job)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .where(*conditions)
+    )
     total = int(total_result.scalar() or 0)
 
     result = await db.execute(
-        select(Job)
+        base_query
         .where(*conditions)
         .order_by(Job.created_at.desc(), Job.id.desc())
         .offset((page - 1) * page_size)
@@ -341,11 +452,16 @@ async def list_jobs(
     )
     jobs = result.scalars().all()
     owner_name_map = await _get_owner_name_map(db, [job.owner_admin_user_id for job in jobs])
+    company_name_map = await _get_company_name_map(db, [job.company_id for job in jobs])
+    project_name_map = await _get_project_name_map(db, [job.project_id for job in jobs])
     items = [
         JobListItemRead(
             id=job.id,
             title=job.title,
-            company=job.company_name,
+            company=company_name_map.get(job.company_id, "-"),
+            company_id=job.company_id,
+            project=project_name_map.get(job.project_id, "-"),
+            project_id=job.project_id,
             country=job.country,
             status=job.status,
             applicants=job.applicant_count,
@@ -368,6 +484,15 @@ async def create_job(
     current_admin: dict[str, Any],
 ) -> dict[str, Any]:
     await _ensure_form_template_exists(payload.form_strategy.template_id, db)
+    company_id = await _resolve_company_snapshot(
+        company_id=payload.company_id,
+        db=db,
+    )
+    project_id = await _resolve_project_selection(
+        company_id=company_id,
+        project_id=payload.project_id,
+        db=db,
+    )
     await _ensure_mail_dependencies_exist(
         enabled=payload.assessment_config.enabled,
         mail_account_id=payload.assessment_config.mail_account_id,
@@ -396,7 +521,8 @@ async def create_job(
 
     job = Job(
         title=payload.title,
-        company_name=payload.company,
+        company_id=company_id,
+        project_id=project_id,
         country=payload.country,
         status=payload.status,
         work_mode=payload.work_mode,
@@ -416,7 +542,14 @@ async def create_job(
     db.add(job)
     await db.flush()
     await db.refresh(job)
-    return serialize_job(job, owner_name)
+    company_name_map = await _get_company_name_map(db, [job.company_id])
+    project_name_map = await _get_project_name_map(db, [job.project_id])
+    return serialize_job(
+        job,
+        owner_name,
+        company_name_map.get(job.company_id, "-"),
+        project_name_map.get(job.project_id, "-"),
+    )
 
 
 async def update_job(
@@ -427,6 +560,8 @@ async def update_job(
     current_admin: dict[str, Any],
 ) -> dict[str, Any]:
     job = await get_job_model(job_id, db)
+    next_company_id = job.company_id
+    next_project_id = job.project_id
 
     if payload.form_strategy is not None:
         await _ensure_form_template_exists(payload.form_strategy.template_id, db)
@@ -458,10 +593,27 @@ async def update_job(
             admin_user_id=int(current_admin["id"]),
         )
 
+    if payload.company_id is not None:
+        next_company_id = await _resolve_company_snapshot(
+            company_id=payload.company_id,
+            db=db,
+        )
+
+    if payload.project_id is not None:
+        next_project_id = await _resolve_project_selection(
+            company_id=next_company_id,
+            project_id=payload.project_id,
+            db=db,
+        )
+    elif payload.company_id is not None and next_company_id != job.company_id:
+        raise BadRequestException("Project selection is required when company changes.")
+
     if payload.title is not None:
         job.title = payload.title
-    if payload.company is not None:
-        job.company_name = payload.company
+    if payload.company_id is not None:
+        job.company_id = next_company_id
+    if payload.project_id is not None:
+        job.project_id = next_project_id
     if payload.country is not None:
         job.country = payload.country
     if payload.status is not None:
@@ -495,4 +647,11 @@ async def update_job(
     job.updated_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(job)
-    return serialize_job(job, next_owner_name)
+    company_name_map = await _get_company_name_map(db, [job.company_id])
+    project_name_map = await _get_project_name_map(db, [job.project_id])
+    return serialize_job(
+        job,
+        next_owner_name,
+        company_name_map.get(job.company_id, "-"),
+        project_name_map.get(job.project_id, "-"),
+    )

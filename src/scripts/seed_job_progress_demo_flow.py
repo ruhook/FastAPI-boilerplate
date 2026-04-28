@@ -7,9 +7,13 @@ from typing import Any
 
 import httpx
 from httpx import ASGITransport
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
+from ..app.core.config import settings
 from ..app.core.db.database import async_engine, local_session
+from ..app.core.security import get_password_hash
+from ..app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
+from ..app.modules.admin.admin_user.model import AdminUser
 from ..app.modules.admin.mail_account.const import (
     MAIL_ACCOUNT_PROVIDER_PRESETS,
     MailAccountProvider,
@@ -22,6 +26,7 @@ from ..app.modules.admin.mail_template_category.model import MailTemplateCategor
 from ..app.modules.candidate_field.const import CandidateFieldKey
 from ..app.modules.job.const import (
     JOB_DATA_AUTOMATION_RULES_KEY,
+    JOB_DATA_CONTRACT_EXAMPLE_KEY,
     JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_REJECTION_MAIL_CONFIG_KEY,
     JobStatus,
@@ -40,7 +45,10 @@ from .seed_apply_demo_flow import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_PASSWORD,
     DEMO_ADMIN_USERNAME,
+    build_contract_example_html,
     ensure_admin_user,
+    ensure_company,
+    ensure_company_project,
     ensure_dictionary,
     ensure_form_template,
     ensure_role,
@@ -52,6 +60,26 @@ DEFAULT_BASE_URL = "http://testserver/api/v1"
 DEFAULT_CANDIDATE_NAME = "Progress Demo Candidate"
 DEFAULT_CANDIDATE_EMAIL = "progress.demo.candidate@example.com"
 DEFAULT_CANDIDATE_PASSWORD = "Candidate123!"
+DEFAULT_DEMO_MAIL_ACCOUNT_EMAIL = "da@t-maxx.cc"
+DEFAULT_DEMO_MAIL_ACCOUNT_PROVIDER = MailAccountProvider.FEISHU.value
+DEFAULT_DEMO_MAIL_ACCOUNT_AUTH_SECRET = "aV9hWPYD8MPNXEWS"
+LEGACY_DEMO_MAIL_ACCOUNT_EMAIL = "flow-assessment@example.com"
+DEFAULT_SUPERADMIN_NAME = "Admin"
+DEFAULT_SUPERADMIN_USERNAME = "admin"
+DEFAULT_SUPERADMIN_EMAIL = "admin@admin.com"
+DEFAULT_SUPERADMIN_PASSWORD = "12345678"
+
+
+def get_demo_mail_account_email() -> str:
+    return settings.CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL.strip() or DEFAULT_DEMO_MAIL_ACCOUNT_EMAIL
+
+
+def get_demo_mail_account_provider() -> str:
+    return DEFAULT_DEMO_MAIL_ACCOUNT_PROVIDER
+
+
+def get_demo_mail_account_auth_secret() -> str:
+    return settings.CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET.get_secret_value().strip() or DEFAULT_DEMO_MAIL_ACCOUNT_AUTH_SECRET
 
 
 def parse_args() -> argparse.Namespace:
@@ -192,7 +220,7 @@ DEMO_JOB_DEFINITIONS = [
         "description": "<p>Assessment disabled and automation enabled. Passing application should enter screening passed.</p>",
         "compensation_min": Decimal("10.00"),
         "compensation_max": Decimal("15.00"),
-        "compensation_unit": "Per Hour",
+        "compensation_unit": "Per Day",
         "assessment_enabled": False,
         "automation_rules": _build_rule_group(
             _build_rule(
@@ -212,7 +240,7 @@ DEMO_JOB_DEFINITIONS = [
         "description": "<p>Assessment enabled and no automation rules. Application should stay in pending screening.</p>",
         "compensation_min": Decimal("9.00"),
         "compensation_max": Decimal("13.00"),
-        "compensation_unit": "Per Hour",
+        "compensation_unit": "Per Line",
         "assessment_enabled": True,
         "automation_rules": {"combinator": "and", "rules": []},
         "expected_stage": "pending_screening",
@@ -226,7 +254,7 @@ DEMO_JOB_DEFINITIONS = [
         "description": "<p>Assessment disabled and automation enabled. This submission should be rejected by automation.</p>",
         "compensation_min": Decimal("7.00"),
         "compensation_max": Decimal("11.00"),
-        "compensation_unit": "Per Hour",
+        "compensation_unit": "Per Month",
         "assessment_enabled": False,
         "automation_rules": _build_rule_group(
             _build_rule(
@@ -254,6 +282,12 @@ async def ensure_job(
     rejection_mail_signature_id: int | None = None,
 ) -> Job:
     async with local_session() as session:
+        company = await ensure_company(session, name=definition["company_name"])
+        project = await ensure_company_project(
+            session,
+            company_id=company.id,
+            name=definition.get("project_name", "Default Project"),
+        )
         result = await session.execute(
             select(Job).where(
                 Job.title == definition["title"],
@@ -265,6 +299,12 @@ async def ensure_job(
         data = {
             JOB_DATA_FORM_FIELDS_KEY: form_fields,
             JOB_DATA_AUTOMATION_RULES_KEY: definition["automation_rules"],
+            JOB_DATA_CONTRACT_EXAMPLE_KEY: definition.get("contract_example")
+            or build_contract_example_html(
+                job_title=definition["title"],
+                company_name=company.name,
+                compensation_unit=str(definition["compensation_unit"]),
+            ),
         }
         if rejection_mail_account_id and rejection_mail_template_id and rejection_mail_signature_id:
             data[JOB_DATA_REJECTION_MAIL_CONFIG_KEY] = {
@@ -272,14 +312,15 @@ async def ensure_job(
                 "mail_account_id": rejection_mail_account_id,
                 "mail_template_id": rejection_mail_template_id,
                 "mail_signature_id": rejection_mail_signature_id,
-                "mail_account_label": "flow-assessment@example.com",
+                "mail_account_label": get_demo_mail_account_email(),
                 "mail_template_name": "流程淘汰通知模板",
                 "mail_signature_name": "流程淘汰签名",
             }
         if job is None:
             job = Job(
                 title=definition["title"],
-                company_name=definition["company_name"],
+                company_id=company.id,
+                project_id=project.id,
                 country=definition["country"],
                 status=JobStatus.OPEN.value,
                 work_mode=definition["work_mode"],
@@ -298,7 +339,8 @@ async def ensure_job(
             )
             session.add(job)
         else:
-            job.company_name = definition["company_name"]
+            job.company_id = company.id
+            job.project_id = project.id
             job.country = definition["country"]
             job.status = JobStatus.OPEN.value
             job.work_mode = definition["work_mode"]
@@ -321,31 +363,42 @@ async def ensure_job(
 
 async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str, int]:
     async with local_session() as session:
-        account_email = "flow-assessment@example.com"
+        account_email = get_demo_mail_account_email()
+        provider = get_demo_mail_account_provider()
+        preset = MAIL_ACCOUNT_PROVIDER_PRESETS[provider]
+        auth_secret = get_demo_mail_account_auth_secret()
         account_result = await session.execute(
             select(MailAccount).where(
                 MailAccount.admin_user_id == admin_user_id,
-                MailAccount.email == account_email,
+                MailAccount.email.in_([account_email, LEGACY_DEMO_MAIL_ACCOUNT_EMAIL]),
                 MailAccount.is_deleted.is_(False),
             )
         )
         account = account_result.scalar_one_or_none()
-        preset = MAIL_ACCOUNT_PROVIDER_PRESETS[MailAccountProvider.QQ.value]
         if account is None:
             account = MailAccount(
                 admin_user_id=admin_user_id,
                 email=account_email,
-                provider=MailAccountProvider.QQ.value,
+                provider=provider,
                 smtp_username=account_email,
                 smtp_host=str(preset["smtp_host"]),
                 smtp_port=int(preset["smtp_port"]),
                 security_mode=str(preset["security_mode"]),
-                auth_secret="flow-demo-auth-code",
+                auth_secret=auth_secret,
                 status=MailAccountStatus.ENABLED.value,
                 note="Seeded for job progress assessment demo.",
             )
             session.add(account)
             await session.flush()
+        else:
+            account.email = account_email
+            account.provider = provider
+            account.smtp_username = account_email
+            account.smtp_host = str(preset["smtp_host"])
+            account.smtp_port = int(preset["smtp_port"])
+            account.security_mode = str(preset["security_mode"])
+            account.auth_secret = auth_secret
+            account.status = MailAccountStatus.ENABLED.value
 
         category_result = await session.execute(
             select(MailTemplateCategory).where(
@@ -421,36 +474,48 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
             "mail_account_id": int(account.id),
             "mail_template_id": int(template.id),
             "mail_signature_id": int(signature.id),
+            "mail_account_label": account.email,
         }
 
 
 async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str, int]:
     async with local_session() as session:
-        account_email = "flow-assessment@example.com"
+        account_email = get_demo_mail_account_email()
+        provider = get_demo_mail_account_provider()
+        preset = MAIL_ACCOUNT_PROVIDER_PRESETS[provider]
+        auth_secret = get_demo_mail_account_auth_secret()
         account_result = await session.execute(
             select(MailAccount).where(
                 MailAccount.admin_user_id == admin_user_id,
-                MailAccount.email == account_email,
+                MailAccount.email.in_([account_email, LEGACY_DEMO_MAIL_ACCOUNT_EMAIL]),
                 MailAccount.is_deleted.is_(False),
             )
         )
         account = account_result.scalar_one_or_none()
-        preset = MAIL_ACCOUNT_PROVIDER_PRESETS[MailAccountProvider.QQ.value]
         if account is None:
             account = MailAccount(
                 admin_user_id=admin_user_id,
                 email=account_email,
-                provider=MailAccountProvider.QQ.value,
+                provider=provider,
                 smtp_username=account_email,
                 smtp_host=str(preset["smtp_host"]),
                 smtp_port=int(preset["smtp_port"]),
                 security_mode=str(preset["security_mode"]),
-                auth_secret="flow-demo-auth-code",
+                auth_secret=auth_secret,
                 status=MailAccountStatus.ENABLED.value,
                 note="Seeded for job progress rejection demo.",
             )
             session.add(account)
             await session.flush()
+        else:
+            account.email = account_email
+            account.provider = provider
+            account.smtp_username = account_email
+            account.smtp_host = str(preset["smtp_host"])
+            account.smtp_port = int(preset["smtp_port"])
+            account.security_mode = str(preset["security_mode"])
+            account.auth_secret = auth_secret
+            account.status = MailAccountStatus.ENABLED.value
 
         category_result = await session.execute(
             select(MailTemplateCategory).where(
@@ -529,7 +594,160 @@ async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str,
             "mail_account_id": int(account.id),
             "mail_template_id": int(template.id),
             "mail_signature_id": int(signature.id),
+            "mail_account_label": account.email,
         }
+
+
+async def ensure_superadmin_user() -> AdminUser:
+    async with local_session() as session:
+        result = await session.execute(
+            select(AdminUser).where(
+                or_(
+                    AdminUser.is_superuser.is_(True),
+                    AdminUser.email == DEFAULT_SUPERADMIN_EMAIL,
+                    AdminUser.username == DEFAULT_SUPERADMIN_USERNAME,
+                )
+            )
+        )
+        admin = result.scalar_one_or_none()
+        hashed_password = get_password_hash(DEFAULT_SUPERADMIN_PASSWORD)
+        if admin is None:
+            admin = AdminUser(
+                name=DEFAULT_SUPERADMIN_NAME,
+                username=DEFAULT_SUPERADMIN_USERNAME,
+                email=DEFAULT_SUPERADMIN_EMAIL,
+                hashed_password=hashed_password,
+                phone=None,
+                note="Seeded superadmin for shared mail template demo.",
+                status="enabled",
+                profile_image_url=DEFAULT_ADMIN_PROFILE_IMAGE_URL,
+                is_superuser=True,
+                role_id=None,
+                data={},
+            )
+            session.add(admin)
+        else:
+            admin.name = DEFAULT_SUPERADMIN_NAME
+            admin.username = DEFAULT_SUPERADMIN_USERNAME
+            admin.email = DEFAULT_SUPERADMIN_EMAIL
+            admin.hashed_password = hashed_password
+            admin.note = "Seeded superadmin for shared mail template demo."
+            admin.status = "enabled"
+            admin.profile_image_url = DEFAULT_ADMIN_PROFILE_IMAGE_URL
+            admin.is_superuser = True
+            admin.is_deleted = False
+            admin.deleted_at = None
+        await session.commit()
+        await session.refresh(admin)
+        return admin
+
+
+async def ensure_public_mail_template_demo(*, admin_user_id: int) -> list[int]:
+    async with local_session() as session:
+        root_result = await session.execute(
+            select(MailTemplateCategory).where(
+                MailTemplateCategory.admin_user_id == admin_user_id,
+                MailTemplateCategory.name == "公共模板演示",
+                MailTemplateCategory.parent_id.is_(None),
+                MailTemplateCategory.is_deleted.is_(False),
+            )
+        )
+        root_category = root_result.scalar_one_or_none()
+        if root_category is None:
+            root_category = MailTemplateCategory(
+                admin_user_id=admin_user_id,
+                parent_id=None,
+                name="公共模板演示",
+                sort_order=100,
+                enabled=True,
+            )
+            session.add(root_category)
+            await session.flush()
+        else:
+            root_category.sort_order = 100
+            root_category.enabled = True
+
+        category_specs = [
+            {
+                "name": "合同沟通",
+                "sort_order": 101,
+                "template_name": "公共合同签署提醒模板",
+                "subject_template": "Action needed: sign your contract for {{job_title}}",
+                "body_html": (
+                    "<p>Hi {{candidate_name}},</p>"
+                    "<p>Your draft contract for <strong>{{job_title}}</strong> is ready."
+                    " Please review the document and upload your signed copy in the portal.</p>"
+                    "<p>If you have questions, reply to this email and our team will help you.</p>"
+                ),
+            },
+            {
+                "name": "候选人跟进",
+                "sort_order": 102,
+                "template_name": "公共候选人跟进模板",
+                "subject_template": "Quick follow-up on your {{job_title}} application",
+                "body_html": (
+                    "<p>Hi {{candidate_name}},</p>"
+                    "<p>We are following up on your application for <strong>{{job_title}}</strong>.</p>"
+                    "<p>Please log in to the portal to review the latest status and complete any required steps.</p>"
+                ),
+            },
+        ]
+
+        template_ids: list[int] = []
+        for spec in category_specs:
+            category_result = await session.execute(
+                select(MailTemplateCategory).where(
+                    MailTemplateCategory.admin_user_id == admin_user_id,
+                    MailTemplateCategory.name == spec["name"],
+                    MailTemplateCategory.parent_id == root_category.id,
+                    MailTemplateCategory.is_deleted.is_(False),
+                )
+            )
+            category = category_result.scalar_one_or_none()
+            if category is None:
+                category = MailTemplateCategory(
+                    admin_user_id=admin_user_id,
+                    parent_id=root_category.id,
+                    name=spec["name"],
+                    sort_order=spec["sort_order"],
+                    enabled=True,
+                )
+                session.add(category)
+                await session.flush()
+            else:
+                category.sort_order = spec["sort_order"]
+                category.enabled = True
+
+            template_result = await session.execute(
+                select(MailTemplate).where(
+                    MailTemplate.admin_user_id == admin_user_id,
+                    MailTemplate.name == spec["template_name"],
+                    MailTemplate.is_deleted.is_(False),
+                )
+            )
+            template = template_result.scalar_one_or_none()
+            if template is None:
+                template = MailTemplate(
+                    admin_user_id=admin_user_id,
+                    category_id=category.id,
+                    name=spec["template_name"],
+                    subject_template=spec["subject_template"],
+                    body_html=spec["body_html"],
+                    attachments=[],
+                )
+                session.add(template)
+                await session.flush()
+            else:
+                template.category_id = category.id
+                template.subject_template = spec["subject_template"]
+                template.body_html = spec["body_html"]
+                template.attachments = []
+                template.is_deleted = False
+                template.deleted_at = None
+            template_ids.append(int(template.id))
+
+        await session.commit()
+        return template_ids
 
 
 async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
@@ -543,6 +761,8 @@ async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
         await session.commit()
         form_fields = list(form_template.fields or [])
 
+    superadmin = await ensure_superadmin_user()
+    public_template_ids = await ensure_public_mail_template_demo(admin_user_id=superadmin.id)
     assessment_mail_ids = await ensure_assessment_mail_dependencies(admin_user_id=admin.id)
     rejection_mail_ids = await ensure_rejection_mail_dependencies(admin_user_id=admin.id)
     jobs: list[Job] = []
@@ -568,6 +788,12 @@ async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
             "username": DEMO_ADMIN_USERNAME,
             "email": DEMO_ADMIN_EMAIL,
             "password": DEMO_ADMIN_PASSWORD,
+        },
+        "superadmin": {
+            "username": DEFAULT_SUPERADMIN_USERNAME,
+            "email": DEFAULT_SUPERADMIN_EMAIL,
+            "password": DEFAULT_SUPERADMIN_PASSWORD,
+            "public_template_ids": public_template_ids,
         },
         "form_template": {
             "id": form_template.id,
@@ -635,9 +861,12 @@ async def main() -> None:
                     {
                         "job_id": job.id,
                         "job_title": job.title,
-                        "company_name": job.company_name,
+                        "job_company_id": job.company_id,
+                        "company_name": definition["company_name"],
+                        "compensation_unit": job.compensation_unit,
                         "assessment_enabled": job.assessment_enabled,
                         "automation_rules_enabled": bool((job.data or {}).get(JOB_DATA_AUTOMATION_RULES_KEY, {}).get("rules")),
+                        "contract_example_seeded": bool((job.data or {}).get(JOB_DATA_CONTRACT_EXAMPLE_KEY)),
                         "application_id": apply_payload["application_id"],
                         "talent_profile_id": apply_payload["talent_profile_id"],
                         "expected_stage": definition["expected_stage"],

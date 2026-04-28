@@ -11,7 +11,8 @@ from ..app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from ..app.modules.admin.admin_user.model import AdminUser
 from ..app.modules.admin.dictionary.model import AdminDictionary
 from ..app.modules.admin.form_template.model import AdminFormTemplate
-from ..app.modules.job.const import JOB_DATA_FORM_FIELDS_KEY, JobStatus
+from ..app.modules.admin.company.model import AdminCompany, AdminCompanyProject
+from ..app.modules.job.const import JOB_DATA_CONTRACT_EXAMPLE_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.admin.mail_account.model import MailAccount  # noqa: F401
 from ..app.modules.admin.mail_signature.model import MailSignature  # noqa: F401
@@ -37,6 +38,7 @@ DEMO_ROLE_PERMISSIONS = ["岗位管理", "总人才库", "常量字典", "报名
 DEMO_JOBS = [
     {
         "title": "Portuguese Data Annotator Demo",
+        "company_name": "T-Maxx Apply Demo",
         "country": "Brazil",
         "work_mode": "Remote",
         "description": "<h3>Portuguese Data Annotator Demo</h3><p>This job is prepared for end-to-end apply flow testing.</p>",
@@ -46,6 +48,7 @@ DEMO_JOBS = [
     },
     {
         "title": "Brazil Language QA Reviewer Demo",
+        "company_name": "T-Maxx Apply Demo",
         "country": "Brazil",
         "work_mode": "Remote",
         "description": "<h3>Brazil Language QA Reviewer Demo</h3><p>This second job is prepared for the manual merge verification step.</p>",
@@ -54,6 +57,18 @@ DEMO_JOBS = [
         "compensation_unit": "Per Hour",
     },
 ]
+
+
+def build_contract_example_html(*, job_title: str, company_name: str, compensation_unit: str) -> str:
+    return (
+        f"<p><strong>Contract signing guide for {job_title}</strong></p>"
+        f"<p>This example contract is prepared for the {company_name} workflow.</p>"
+        "<ol>"
+        "<li>Download the draft contract provided by the recruiter.</li>"
+        "<li>Review the worker information and sign the agreement.</li>"
+        f"<li>Upload your signed file back to the portal. Compensation is displayed in USD {compensation_unit}.</li>"
+        "</ol>"
+    )
 
 
 async def ensure_dictionary(session, definition: dict) -> AdminDictionary:
@@ -135,6 +150,48 @@ async def ensure_role(session) -> Role:
     return role
 
 
+async def ensure_company(session, *, name: str) -> AdminCompany:
+    result = await session.execute(
+        select(AdminCompany).where(
+            AdminCompany.name == name,
+            AdminCompany.is_deleted.is_(False),
+        )
+    )
+    company = result.scalar_one_or_none()
+    if company is None:
+        company = AdminCompany(name=name, description=None, data={})
+        session.add(company)
+        await session.flush()
+    await session.refresh(company)
+    return company
+
+
+async def ensure_company_project(
+    session,
+    *,
+    company_id: int,
+    name: str,
+) -> AdminCompanyProject:
+    result = await session.execute(
+        select(AdminCompanyProject).where(
+            AdminCompanyProject.company_id == company_id,
+            AdminCompanyProject.name == name,
+            AdminCompanyProject.is_deleted.is_(False),
+        )
+    )
+    project = result.scalar_one_or_none()
+    if project is None:
+        project = AdminCompanyProject(
+            company_id=company_id,
+            name=name,
+            data={},
+        )
+        session.add(project)
+        await session.flush()
+    await session.refresh(project)
+    return project
+
+
 async def ensure_admin_user(session, *, role_id: int) -> AdminUser:
     result = await session.execute(
         select(AdminUser).where(
@@ -185,6 +242,12 @@ async def ensure_job(
     form_template: AdminFormTemplate,
     definition: dict,
 ) -> Job:
+    company = await ensure_company(session, name=definition.get("company_name", "DA"))
+    project = await ensure_company_project(
+        session,
+        company_id=company.id,
+        name=definition.get("project_name", "Default Project"),
+    )
     result = await session.execute(
         select(Job).where(
             Job.title == definition["title"],
@@ -193,11 +256,20 @@ async def ensure_job(
         )
     )
     job = result.scalar_one_or_none()
-    data = {JOB_DATA_FORM_FIELDS_KEY: form_template.fields}
+    data = {
+        JOB_DATA_FORM_FIELDS_KEY: form_template.fields,
+        JOB_DATA_CONTRACT_EXAMPLE_KEY: definition.get("contract_example")
+        or build_contract_example_html(
+            job_title=definition["title"],
+            company_name=company.name,
+            compensation_unit=str(definition["compensation_unit"]),
+        ),
+    }
     if job is None:
         job = Job(
             title=definition["title"],
-            company_name="DA",
+            company_id=company.id,
+            project_id=project.id,
             country=definition["country"],
             status=JobStatus.OPEN.value,
             work_mode=definition["work_mode"],
@@ -213,7 +285,8 @@ async def ensure_job(
         )
         session.add(job)
     else:
-        job.company_name = "DA"
+        job.company_id = company.id
+        job.project_id = project.id
         job.country = definition["country"]
         job.status = JobStatus.OPEN.value
         job.work_mode = definition["work_mode"]

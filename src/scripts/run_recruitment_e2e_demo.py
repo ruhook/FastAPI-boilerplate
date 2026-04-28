@@ -241,6 +241,31 @@ async def admin_send_mail(
     return ensure_ok(response, "Create mail task failed")
 
 
+async def admin_update_contract_record(
+    client: httpx.AsyncClient,
+    *,
+    access_token: str,
+    job_id: int,
+    progress_ids: list[int],
+    agreement_ref_no: str | None = None,
+    signing_status: str | None = None,
+    contract_review: str | None = None,
+    rate: str | None = None,
+) -> dict[str, Any]:
+    response = await client.patch(
+        f"/jobs/{job_id}/progress/contract-record",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "progress_ids": progress_ids,
+            "agreement_ref_no": agreement_ref_no,
+            "signing_status": signing_status,
+            "contract_review": contract_review,
+            "rate": rate,
+        },
+    )
+    return ensure_ok(response, "Update contract record failed")
+
+
 async def admin_get_talent(
     client: httpx.AsyncClient,
     *,
@@ -298,7 +323,7 @@ async def main() -> None:
     args = parse_args()
     candidate_email = normalize_candidate_email(args.candidate_email)
 
-    print_step("环节 1/10：准备管理员、判题人和演示岗位")
+    print_step("环节 1/11：准备管理员、判题人和演示岗位")
     seed_payload, jobs = await seed_admin_and_jobs()
 
     reviewer_role = await ensure_reviewer_role(role_name="测试题判题人")
@@ -331,7 +356,7 @@ async def main() -> None:
         print_detail(f"admin={seed_payload['admin']['username']} reviewer={reviewer_account['username']}")
         print_detail(f"jobs={[(job.id, job.title) for job in jobs]}")
 
-        print_step("环节 2/10：C 端注册并投递 4 个岗位")
+        print_step("环节 2/11：C 端注册并投递 4 个岗位")
         await register_or_reuse_candidate(
             web_client,
             name=args.candidate_name,
@@ -377,6 +402,44 @@ async def main() -> None:
         manual_case = next(item for item in applications if item["definition"]["key"] == "assessment_manual_pending")
         rejected_case = next(item for item in applications if item["definition"]["key"] == "no_assessment_auto_rejected")
 
+        local_part, _, domain = candidate_email.partition("@")
+        second_candidate_email = f"{local_part}.batch@{domain or 'example.com'}"
+        await register_or_reuse_candidate(
+            web_client,
+            name=f"{args.candidate_name} Batch",
+            email=second_candidate_email,
+            password=args.candidate_password,
+        )
+        second_candidate_access_token = await login_candidate(
+            web_client,
+            email=second_candidate_email,
+            password=args.candidate_password,
+        )
+        second_current_user = await fetch_current_user(web_client, access_token=second_candidate_access_token)
+        second_resume_asset = await ensure_resume_asset(
+            user_id=int(second_current_user["id"]),
+            email=second_candidate_email,
+        )
+        second_apply_payload = await submit_application(
+            web_client,
+            access_token=second_candidate_access_token,
+            job_id=int(no_assessment_case["job"].id),
+            items=build_application_items(
+                scenario_key=no_assessment_case["definition"]["key"],
+                candidate_name=f"{args.candidate_name} Batch",
+                candidate_email=second_candidate_email,
+                resume_asset_id=second_resume_asset.id,
+            ),
+        )
+        second_no_assessment_progress = await fetch_progress_payload(
+            application_id=int(second_apply_payload["application_id"])
+        )
+        require_stage(second_no_assessment_progress, "screening_passed", "第二位候选人进入筛选通过")
+        print_detail(
+            f"second batch candidate={second_candidate_email} user_id={second_current_user['id']} "
+            f"job_id={no_assessment_case['job'].id}"
+        )
+
         auto_mail_tasks = await list_mail_tasks_for_recipient(candidate_email)
         auto_subjects = {str(task.subject) for task in auto_mail_tasks}
         if "请完成 {{job_title}} 测试题" not in auto_subjects:
@@ -388,7 +451,7 @@ async def main() -> None:
             f"assessment_account={mail_ids['mail_account_id']} rejection_account={rejection_mail_ids['mail_account_id']}"
         )
 
-        print_step("环节 3/10：校验判题权限账号未分配前不可见")
+        print_step("环节 3/11：校验判题权限账号未分配前不可见")
         reviewer_login_payload = await login_admin(
             admin_client,
             username_or_email=str(reviewer_account["username"]),
@@ -398,7 +461,7 @@ async def main() -> None:
         reviewer_jobs_before = await admin_list_jobs(admin_client, access_token=reviewer_access_token)
         print_detail(f"reviewer visible jobs before assignment = {len(reviewer_jobs_before)}")
 
-        print_step("环节 4/10：B 端给测试题回收记录分配判题负责人")
+        print_step("环节 4/11：B 端给测试题回收记录分配判题负责人")
         assessment_progress_id = int(assessment_case["progress"]["id"])
         await admin_update_assessment_review(
             admin_client,
@@ -423,7 +486,7 @@ async def main() -> None:
         print_detail(f"reviewer visible jobs after assignment = {len(reviewer_jobs_after)}")
         print_detail(f"reviewer visible assessment rows after assignment = {len(reviewer_progress_after)}")
 
-        print_step("环节 5/10：C 端上传测试题附件")
+        print_step("环节 5/11：C 端上传测试题附件")
         upload_payload = await upload_assessment(
             web_client,
             access_token=candidate_access_token,
@@ -439,7 +502,7 @@ async def main() -> None:
             f"name={upload_payload['assessment_asset']['original_name']}"
         )
 
-        print_step("环节 6/10：判题人更新测试结果并执行自动化")
+        print_step("环节 6/11：判题人更新测试结果并执行自动化")
         await admin_update_assessment_review(
             admin_client,
             access_token=reviewer_access_token,
@@ -462,7 +525,85 @@ async def main() -> None:
         )
         require_stage(progressed_after_automation, "screening_passed", "测试题自动化后阶段")
 
-        print_step("环节 7/10：B 端推进到合同库并上传合同")
+        print_step("环节 7/11：筛选通过阶段批量上传待签合同并批量通知签合同")
+        no_assessment_progress_id = int(no_assessment_case["progress"]["id"])
+        second_no_assessment_progress_id = int(second_no_assessment_progress["id"])
+        batch_progress_ids = [no_assessment_progress_id, second_no_assessment_progress_id]
+        batch_contract_numbers = {
+            no_assessment_progress_id: "CTR-2026-001",
+            second_no_assessment_progress_id: "CTR-2026-002",
+        }
+        for progress_id, agreement_ref_no in batch_contract_numbers.items():
+            await admin_update_contract_record(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(no_assessment_case["job"].id),
+                progress_ids=[progress_id],
+                agreement_ref_no=agreement_ref_no,
+            )
+        print_detail(f"set contract numbers for progresses={batch_contract_numbers}")
+
+        batch_draft_results: dict[int, dict[str, Any]] = {}
+        for progress_id, agreement_ref_no in batch_contract_numbers.items():
+            upload_result = await admin_upload_contract_file(
+                admin_client,
+                access_token=admin_access_token,
+                job_id=int(no_assessment_case["job"].id),
+                progress_id=progress_id,
+                file_name=f"{agreement_ref_no}-draft.pdf",
+                note=f"Batch draft upload for {agreement_ref_no}.",
+                endpoint="/jobs/{job_id}/progress/contract-draft/upload",
+            )
+            batch_draft_results[progress_id] = upload_result
+        print_detail(
+            "batch draft uploads="
+            + json.dumps(
+                {
+                    progress_id: payload["contract_draft_asset"]["original_name"]
+                    for progress_id, payload in batch_draft_results.items()
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        batch_mail_task_ids: list[int] = []
+        for progress_id in batch_progress_ids:
+            if progress_id == no_assessment_progress_id:
+                recipient_name = args.candidate_name
+                recipient_email = candidate_email
+            else:
+                recipient_name = f"{args.candidate_name} Batch"
+                recipient_email = second_candidate_email
+            draft_asset_id = int(batch_draft_results[progress_id]["contract_draft_asset"]["id"])
+            mail_payload = await admin_send_mail(
+                admin_client,
+                access_token=admin_access_token,
+                account_id=mail_ids["mail_account_id"],
+                template_id=mail_ids["mail_template_id"],
+                signature_id=mail_ids["mail_signature_id"],
+                candidate_name=recipient_name,
+                candidate_email=recipient_email,
+                attachment_asset_ids=[draft_asset_id],
+                render_context={
+                    "candidate_name": recipient_name,
+                    "candidate_email": recipient_email,
+                    "job_title": no_assessment_case["job"].title,
+                },
+            )
+            batch_mail_task_ids.append(int(mail_payload["id"]))
+
+        await admin_update_contract_record(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(no_assessment_case["job"].id),
+            progress_ids=batch_progress_ids,
+            signing_status="已通知人选签合同",
+        )
+        print_detail(
+            f"batch notify created mail_tasks={batch_mail_task_ids} and updated signing_status=已通知人选签合同"
+        )
+
+        print_step("环节 8/11：B 端推进到合同库并上传合同")
         await admin_move_stage(
             admin_client,
             access_token=admin_access_token,
@@ -488,7 +629,7 @@ async def main() -> None:
         draft_asset_id = int(draft_upload_payload["contract_draft_asset"]["id"])
         print_detail(f"uploaded contract draft asset_id={draft_asset_id}")
 
-        print_step("环节 8/10：B 端创建发邮件任务并附带待签合同")
+        print_step("环节 9/11：B 端创建发邮件任务并附带待签合同")
         mail_task = await admin_send_mail(
             admin_client,
             access_token=admin_access_token,
@@ -509,7 +650,7 @@ async def main() -> None:
             f"attachments={mail_task['attachment_asset_ids']}"
         )
 
-        print_step("环节 9/10：C 端上传人选签回合同，B 端上传公司盖章合同并流转到在职/汰换")
+        print_step("环节 10/11：C 端上传人选签回合同，B 端上传公司签回合同并流转到在职/汰换")
         signed_contract_payload = await candidate_upload_signed_contract(
             web_client,
             access_token=candidate_access_token,
@@ -557,7 +698,7 @@ async def main() -> None:
         )
         require_stage(after_replaced, "replaced", "进入汰换")
 
-        print_step("环节 10/10：回查人才日志与其它分支状态")
+        print_step("环节 11/11：回查人才日志与其它分支状态")
         talent_detail = await admin_get_talent(
             admin_client,
             access_token=admin_access_token,
@@ -624,6 +765,7 @@ async def main() -> None:
                         for item in applications
                     ],
                     "mail_task_id": mail_task["id"],
+                    "batch_mail_task_ids": batch_mail_task_ids,
                 },
                 ensure_ascii=False,
                 indent=2,

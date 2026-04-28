@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...dependencies import get_current_admin_user, require_admin_permission
@@ -33,8 +33,9 @@ async def create_mail_template_category_endpoint(
 async def read_mail_template_categories(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    include_public: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
-    return await list_mail_template_categories(db, admin_user_id=int(current_admin["id"]))
+    return await list_mail_template_categories(db, admin_user_id=int(current_admin["id"]), include_public=include_public)
 
 
 @router.patch("/template-categories/{category_id}", response_model=MailTemplateCategoryRead, dependencies=[Depends(require_admin_permission("邮件与模板"))])

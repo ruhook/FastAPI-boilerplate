@@ -16,7 +16,8 @@ from ....core.config import settings
 from ....core.db.database import local_session
 from ....core.exceptions.http_exceptions import NotFoundException
 from ....event import EventType, send_event
-from ...assets.service import ensure_assets_exist, get_asset_file_path, serialize_asset
+from ...assets.service import ensure_assets_exist, read_asset_content, serialize_asset
+from ..admin_user.model import AdminUser
 from ..mail_account.model import MailAccount
 from ..mail_account.service import get_mail_account_model
 from ..mail_signature.model import MailSignature
@@ -94,12 +95,23 @@ async def ensure_mail_task_attachment_assets(
     asset_ids: list[int],
 ) -> list[Any]:
     assets = await ensure_assets_exist(db, asset_ids=asset_ids)
+    superuser_result = await db.execute(
+        select(AdminUser.id).where(
+            AdminUser.is_superuser.is_(True),
+            AdminUser.is_deleted.is_(False),
+        )
+    )
+    superuser_ids = {int(item) for item in superuser_result.scalars().all()}
     unauthorized_asset = next(
         (
             asset
             for asset in assets
             if not (
-                (asset.module == "mail" and asset.owner_type == "admin_user" and asset.owner_id == admin_user_id)
+                (
+                    asset.module == "mail"
+                    and asset.owner_type == "admin_user"
+                    and (asset.owner_id == admin_user_id or asset.owner_id in superuser_ids)
+                )
                 or asset.module == "job_progress"
             )
         ),
@@ -254,8 +266,7 @@ def _resolve_attachment_payloads(task: MailTask, assets_by_id: dict[int, Any]) -
         asset = assets_by_id.get(asset_id)
         if asset is None:
             continue
-        path = get_asset_file_path(asset)
-        attachment_payloads.append((asset.original_name, path.read_bytes(), asset.mime_type))
+        attachment_payloads.append((asset.original_name, read_asset_content(asset), asset.mime_type))
     return attachment_payloads
 
 
@@ -286,8 +297,7 @@ def _merge_attachment_asset_ids(
 
 
 def _build_asset_data_url(asset: Any) -> str:
-    path = get_asset_file_path(asset)
-    content = path.read_bytes()
+    content = read_asset_content(asset)
     encoded = base64.b64encode(content).decode("ascii")
     mime_type = asset.mime_type or mimetypes.guess_type(asset.original_name)[0] or "application/octet-stream"
     return f"data:{mime_type};base64,{encoded}"
@@ -319,18 +329,93 @@ async def _build_mail_signature_html_pair(signature: MailSignature | None, db: A
 
 def _compose_final_body_html(body_html: str, signature_html: str) -> str:
     normalized_body = body_html.strip() or "<p><br></p>"
-    if not signature_html:
-        return normalized_body
+    signature_section = (
+        (
+            '<div class="email-signature-shell" '
+            'style="margin-top:28px;padding-top:22px;border-top:1px solid #d7e8f3;">'
+            f"{signature_html}"
+            "</div>"
+        )
+        if signature_html
+        else ""
+    )
     return (
-        '<div style="margin:0;padding:0;background:#ffffff;">'
-        '<div style="max-width:720px;margin:0 auto;font-family:Arial,sans-serif;color:#1f2937;'
-        'font-size:15px;line-height:1.75;">'
-        f"{normalized_body}"
-        '<div style="margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;">'
-        f"{signature_html}"
+        "<!DOCTYPE html>"
+        '<html lang="en">'
+        "<head>"
+        '<meta charset="utf-8" />'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
+        "<style>"
+        "body{margin:0;padding:0;background:linear-gradient(180deg,#eef8fd 0%,#f8fbfd 100%);"
+        "font-family:Arial,sans-serif;color:#17324a;}"
+        ".email-shell{padding:28px 16px;}"
+        ".email-card{max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #d6e8f3;"
+        "border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(19,128,175,0.08);}"
+        ".email-header{padding:24px 28px;background:linear-gradient(135deg,rgba(19,128,175,0.12) 0%,rgba(255,255,255,1) 70%);"
+        "border-bottom:1px solid #e3eef5;}"
+        ".email-header-eyebrow{display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(19,128,175,0.10);"
+        "color:#1380af;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;}"
+        ".email-header-title{margin:16px 0 10px;font-size:28px;line-height:1.2;color:#17324a;font-weight:700;}"
+        ".email-header-copy{margin:0;color:#486476;font-size:14px;line-height:1.75;}"
+        ".email-content{padding:28px;}"
+        ".email-richtext{color:#1f3447;font-size:15px;line-height:1.8;word-break:break-word;}"
+        ".email-richtext > *:first-child{margin-top:0 !important;}"
+        ".email-richtext > *:last-child{margin-bottom:0 !important;}"
+        ".email-richtext p,.email-richtext ul,.email-richtext ol,.email-richtext blockquote,.email-richtext pre{margin:0 0 16px;}"
+        ".email-richtext h1,.email-richtext h2,.email-richtext h3,.email-richtext h4,.email-richtext h5,.email-richtext h6{"
+        "margin:0 0 14px;color:#17324a;line-height:1.35;font-weight:700;}"
+        ".email-richtext h1{font-size:28px;}.email-richtext h2{font-size:24px;}.email-richtext h3{font-size:20px;}"
+        ".email-richtext h4{font-size:18px;}.email-richtext h5{font-size:16px;}.email-richtext h6{font-size:15px;}"
+        ".email-richtext a{color:#1380af;text-decoration:none;font-weight:600;}"
+        ".email-richtext strong{color:#17324a;font-weight:700;}"
+        ".email-richtext em{color:#486476;}"
+        ".email-richtext ul,.email-richtext ol{padding-left:22px;}"
+        ".email-richtext li{margin:0 0 8px;}"
+        ".email-richtext blockquote{padding:14px 18px;border-left:4px solid rgba(19,128,175,0.35);"
+        "background:#f6fbfe;border-radius:14px;color:#486476;}"
+        ".email-richtext hr{border:0;border-top:1px solid #d7e8f3;margin:24px 0;}"
+        ".email-richtext table{width:100%;border-collapse:collapse;margin:18px 0;background:#ffffff;"
+        "border:1px solid #dbeaf3;border-radius:14px;overflow:hidden;}"
+        ".email-richtext th,.email-richtext td{padding:12px 14px;border-bottom:1px solid #e6f0f6;text-align:left;vertical-align:top;}"
+        ".email-richtext th{background:#f4f9fc;color:#486476;font-size:13px;font-weight:700;}"
+        ".email-richtext tr:last-child td{border-bottom:none;}"
+        ".email-richtext img{max-width:100%;height:auto;border-radius:14px;}"
+        ".email-richtext code{padding:2px 6px;border-radius:8px;background:#f4f8fb;color:#0f3b56;font-size:13px;}"
+        ".email-richtext pre{padding:16px;border-radius:14px;background:#0f2233;color:#f4f8fb;overflow:auto;}"
+        ".email-signature-shell{margin-top:28px;padding-top:22px;border-top:1px solid #d7e8f3;}"
+        ".email-footer-note{margin-top:18px;padding:16px 18px;border-radius:16px;background:#f7fbfd;border:1px solid #e2eef5;"
+        "color:#6b7f8e;font-size:13px;line-height:1.75;}"
+        "</style>"
+        "</head>"
+        "<body>"
+        '<div class="email-shell" style="padding:28px 16px;background:linear-gradient(180deg,#eef8fd 0%,#f8fbfd 100%);">'
+        '<div class="email-card" style="max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #d6e8f3;'
+        'border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(19,128,175,0.08);">'
+        '<div class="email-header" style="padding:24px 28px;background:linear-gradient(135deg,rgba(19,128,175,0.12) 0%,rgba(255,255,255,1) 70%);'
+        'border-bottom:1px solid #e3eef5;">'
+        '<div class="email-header-eyebrow" style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(19,128,175,0.10);'
+        'color:#1380af;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">'
+        "T-Maxx Message"
+        "</div>"
+        '<div class="email-header-title" style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#17324a;font-weight:700;">'
+        "Recruitment Update"
+        "</div>"
+        '<p class="email-header-copy" style="margin:0;color:#486476;font-size:14px;line-height:1.75;">'
+        "We kept your original template content intact and wrapped it in a cleaner T-Maxx email layout."
+        "</p>"
+        "</div>"
+        '<div class="email-content" style="padding:28px;">'
+        f'<div class="email-richtext" style="color:#1f3447;font-size:15px;line-height:1.8;word-break:break-word;">{normalized_body}</div>'
+        f"{signature_section}"
+        '<div class="email-footer-note" style="margin-top:18px;padding:16px 18px;border-radius:16px;background:#f7fbfd;'
+        'border:1px solid #e2eef5;color:#6b7f8e;font-size:13px;line-height:1.75;">'
+        "This email was sent by the T-Maxx recruiting workspace."
         "</div>"
         "</div>"
         "</div>"
+        "</div>"
+        "</body>"
+        "</html>"
     )
 
 
@@ -429,11 +514,43 @@ def _send_mail_via_smtp(
     return provider_message_id
 
 
-async def create_mail_task(payload: MailTaskCreate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
+async def dispatch_mail_task_created_event(
+    mail_task_id: int,
+    db: AsyncSession,
+    *,
+    admin_user_id: int,
+) -> None:
+    try:
+        await send_event(
+            EventType.MAIL_TASK_CREATED,
+            {
+                "mail_task_id": mail_task_id,
+                "admin_user_id": admin_user_id,
+            },
+        )
+    except Exception as exc:
+        task = await db.get(MailTask, mail_task_id)
+        if task is None:
+            raise
+        task.status = MailTaskStatus.FAILED.value
+        task.error_message = f"Failed to dispatch mail task event: {exc}"
+        task.updated_at = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(task)
+
+
+async def create_mail_task(
+    payload: MailTaskCreate,
+    db: AsyncSession,
+    *,
+    admin_user_id: int,
+    commit: bool = True,
+    dispatch_event: bool = True,
+) -> dict[str, Any]:
     account = await get_mail_account_model(payload.account_id, db, admin_user_id=admin_user_id)
     template: MailTemplate | None = None
     if payload.template_id is not None:
-        template = await get_mail_template_model(payload.template_id, db, admin_user_id=admin_user_id)
+        template = await get_mail_template_model(payload.template_id, db, admin_user_id=admin_user_id, include_public=True)
     signature: MailSignature | None = None
     if payload.signature_id is not None:
         signature = await get_mail_signature_model(payload.signature_id, db, admin_user_id=admin_user_id)
@@ -464,23 +581,11 @@ async def create_mail_task(payload: MailTaskCreate, db: AsyncSession, *, admin_u
     await db.flush()
     await db.refresh(task)
 
-    await db.commit()
-    await db.refresh(task)
-
-    try:
-        await send_event(
-            EventType.MAIL_TASK_CREATED,
-            {
-                "mail_task_id": task.id,
-                "admin_user_id": admin_user_id,
-            },
-        )
-    except Exception as exc:
-        task.status = MailTaskStatus.FAILED.value
-        task.error_message = f"Failed to dispatch mail task event: {exc}"
-        task.updated_at = datetime.now(UTC)
+    if commit:
         await db.commit()
         await db.refresh(task)
+        if dispatch_event:
+            await dispatch_mail_task_created_event(task.id, db, admin_user_id=admin_user_id)
 
     return serialize_mail_task(task, account=account, template=template, signature=signature)
 
