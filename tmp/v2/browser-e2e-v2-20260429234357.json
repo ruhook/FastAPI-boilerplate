@@ -1,0 +1,138 @@
+{
+  "generated_at": "20260429234357",
+  "candidate_frontend_url": "http://127.0.0.1:3002",
+  "admin_frontend_url": "http://127.0.0.1:3001",
+  "pages": [
+    {
+      "label": "candidate_auth_redirect",
+      "url": "http://127.0.0.1:3002/login?redirect=%2Fmy-contracts"
+    },
+    {
+      "label": "admin_auth_redirect",
+      "url": "http://127.0.0.1:3001/login"
+    },
+    {
+      "label": "candidate_jobs",
+      "url": "http://127.0.0.1:3002/jobs",
+      "title": "Primnota",
+      "body_text_length": 3024,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "candidate_my_jobs",
+      "url": "http://127.0.0.1:3002/my-jobs",
+      "title": "Primnota",
+      "body_text_length": 789,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "candidate_my_contracts",
+      "url": "http://127.0.0.1:3002/my-contracts",
+      "title": "Primnota",
+      "body_text_length": 192,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "candidate_working_hours",
+      "url": "http://127.0.0.1:3002/working-hours",
+      "title": "Primnota",
+      "body_text_length": 786,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "candidate_referral",
+      "url": "http://127.0.0.1:3002/referral",
+      "title": "Primnota",
+      "body_text_length": 1095,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "candidate_earnings",
+      "url": "http://127.0.0.1:3002/earnings",
+      "title": "Primnota",
+      "body_text_length": 1599,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "candidate_settings",
+      "url": "http://127.0.0.1:3002/settings",
+      "title": "Primnota",
+      "body_text_length": 497,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_dashboard",
+      "url": "http://127.0.0.1:3001/dashboard",
+      "title": "Primnota Admin",
+      "body_text_length": 423,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_jobs",
+      "url": "http://127.0.0.1:3001/jobs",
+      "title": "Primnota Admin",
+      "body_text_length": 2103,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_contracts",
+      "url": "http://127.0.0.1:3001/contracts",
+      "title": "Primnota Admin",
+      "body_text_length": 3869,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_timesheets",
+      "url": "http://127.0.0.1:3001/timesheets",
+      "title": "Primnota Admin",
+      "body_text_length": 4777,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_project_timesheet",
+      "url": "http://127.0.0.1:3001/timesheets/companies/13/projects/13",
+      "title": "Primnota Admin",
+      "body_text_length": 4659,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_salary_records",
+      "url": "http://127.0.0.1:3001/payments/salary",
+      "title": "Primnota Admin",
+      "body_text_length": 4201,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_referral_records",
+      "url": "http://127.0.0.1:3001/payments/referrals",
+      "title": "Primnota Admin",
+      "body_text_length": 408,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_candidate_pool",
+      "url": "http://127.0.0.1:3001/candidates",
+      "title": "Primnota Admin",
+      "body_text_length": 4170,
+      "horizontal_overflow_px": 0
+    },
+    {
+      "label": "admin_mail_templates",
+      "url": "http://127.0.0.1:3001/mail/templates",
+      "title": "Primnota Admin",
+      "body_text_length": 500,
+      "horizontal_overflow_px": 0
+    }
+  ],
+  "downloads": [
+    {
+      "name": "candidate_pool_export_all",
+      "suggested_filename": "talents-all-all-2026-04-29.csv"
+    },
+    {
+      "name": "timesheet_export_all",
+      "suggested_filename": "TMX-Timesheet-Demo-Lab-Timesheet-Active-Project-timesheets-all-all.csv"
+    }
+  ],
+  "console_errors_ignored_or_empty": []
+}

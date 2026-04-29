@@ -1,0 +1,42 @@
+{
+  "marker": "V2-BATCH-20260429235404",
+  "job": {
+    "id": 2,
+    "title": "Progress Demo 2 - No Assessment + Automation Pass",
+    "compensation_unit": "Per Day"
+  },
+  "candidate_count": 3,
+  "progress_ids": [
+    4822,
+    4821,
+    4820
+  ],
+  "activated_progress_ids": [
+    4822,
+    4821,
+    4820
+  ],
+  "contract_library_matches": 3,
+  "mail_task_ids": [
+    32,
+    33,
+    34
+  ],
+  "candidates": [
+    {
+      "email": "batch.contract.v2.1@example.com",
+      "password": "Candidate123!",
+      "user_id": 3848
+    },
+    {
+      "email": "batch.contract.v2.2@example.com",
+      "password": "Candidate123!",
+      "user_id": 3849
+    },
+    {
+      "email": "batch.contract.v2.3@example.com",
+      "password": "Candidate123!",
+      "user_id": 3850
+    }
+  ]
+}

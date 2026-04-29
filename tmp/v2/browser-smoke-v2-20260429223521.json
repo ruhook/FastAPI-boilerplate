@@ -1,0 +1,129 @@
+{
+  "mode": "static_http",
+  "reason": "Playwright is not installed in the current Python environment.",
+  "candidate_frontend_url": "http://127.0.0.1:3002",
+  "admin_frontend_url": "http://127.0.0.1:3001",
+  "candidate_paths": [
+    {
+      "path": "/",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/"
+    },
+    {
+      "path": "/jobs",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/jobs"
+    },
+    {
+      "path": "/login",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/login"
+    },
+    {
+      "path": "/register",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/register"
+    },
+    {
+      "path": "/my-jobs",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/my-jobs"
+    },
+    {
+      "path": "/my-contracts",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/my-contracts"
+    },
+    {
+      "path": "/working-hours",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/working-hours"
+    },
+    {
+      "path": "/referral",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/referral"
+    },
+    {
+      "path": "/earnings",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/earnings"
+    },
+    {
+      "path": "/settings",
+      "status_code": 200,
+      "content_length": 644,
+      "final_url": "http://127.0.0.1:3002/settings"
+    }
+  ],
+  "admin_paths": [
+    {
+      "path": "/login",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/login"
+    },
+    {
+      "path": "/dashboard",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/dashboard"
+    },
+    {
+      "path": "/jobs",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/jobs"
+    },
+    {
+      "path": "/contracts",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/contracts"
+    },
+    {
+      "path": "/timesheets",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/timesheets"
+    },
+    {
+      "path": "/payments/salary",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/payments/salary"
+    },
+    {
+      "path": "/payments/referrals",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/payments/referrals"
+    },
+    {
+      "path": "/candidates",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/candidates"
+    },
+    {
+      "path": "/mail/templates",
+      "status_code": 200,
+      "content_length": 621,
+      "final_url": "http://127.0.0.1:3001/mail/templates"
+    }
+  ],
+  "candidate_session_user": {
+    "id": 16,
+    "email": "timesheet.viewer@example.com"
+  },
+  "admin_session_token_type": "bearer"
+}

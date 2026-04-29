@@ -28,6 +28,7 @@ class TalentProfileListItemRead(BaseModel):
     nationality: str | None = None
     location: str | None = None
     education: str | None = None
+    latest_applied_job_id: int | None = None
     latest_applied_job_title: str | None = None
     resume_asset_id: int | None = None
     resume_asset_name: str | None = None
@@ -50,7 +51,6 @@ class TalentProfileMergeRequest(BaseModel):
 
 
 class TalentProfileRead(TalentProfileListItemRead):
-    latest_applied_job_id: int | None = None
     last_merged_at: datetime | None = None
     applications: list[CandidateApplicationSummaryRead] = Field(default_factory=list)
     pending_merge: TalentPendingMergeRead | None = None

@@ -71,12 +71,94 @@ class ProjectTimesheetWorkspaceRead(BaseModel):
     timesheet_languages: list[str] = Field(default_factory=list)
     timesheet_work_types: list[str] = Field(default_factory=list)
     timesheet_roles: list[str] = Field(default_factory=list)
+    available_team_leaders: list[str] = Field(default_factory=list)
     available_workers: list[ProjectTimesheetWorkerOptionRead] = Field(default_factory=list)
     latest_created_at: datetime | None = None
     dashboard_items: list[ProjectTimesheetDashboardItemRead] = Field(default_factory=list)
     records: list[ProjectTimesheetRecordRead] = Field(default_factory=list)
     start_date: date | None = None
     end_date: date | None = None
+
+
+class ProjectTimesheetOverviewItemRead(BaseModel):
+    company_id: int
+    company_name: str
+    project_id: int
+    project_name: str
+    record_count: int
+    customer_duration_hours: Decimal
+    candidate_duration_hours: Decimal
+    latest_created_at: datetime | None = None
+
+
+class ProjectTimesheetOverviewRead(BaseModel):
+    items: list[ProjectTimesheetOverviewItemRead] = Field(default_factory=list)
+    company_id: int | None = None
+
+
+class ProjectTimesheetAnalyticsSummaryRead(BaseModel):
+    company_count: int = 0
+    project_count: int = 0
+    person_count: int = 0
+    sub_project_count: int = 0
+    record_count: int = 0
+    output_quantity: Decimal = Decimal("0.00")
+    customer_duration_hours: Decimal = Decimal("0.00")
+    candidate_duration_hours: Decimal = Decimal("0.00")
+    non_operational_duration_hours: Decimal = Decimal("0.00")
+    latest_created_at: datetime | None = None
+
+
+class ProjectTimesheetAnalyticsMetricItemRead(BaseModel):
+    key: str
+    label: str
+    company_id: int | None = None
+    company_name: str | None = None
+    project_id: int | None = None
+    project_name: str | None = None
+    user_id: int | None = None
+    user_email: str | None = None
+    record_count: int = 0
+    output_quantity: Decimal = Decimal("0.00")
+    customer_duration_hours: Decimal = Decimal("0.00")
+    candidate_duration_hours: Decimal = Decimal("0.00")
+    non_operational_duration_hours: Decimal = Decimal("0.00")
+
+
+class ProjectTimesheetAnalyticsTrendItemRead(BaseModel):
+    date: date
+    record_count: int = 0
+    output_quantity: Decimal = Decimal("0.00")
+    customer_duration_hours: Decimal = Decimal("0.00")
+    candidate_duration_hours: Decimal = Decimal("0.00")
+    non_operational_duration_hours: Decimal = Decimal("0.00")
+
+
+class ProjectTimesheetAnalyticsFilterOptionRead(BaseModel):
+    languages: list[str] = Field(default_factory=list)
+    work_types: list[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
+
+
+class ProjectTimesheetAnalyticsRead(BaseModel):
+    company_id: int | None = None
+    company_name: str | None = None
+    project_id: int | None = None
+    project_name: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    summary: ProjectTimesheetAnalyticsSummaryRead
+    trend: list[ProjectTimesheetAnalyticsTrendItemRead] = Field(default_factory=list)
+    company_breakdown: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    project_breakdown: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    language_breakdown: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    work_type_breakdown: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    role_breakdown: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    person_ranking: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    sub_project_ranking: list[ProjectTimesheetAnalyticsMetricItemRead] = Field(default_factory=list)
+    filter_options: ProjectTimesheetAnalyticsFilterOptionRead = Field(
+        default_factory=ProjectTimesheetAnalyticsFilterOptionRead
+    )
 
 
 class ProjectTimesheetBatchCreateEntry(BaseModel):
@@ -292,3 +374,4 @@ class CandidateTimesheetWorkspaceRead(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     bonus_month: str | None = None
+    team_leader_bonus: CandidateTimesheetTeamLeaderBonusRead | None = None

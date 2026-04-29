@@ -1,0 +1,89 @@
+{
+  "generated_at": "20260429223550",
+  "web_base_url": "http://127.0.0.1:8000/api/v1",
+  "admin_base_url": "http://127.0.0.1:8001/api",
+  "seed_summary_available": true,
+  "checks": [
+    {
+      "name": "candidate_my_jobs_and_contract_views",
+      "passed": true,
+      "details": "applications=7 needs_action=2 stages_ok=7"
+    },
+    {
+      "name": "public_jobs_search_and_detail",
+      "passed": true,
+      "details": "fresh_job_id=12 search_hits=1"
+    },
+    {
+      "name": "candidate_assessment_upload_guardrails",
+      "passed": true,
+      "details": "job_id=6 rejected_pdf=400 accepted_xlsx=201"
+    },
+    {
+      "name": "candidate_signed_contract_guardrails",
+      "passed": true,
+      "details": "job_id=7 rejected_pdf=400 accepted_docx=201"
+    },
+    {
+      "name": "candidate_contract_asset_downloads",
+      "passed": true,
+      "details": "contracts=4 downloaded_assets=4"
+    },
+    {
+      "name": "inactive_contract_upload_block",
+      "passed": true,
+      "details": "contract_record_id=2819 temporarily_terminated_and_restored"
+    },
+    {
+      "name": "candidate_timesheet_dashboard",
+      "passed": true,
+      "details": "contracts=4 statuses=['Active', 'Terminated'] bonus_month=2026-04"
+    },
+    {
+      "name": "candidate_referrals_and_earnings",
+      "passed": true,
+      "details": "milestones_ok=4 active_referrals=3"
+    },
+    {
+      "name": "admin_referrals_and_payment_filters",
+      "passed": true,
+      "details": "milestones_ok=4 referrals_total=1"
+    },
+    {
+      "name": "admin_contracts_and_talents_queries",
+      "passed": true,
+      "details": "contracts=3 talents=1"
+    },
+    {
+      "name": "admin_timesheet_and_progress_endpoints",
+      "passed": true,
+      "details": "overview_items=49 progress_items=4"
+    },
+    {
+      "name": "admin_payment_record_mutations",
+      "passed": true,
+      "details": "payment_marker=V2PAY-20260429223546 user=timesheet.worker.01@example.com created=2 earnings_matches=2"
+    },
+    {
+      "name": "admin_referral_mark_paid_mutation",
+      "passed": true,
+      "details": "referral_record_id=3 paid_amount=300.00"
+    },
+    {
+      "name": "admin_contract_mutations",
+      "passed": true,
+      "details": "patched_contract=18 resigned_contract=2828"
+    },
+    {
+      "name": "admin_timesheet_mutations",
+      "passed": true,
+      "details": "timesheet_marker=V2-TS-20260429223549 created=2 deleted=2"
+    },
+    {
+      "name": "progress_contract_flow_mutations",
+      "passed": true,
+      "details": "job_id=2 progress_id=3885 final_stage=active agreement_ref=V2-PROGRESS-20260429223550"
+    }
+  ],
+  "advanced_filter_bulk_regression": null
+}

@@ -95,6 +95,8 @@ async def read_job_progress(
     job_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    active_stage: str | None = Query(default=None),
+    advanced_filter: str | None = Query(default=None),
 ) -> dict[str, Any]:
     current_stages = None
     reviewer_admin_user_id = None
@@ -103,6 +105,8 @@ async def read_job_progress(
         reviewer_admin_user_id = int(current_admin["id"])
     return await list_job_progress(
         job_id=job_id,
+        active_stage=active_stage,
+        advanced_filter=advanced_filter,
         current_stages=current_stages,
         reviewer_admin_user_id=reviewer_admin_user_id,
         db=db,

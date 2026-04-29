@@ -25,6 +25,20 @@ class CandidateFieldKey(StrEnum):
 CANDIDATE_FIELD_CATALOG_DICTIONARY_KEY = "candidate_field_catalog"
 
 
+CANDIDATE_FIELD_DICTIONARY_KEY_MAP: dict[CandidateFieldKey, str] = {
+    CandidateFieldKey.COUNTRY_OF_RESIDENCE: "country",
+    CandidateFieldKey.CITY: "candidate_city",
+    CandidateFieldKey.AGE_RANGE: "candidate_age_range",
+    CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY: "candidate_max_working_hours_per_day",
+    CandidateFieldKey.ACCEPTS_HOURLY_PAYMENT: "candidate_accepts_hourly_payment",
+    CandidateFieldKey.EXPECTED_SALARY_USD_PER_HOUR: "candidate_expected_salary_usd_per_hour",
+    CandidateFieldKey.EDUCATION_STATUS: "candidate_education_status",
+    CandidateFieldKey.AI_DATA_ANNOTATION_EXPERIENCE: "candidate_ai_data_annotation_experience",
+    CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP: "candidate_visa_sponsorship_requirement",
+    CandidateFieldKey.JOB_SOURCE: "candidate_job_source",
+}
+
+
 CANDIDATE_FIELD_CN_NAME_MAP: dict[CandidateFieldKey, str] = {
     CandidateFieldKey.FULL_NAME: "姓名",
     CandidateFieldKey.EMAIL: "邮箱",

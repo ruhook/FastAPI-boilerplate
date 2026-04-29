@@ -12,7 +12,7 @@ from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..job.model import Job
-from ..job_progress.const import get_recruitment_stage_cn_name
+from ..job_progress.const import RecruitmentStage, get_recruitment_stage_cn_name
 from ..job_progress.model import JobProgress
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
@@ -28,6 +28,13 @@ from .const import (
 )
 from .model import ContractRecord
 from .schema import ContractRecordAssetRead, ContractRecordListItemRead, ContractRecordListPage
+
+
+def _normalize_contract_status_or_400(value: str | None) -> str:
+    try:
+        return normalize_contract_status(value)
+    except ValueError as exc:
+        raise BadRequestException("Invalid contract status.") from exc
 
 
 def _normalize_decimal(value: Any) -> Decimal | None:
@@ -366,7 +373,10 @@ async def update_contract_record_for_admin(
     record, job, progress, company, project = row
     updated_fields: list[str] = []
     if contract_status is not None:
-        record.contract_status = normalize_contract_status(contract_status)
+        next_contract_status = _normalize_contract_status_or_400(contract_status)
+        if next_contract_status == CONTRACT_STATUS_ACTIVE and record.contract_status != CONTRACT_STATUS_ACTIVE:
+            raise BadRequestException("Active contracts must be activated by the company signed contract workflow.")
+        record.contract_status = next_contract_status
         record.updated_by_admin_user_id = admin_user_id
         updated_fields.append("contract_status")
     if update_contract_type:
@@ -522,6 +532,13 @@ async def resign_contract_record_for_admin(
     old_record, job, progress = row
     if not old_record.is_current:
         raise BadRequestException("Only the current contract can be re-signed.")
+    if progress is None or progress.current_stage != RecruitmentStage.ACTIVE.value:
+        raise BadRequestException("Only active-stage contracts can be re-signed.")
+    if old_record.contract_status != CONTRACT_STATUS_ACTIVE:
+        raise BadRequestException("Only active contracts can be re-signed.")
+    next_contract_status = _normalize_contract_status_or_400(contract_status or CONTRACT_STATUS_ACTIVE)
+    if next_contract_status != CONTRACT_STATUS_ACTIVE:
+        raise BadRequestException("Re-signed contracts must be Active.")
 
     current_result = await db.execute(
         select(ContractRecord).where(
@@ -565,7 +582,7 @@ async def resign_contract_record_for_admin(
         service_customer_company_id=old_record.service_customer_company_id,
         service_customer_project_id=old_record.service_customer_project_id,
         agreement_ref_no=(agreement_ref_no or old_record.agreement_ref_no or "").strip() or None,
-        contract_status=normalize_contract_status(contract_status or CONTRACT_STATUS_ACTIVE),
+        contract_status=next_contract_status,
         contract_type=normalize_contract_type(contract_type or old_record.contract_type),
         contractor_name=(contractor_name or old_record.contractor_name or "").strip() or None,
         rate=rate if rate is not None else old_record.rate,

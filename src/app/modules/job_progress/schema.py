@@ -162,6 +162,7 @@ class JobProgressListItemRead(BaseModel):
 class JobProgressListPage(BaseModel):
     items: list[JobProgressListItemRead]
     total: int
+    matched_progress_ids: list[int] | None = None
 
 
 class JobProgressAssessmentUploadResponse(BaseModel):

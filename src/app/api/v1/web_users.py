@@ -18,6 +18,7 @@ from ...modules.user.register_verification_service import (
     send_register_verification_code,
     verify_register_verification_code,
 )
+from ...modules.referral.service import create_referral_from_code
 from ...modules.user.schema import UserAuth, UserCreateInternal, UserRead
 
 router = APIRouter(prefix="/user", tags=["web-user"])
@@ -36,6 +37,7 @@ class WebRegisterRequest(BaseModel):
     native_language: str | None = Field(default=None, max_length=100)
     headline: str | None = Field(default=None, max_length=255)
     verification_code: str | None = Field(default=None, min_length=4, max_length=12)
+    referral_code: str | None = Field(default=None, max_length=64)
 
     @field_validator("name")
     @classmethod
@@ -108,6 +110,11 @@ async def register_user(
             data=_build_candidate_data(payload),
         ),
         schema_to_select=UserRead,
+    )
+    await create_referral_from_code(
+        db=db,
+        referral_code=payload.referral_code,
+        referred_user_id=int(created["id"]),
     )
     return created
 

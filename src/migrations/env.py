@@ -19,12 +19,16 @@ from app.modules.admin.mail_task.model import MailTask
 from app.modules.admin.mail_template.model import MailTemplate
 from app.modules.admin.mail_template_category.model import MailTemplateCategory
 from app.modules.admin.role.model import Role
+from app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from app.modules.assets.model import Asset
 from app.modules.candidate_application.model import CandidateApplication
 from app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from app.modules.contract_record.model import ContractRecord
 from app.modules.job.model import Job
 from app.modules.operation_log.model import OperationLog
+from app.modules.payment_record.model import PaymentRecord
 from app.modules.project_timesheet_record.model import ProjectTimesheetRecord
+from app.modules.referral.model import ReferralRecord
 from app.modules.talent_profile.model import TalentProfile
 from app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from app.modules.user.model import User
@@ -48,6 +52,8 @@ REGISTERED_MODELS = (
     AdminDictionary,
     AdminFormTemplate,
     AdminInternalNotification,
+    AdminCompany,
+    AdminCompanyProject,
     Job,
     MailAccount,
     Asset,
@@ -58,8 +64,11 @@ REGISTERED_MODELS = (
     User,
     CandidateApplication,
     CandidateApplicationFieldValue,
+    ContractRecord,
     OperationLog,
+    PaymentRecord,
     ProjectTimesheetRecord,
+    ReferralRecord,
     TalentProfile,
     TalentProfileMergeLog,
 )

@@ -12,5 +12,5 @@ router = APIRouter(prefix="/candidate-fields", tags=["admin-candidate-fields"])
     response_model=list[CandidateFieldCatalogItemRead],
     dependencies=[Depends(require_any_admin_permission("岗位管理", "总人才库", "报名表单策略"))],
 )
-async def read_candidate_field_catalog() -> list[dict[str, str]]:
+async def read_candidate_field_catalog() -> list[dict[str, str | None]]:
     return list_candidate_field_catalog()

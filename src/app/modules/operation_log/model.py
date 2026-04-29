@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.db.database import Base
 from ...core.db.models import PrimaryKeyMixin
+from ..candidate_application.model import CandidateApplication  # noqa: F401
+from ..job.model import Job  # noqa: F401
+from ..talent_profile.model import TalentProfile  # noqa: F401
+from ..user.model import User  # noqa: F401
 
 
 class OperationLog(PrimaryKeyMixin, Base):

@@ -8,6 +8,8 @@ from .contracts import router as admin_contracts_router
 from .jobs import router as admin_jobs_router
 from .mail import router as admin_mail_router
 from .notifications import router as admin_notifications_router
+from .payment_records import router as admin_payment_records_router
+from .referrals import router as admin_referrals_router
 from .talents import router as admin_talents_router
 from .timesheets import router as admin_timesheets_router
 from .settings import router as admin_settings_router
@@ -22,6 +24,8 @@ router.include_router(admin_jobs_router)
 router.include_router(admin_talents_router)
 router.include_router(admin_mail_router)
 router.include_router(admin_notifications_router)
+router.include_router(admin_payment_records_router)
+router.include_router(admin_referrals_router)
 router.include_router(admin_timesheets_router)
 router.include_router(admin_settings_router)
 

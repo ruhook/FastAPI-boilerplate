@@ -11,6 +11,8 @@ from ....modules.project_timesheet_record.schema import (
     ProjectTimesheetBatchCreateResponse,
     ProjectTimesheetBatchDeleteRequest,
     ProjectTimesheetBatchDeleteResponse,
+    ProjectTimesheetAnalyticsRead,
+    ProjectTimesheetOverviewRead,
     ProjectTimesheetRecordRead,
     ProjectTimesheetUpdateRequest,
     ProjectTimesheetWorkspaceRead,
@@ -18,11 +20,56 @@ from ....modules.project_timesheet_record.schema import (
 from ....modules.project_timesheet_record.service import (
     create_project_timesheet_records,
     delete_project_timesheet_records,
+    list_project_timesheet_analytics,
+    list_project_timesheet_overview,
     list_project_timesheet_workspace,
     update_project_timesheet_record,
 )
 
 router = APIRouter(prefix="/timesheets", tags=["admin-timesheets"])
+
+
+@router.get(
+    "/overview",
+    response_model=ProjectTimesheetOverviewRead,
+    dependencies=[Depends(require_admin_permission("工时记录"))],
+)
+async def read_project_timesheet_overview(
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    _current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    company_id: int | None = Query(default=None, ge=1),
+) -> dict[str, Any]:
+    return await list_project_timesheet_overview(db=db, company_id=company_id)
+
+
+@router.get(
+    "/analytics",
+    response_model=ProjectTimesheetAnalyticsRead,
+    dependencies=[Depends(require_admin_permission("工时记录"))],
+)
+async def read_project_timesheet_analytics(
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    _current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+    company_id: int | None = Query(default=None, ge=1),
+    project_id: int | None = Query(default=None, ge=1),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    language: str | None = Query(default=None),
+    work_type: str | None = Query(default=None),
+    role_name: str | None = Query(default=None),
+    keyword: str | None = Query(default=None),
+) -> dict[str, Any]:
+    return await list_project_timesheet_analytics(
+        db=db,
+        company_id=company_id,
+        project_id=project_id,
+        start_date=start_date,
+        end_date=end_date,
+        language=language,
+        work_type=work_type,
+        role_name=role_name,
+        keyword=keyword,
+    )
 
 
 @router.get(
@@ -37,6 +84,7 @@ async def read_project_timesheet_workspace(
     _current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
+    advanced_filter: str | None = Query(default=None),
 ) -> dict[str, Any]:
     return await list_project_timesheet_workspace(
         company_id=company_id,
@@ -44,6 +92,7 @@ async def read_project_timesheet_workspace(
         db=db,
         start_date=start_date,
         end_date=end_date,
+        advanced_filter=advanced_filter,
     )
 
 

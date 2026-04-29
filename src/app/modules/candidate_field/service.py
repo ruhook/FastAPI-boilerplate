@@ -5,12 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..admin.dictionary.model import AdminDictionary
 from ..admin.dictionary.service import dictionary_options_from_model
-from .const import CANDIDATE_FIELD_CN_NAME_MAP
+from .const import CANDIDATE_FIELD_CN_NAME_MAP, CANDIDATE_FIELD_DICTIONARY_KEY_MAP
 
 
-def list_candidate_field_catalog() -> list[dict[str, str]]:
+def list_candidate_field_catalog() -> list[dict[str, str | None]]:
     return [
-        {"key": field_key.value, "label": label}
+        {
+            "key": field_key.value,
+            "label": label,
+            "dictionary_key": CANDIDATE_FIELD_DICTIONARY_KEY_MAP.get(field_key),
+        }
         for field_key, label in CANDIDATE_FIELD_CN_NAME_MAP.items()
     ]
 

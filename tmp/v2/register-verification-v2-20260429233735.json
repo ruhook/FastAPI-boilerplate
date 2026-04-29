@@ -1,0 +1,37 @@
+{
+  "generated_at": "20260429233734",
+  "email": "register.v2.20260429233734@example.com",
+  "verification_enabled": true,
+  "real_send_enabled": false,
+  "checks": [
+    {
+      "name": "register_without_code",
+      "status_code": 422
+    },
+    {
+      "name": "register_wrong_code",
+      "status_code": 422
+    },
+    {
+      "name": "wrong_code_attempt_count_incremented",
+      "cache_key": "candidate:register:verification:9d1cf9ef37f97b0a18576a3ac5e254763b3a5003692e15613ce339089f6cdb17"
+    },
+    {
+      "name": "register_valid_code",
+      "status_code": 201,
+      "user_id": 4452
+    },
+    {
+      "name": "successful_code_consumed",
+      "cache_key": "candidate:register:verification:9d1cf9ef37f97b0a18576a3ac5e254763b3a5003692e15613ce339089f6cdb17"
+    },
+    {
+      "name": "login_after_register",
+      "token_type": "bearer"
+    },
+    {
+      "name": "duplicate_verified_register_blocked",
+      "status_code": 422
+    }
+  ]
+}

@@ -6,6 +6,13 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.advanced_filter import (
+    AdvancedFilterFieldDefinition,
+    build_advanced_filter_query_sql_condition,
+    has_advanced_filter_rules,
+    parse_advanced_filter_query,
+    validate_advanced_filter_query,
+)
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..assets.model import Asset
 from ..assets.service import ensure_assets_belong_to_owner
@@ -52,6 +59,79 @@ TALENT_FIELD_MAPPING: dict[str, str] = {
 
 TALENT_ASSET_FIELD_MAPPING: dict[str, str] = {
     CandidateFieldKey.RESUME_ATTACHMENT.value: "resume_asset_id",
+}
+
+TALENT_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
+    "full_name": AdvancedFilterFieldDefinition(
+        name="full_name",
+        filter_kind="text",
+        sql_expression=TalentProfile.full_name,
+    ),
+    "email": AdvancedFilterFieldDefinition(
+        name="email",
+        filter_kind="email",
+        sql_expression=TalentProfile.email,
+    ),
+    "whatsapp": AdvancedFilterFieldDefinition(
+        name="whatsapp",
+        filter_kind="text",
+        sql_expression=TalentProfile.whatsapp,
+    ),
+    "nationality": AdvancedFilterFieldDefinition(
+        name="nationality",
+        filter_kind="text",
+        sql_expression=TalentProfile.nationality,
+    ),
+    "location": AdvancedFilterFieldDefinition(
+        name="location",
+        filter_kind="text",
+        sql_expression=TalentProfile.location,
+    ),
+    "education": AdvancedFilterFieldDefinition(
+        name="education",
+        filter_kind="text",
+        sql_expression=TalentProfile.education,
+    ),
+    "latest_applied_job_title": AdvancedFilterFieldDefinition(
+        name="latest_applied_job_title",
+        filter_kind="text",
+        sql_expression=TalentProfile.latest_applied_job_title,
+    ),
+    "latest_applied_job_id": AdvancedFilterFieldDefinition(
+        name="latest_applied_job_id",
+        filter_kind="number",
+        sql_expression=TalentProfile.latest_applied_job_id,
+    ),
+    "resume_attachment": AdvancedFilterFieldDefinition(
+        name="resume_attachment",
+        filter_kind="file",
+        sql_expression=TalentProfile.resume_asset_id,
+    ),
+    "note": AdvancedFilterFieldDefinition(
+        name="note",
+        filter_kind="text",
+        sql_expression=TalentProfile.note,
+    ),
+    "merge_strategy": AdvancedFilterFieldDefinition(
+        name="merge_strategy",
+        filter_kind="select",
+        sql_expression=TalentProfile.merge_strategy,
+    ),
+    "source_application_id": AdvancedFilterFieldDefinition(
+        name="source_application_id",
+        filter_kind="number",
+        sql_expression=TalentProfile.source_application_id,
+    ),
+    "latest_applied_at": AdvancedFilterFieldDefinition(
+        name="latest_applied_at",
+        filter_kind="date",
+        sql_expression=TalentProfile.latest_applied_at,
+    ),
+    "created_at": AdvancedFilterFieldDefinition(
+        name="created_at",
+        filter_kind="date",
+        sql_expression=TalentProfile.created_at,
+    ),
 }
 
 
@@ -102,6 +182,10 @@ def _get_operation_log_title(log_type: str) -> str:
         return "自动邮件已跳过"
     if log_type == OperationLogType.JOB_PROGRESS_STAGE_MAIL_TASK_FAILED.value:
         return "自动邮件创建失败"
+    if log_type == OperationLogType.REFERRAL_CREATED.value:
+        return "创建邀请关系"
+    if log_type == OperationLogType.REFERRAL_REWARD_MARKED_PAID.value:
+        return "邀请奖励已发放"
     return log_type
 
 
@@ -191,6 +275,12 @@ def _build_operation_log_summary(log: OperationLog, job_title: str | None) -> st
         target_stage = data.get("target_stage_cn_name") or data.get("target_stage") or "-"
         reason = data.get("reason") or "-"
         return f"{resolved_job_title} 自动邮件创建失败（目标阶段：{target_stage}，原因：{reason}）"
+    if log.log_type == OperationLogType.REFERRAL_CREATED.value:
+        referrer_email = data.get("referrer_email") or "-"
+        return f"通过邀请链接建立推荐关系，邀请者邮箱：{referrer_email}"
+    if log.log_type == OperationLogType.REFERRAL_REWARD_MARKED_PAID.value:
+        paid_amount = data.get("paid_reward_amount") or "-"
+        return f"邀请奖励已标记发放，薪资记录节点已预留：USD {paid_amount}"
     return json.dumps(data, ensure_ascii=False) if data else "-"
 
 
@@ -915,7 +1005,11 @@ async def list_talent_profiles(
     keyword: str | None = None,
     company_id: int | None = None,
     project_id: int | None = None,
+    advanced_filter: str | None = None,
 ) -> dict[str, Any]:
+    advanced_filter_query = parse_advanced_filter_query(advanced_filter)
+    if has_advanced_filter_rules(advanced_filter_query):
+        validate_advanced_filter_query(advanced_filter_query, field_map=TALENT_ADVANCED_FILTER_FIELD_MAP)
     conditions = [TalentProfile.is_deleted.is_(False)]
     if keyword:
         term = f"%{keyword.strip()}%"
@@ -951,10 +1045,14 @@ async def list_talent_profiles(
             .exists()
         )
 
-    total_result = await db.execute(select(func.count()).select_from(TalentProfile).where(*conditions))
-    total = int(total_result.scalar() or 0)
+    advanced_filter_condition = build_advanced_filter_query_sql_condition(
+        advanced_filter_query,
+        field_map=TALENT_ADVANCED_FILTER_FIELD_MAP,
+    )
+    if advanced_filter_condition is not None:
+        conditions.append(advanced_filter_condition)
 
-    result = await db.execute(
+    base_query = (
         select(TalentProfile, Asset.original_name)
         .outerjoin(Asset, Asset.id == TalentProfile.resume_asset_id)
         .where(*conditions)
@@ -964,11 +1062,18 @@ async def list_talent_profiles(
             TalentProfile.created_at.desc(),
             TalentProfile.id.desc(),
         )
-        .offset((page - 1) * page_size)
-        .limit(page_size)
     )
 
-    items = [
+    total_result = await db.execute(
+        select(func.count())
+        .select_from(TalentProfile)
+        .where(*conditions)
+    )
+    total = int(total_result.scalar() or 0)
+    paged_result = await db.execute(
+        base_query.offset((page - 1) * page_size).limit(page_size)
+    )
+    paged_items = [
         TalentProfileListItemRead(
             id=talent.id,
             user_id=talent.user_id,
@@ -978,6 +1083,7 @@ async def list_talent_profiles(
             nationality=talent.nationality,
             location=talent.location,
             education=talent.education,
+            latest_applied_job_id=talent.latest_applied_job_id,
             latest_applied_job_title=talent.latest_applied_job_title,
             resume_asset_id=talent.resume_asset_id,
             resume_asset_name=asset_name,
@@ -986,12 +1092,12 @@ async def list_talent_profiles(
             created_at=talent.created_at,
             merge_strategy=talent.merge_strategy,
             source_application_id=talent.source_application_id,
-        ).model_dump()
-        for talent, asset_name in result.all()
+        )
+        for talent, asset_name in paged_result.all()
     ]
 
     return TalentProfileListPage(
-        items=items,
+        items=paged_items,
         total=total,
         page=page,
         page_size=page_size,

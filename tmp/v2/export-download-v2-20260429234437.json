@@ -1,0 +1,86 @@
+{
+  "generated_at": "20260429234437",
+  "note": "Talent and timesheet CSV exports are generated client-side, so this suite verifies their protected source APIs plus asset downloads.",
+  "checks": [
+    {
+      "name": "candidate_owner_download",
+      "asset_id": 3476,
+      "kind": "contract_attachment",
+      "content_disposition": "attachment; filename='resigned-contract.pdf'; filename*=UTF-8''resigned-contract.pdf",
+      "bytes": 622
+    },
+    {
+      "name": "candidate_cross_user_download_blocked",
+      "asset_id": 3476,
+      "status_code": 404
+    },
+    {
+      "name": "candidate_owner_download",
+      "asset_id": 3475,
+      "kind": "candidate_signed_contract_attachment",
+      "content_disposition": "attachment; filename='contract.docx'; filename*=UTF-8''contract.docx",
+      "bytes": 898
+    },
+    {
+      "name": "candidate_cross_user_download_blocked",
+      "asset_id": 3475,
+      "status_code": 404
+    },
+    {
+      "name": "candidate_owner_download",
+      "asset_id": 3466,
+      "kind": "draft_contract_attachment",
+      "content_disposition": "attachment; filename='Pool 2026 002 Draft Contract.pdf'; filename*=UTF-8''Pool%202026%20002%20Draft%20Contract.pdf",
+      "bytes": 681
+    },
+    {
+      "name": "candidate_cross_user_download_blocked",
+      "asset_id": 3466,
+      "status_code": 404
+    },
+    {
+      "name": "admin_download_and_pdf",
+      "asset_id": 3476,
+      "download_bytes": 622,
+      "pdf_bytes": 622
+    },
+    {
+      "name": "reviewer_contract_asset_download_blocked",
+      "asset_id": 3476,
+      "status_code": 404
+    },
+    {
+      "name": "admin_download_and_pdf",
+      "asset_id": 3475,
+      "download_bytes": 898,
+      "pdf_bytes": 780
+    },
+    {
+      "name": "reviewer_contract_asset_download_blocked",
+      "asset_id": 3475,
+      "status_code": 404
+    },
+    {
+      "name": "admin_download_and_pdf",
+      "asset_id": 3466,
+      "download_bytes": 681,
+      "pdf_bytes": 681
+    },
+    {
+      "name": "reviewer_contract_asset_download_blocked",
+      "asset_id": 3466,
+      "status_code": 404
+    },
+    {
+      "name": "talent_export_source_query",
+      "total": 4387,
+      "page_size": 100
+    },
+    {
+      "name": "timesheet_export_source_query",
+      "records": 27,
+      "company_id": 13,
+      "project_id": 13
+    }
+  ]
+}

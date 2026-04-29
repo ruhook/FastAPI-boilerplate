@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -23,7 +23,9 @@ from ..app.modules.admin.mail_account.model import MailAccount
 from ..app.modules.admin.mail_signature.model import MailSignature
 from ..app.modules.admin.mail_template.model import MailTemplate
 from ..app.modules.admin.mail_template_category.model import MailTemplateCategory
+from ..app.modules.candidate_application.model import CandidateApplication
 from ..app.modules.candidate_field.const import CandidateFieldKey
+from ..app.modules.contract_record.model import ContractRecord
 from ..app.modules.job.const import (
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
@@ -32,6 +34,7 @@ from ..app.modules.job.const import (
     JobStatus,
 )
 from ..app.modules.job.model import Job
+from ..app.modules.job_progress.model import JobProgress
 from ..app.modules.job_progress.service import get_job_progress_by_application_id, serialize_job_progress
 from ..app.main_web import app as web_app
 from .run_client_apply_demo import (
@@ -810,6 +813,96 @@ async def fetch_progress_payload(*, application_id: int) -> dict[str, Any]:
         return serialize_job_progress(progress)
 
 
+async def fetch_existing_application_record(*, user_id: int, job_id: int) -> dict[str, int] | None:
+    async with local_session() as session:
+        result = await session.execute(
+            select(CandidateApplication, JobProgress)
+            .join(JobProgress, JobProgress.application_id == CandidateApplication.id)
+            .where(
+                CandidateApplication.user_id == user_id,
+                CandidateApplication.job_id == job_id,
+                CandidateApplication.is_deleted.is_(False),
+                JobProgress.is_deleted.is_(False),
+            )
+            .order_by(CandidateApplication.submitted_at.desc(), CandidateApplication.id.desc())
+        )
+        row = result.first()
+        if row is None:
+            return None
+        application, progress = row
+        return {
+            "application_id": int(application.id),
+            "talent_profile_id": int(progress.talent_profile_id or 0),
+            "job_progress_id": int(progress.id),
+        }
+
+
+async def reset_progress_demo_state(*, user_id: int, job_ids: list[int]) -> dict[str, int]:
+    now = datetime.now(UTC)
+    async with local_session() as session:
+        application_result = await session.execute(
+            select(CandidateApplication).where(
+                CandidateApplication.user_id == user_id,
+                CandidateApplication.job_id.in_(job_ids),
+                CandidateApplication.is_deleted.is_(False),
+            )
+        )
+        applications = list(application_result.scalars().all())
+        application_ids = [int(application.id) for application in applications]
+
+        progress_result = await session.execute(
+            select(JobProgress).where(
+                JobProgress.user_id == user_id,
+                JobProgress.job_id.in_(job_ids),
+                JobProgress.is_deleted.is_(False),
+            )
+        )
+        progresses = list(progress_result.scalars().all())
+        progress_ids = [int(progress.id) for progress in progresses]
+
+        contract_conditions = [
+            ContractRecord.user_id == user_id,
+            ContractRecord.is_deleted.is_(False),
+        ]
+        scoped_contract_conditions: list[Any] = []
+        if job_ids:
+            scoped_contract_conditions.append(ContractRecord.job_id.in_(job_ids))
+        if progress_ids:
+            scoped_contract_conditions.append(ContractRecord.job_progress_id.in_(progress_ids))
+        if application_ids:
+            scoped_contract_conditions.append(ContractRecord.application_id.in_(application_ids))
+
+        contracts: list[ContractRecord] = []
+        if scoped_contract_conditions:
+            contract_result = await session.execute(
+                select(ContractRecord).where(
+                    *contract_conditions,
+                    or_(*scoped_contract_conditions),
+                )
+            )
+            contracts = list(contract_result.scalars().all())
+
+        for contract in contracts:
+            contract.is_deleted = True
+            contract.deleted_at = now
+            contract.is_current = False
+
+        for progress in progresses:
+            progress.is_deleted = True
+            progress.deleted_at = now
+
+        for application in applications:
+            application.is_deleted = True
+            application.deleted_at = now
+
+        await session.commit()
+        return {
+            "applications": len(applications),
+            "progresses": len(progresses),
+            "contracts": len(contracts),
+        }
+
+
 async def main() -> None:
     args = parse_args()
     if args.candidate_email == DEFAULT_CANDIDATE_EMAIL:
@@ -841,6 +934,18 @@ async def main() -> None:
             )
             current_user = await fetch_current_user(client, access_token=access_token)
             resume_asset = await ensure_resume_asset(user_id=int(current_user["id"]), email=candidate_email)
+            reset_summary = await reset_progress_demo_state(
+                user_id=int(current_user["id"]),
+                job_ids=[int(job.id) for job in jobs],
+            )
+            print(
+                json.dumps(
+                    {
+                        "reset_progress_demo_state": reset_summary,
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
             applications: list[dict[str, Any]] = []
             for definition, job in zip(DEMO_JOB_DEFINITIONS, jobs, strict=True):
@@ -850,12 +955,23 @@ async def main() -> None:
                     candidate_email=candidate_email,
                     resume_asset_id=resume_asset.id,
                 )
-                apply_payload = await submit_application(
-                    client,
-                    access_token=access_token,
-                    job_id=job.id,
-                    items=items,
-                )
+                try:
+                    apply_payload = await submit_application(
+                        client,
+                        access_token=access_token,
+                        job_id=job.id,
+                        items=items,
+                    )
+                except RuntimeError as exc:
+                    if "already applied to this role" not in str(exc):
+                        raise
+                    existing = await fetch_existing_application_record(
+                        user_id=int(current_user["id"]),
+                        job_id=int(job.id),
+                    )
+                    if existing is None:
+                        raise
+                    apply_payload = existing
                 progress_payload = await fetch_progress_payload(application_id=int(apply_payload["application_id"]))
                 applications.append(
                     {

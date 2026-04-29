@@ -18,3 +18,6 @@ class OperationLogType(StrEnum):
     JOB_PROGRESS_STAGE_MAIL_TASK_CREATED = "job_progress_stage_mail_task_created"
     JOB_PROGRESS_STAGE_MAIL_TASK_SKIPPED = "job_progress_stage_mail_task_skipped"
     JOB_PROGRESS_STAGE_MAIL_TASK_FAILED = "job_progress_stage_mail_task_failed"
+    REFERRAL_CREATED = "referral_created"
+    REFERRAL_REWARD_MARKED_PAID = "referral_reward_marked_paid"
+    PAYMENT_RECORD_BATCH_CREATED = "payment_record_batch_created"

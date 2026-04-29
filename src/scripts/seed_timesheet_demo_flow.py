@@ -32,6 +32,8 @@ from ..app.modules.project_timesheet_record.schema import (
     ProjectTimesheetBatchCreateRequest,
 )
 from ..app.modules.project_timesheet_record.service import create_project_timesheet_records
+from ..app.modules.referral.model import ReferralRecord
+from ..app.modules.referral.service import ensure_user_referral_code
 from ..app.modules.talent_profile.model import TalentProfile
 from ..app.modules.user.const import DEFAULT_USER_PROFILE_IMAGE_URL
 from ..app.modules.user.model import User
@@ -87,6 +89,7 @@ DEMO_TIMESHEET_SUBPROJECT_PREFIX = "TS Demo · "
 DEMO_TIMESHEET_LANGUAGES = ["en-US", "es-MX", "ja-JP", "ar-EG", "fr-FR"]
 DEMO_TIMESHEET_WORK_TYPES = ["Annotation", "Review", "QA", "Training", "Non-Operational"]
 DEMO_TIMESHEET_ROLES = ["Annotator", "Reviewer", "QA Specialist", "Trainer", "Team Lead"]
+DEMO_REFERRAL_WORKER_INDEXES = [1, 2, 3]
 
 DEMO_CANDIDATE_PORTAL_USER = {
     "username": "timesheetviewer",
@@ -931,6 +934,68 @@ def build_candidate_portal_referral_rewards(contract_definition: dict[str, Any])
     return rewards
 
 
+async def ensure_candidate_portal_referral_records(
+    session,
+    *,
+    referrer_user: User,
+    contracts_by_index: dict[int, ContractRecord],
+) -> list[dict[str, Any]]:
+    referral_code = await ensure_user_referral_code(user_id=int(referrer_user.id), db=session)
+    seeded_items: list[dict[str, Any]] = []
+    for worker_index in DEMO_REFERRAL_WORKER_INDEXES:
+        contract = contracts_by_index[int(worker_index)]
+        referred_user = await session.get(User, int(contract.user_id))
+        if referred_user is None or referred_user.is_deleted:
+            continue
+
+        result = await session.execute(
+            select(ReferralRecord).where(
+                ReferralRecord.referred_user_id == int(referred_user.id),
+            )
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            record = ReferralRecord(
+                referrer_user_id=int(referrer_user.id),
+                referred_user_id=int(referred_user.id),
+                referred_talent_profile_id=int(contract.talent_profile_id) if contract.talent_profile_id else None,
+                referrer_snapshot_name=referrer_user.name,
+                referrer_snapshot_email=referrer_user.email,
+                referred_snapshot_name=referred_user.name,
+                referred_snapshot_email=referred_user.email,
+                source_referral_code=referral_code,
+                payout_status="tracking",
+                data={},
+            )
+            session.add(record)
+        else:
+            record.referrer_user_id = int(referrer_user.id)
+            record.referred_talent_profile_id = int(contract.talent_profile_id) if contract.talent_profile_id else None
+            record.referrer_snapshot_name = referrer_user.name
+            record.referrer_snapshot_email = referrer_user.email
+            record.referred_snapshot_name = referred_user.name
+            record.referred_snapshot_email = referred_user.email
+            record.source_referral_code = referral_code
+            record.paid_reward_amount = Decimal("0.00")
+            record.payout_status = "tracking"
+            record.last_paid_at = None
+            record.last_paid_by_admin_user_id = None
+            record.is_deleted = False
+            record.deleted_at = None
+            record.data = record.data or {}
+        await session.flush()
+        seeded_items.append(
+            {
+                "referral_record_id": int(record.id),
+                "referred_user_id": int(referred_user.id),
+                "referred_email": referred_user.email,
+                "referred_name": referred_user.name,
+                "agreement_ref_no": contract.agreement_ref_no,
+            }
+        )
+    return seeded_items
+
+
 async def ensure_candidate_portal_contracts(
     session,
     *,
@@ -1311,6 +1376,11 @@ async def main() -> None:
                 form_template=form_template,
                 company=company,
             )
+            referral_seed_items = await ensure_candidate_portal_referral_records(
+                session,
+                referrer_user=candidate_portal_user,
+                contracts_by_index=contracts_by_index,
+            )
 
             job = await sync_job_applicant_count(session, job=job)
             created_timesheet_count = await seed_timesheet_records(
@@ -1397,6 +1467,8 @@ async def main() -> None:
                     "email": candidate_portal_user.email,
                     "password": DEMO_CANDIDATE_PASSWORD,
                     "page_path": "/working-hours",
+                    "referral_page_path": "/referral",
+                    "earnings_page_path": "/earnings",
                     "company": company.name,
                     "created_or_recreated_count": created_candidate_portal_timesheet_count,
                     "total_active_records_across_projects": candidate_portal_timesheet_count,
@@ -1420,6 +1492,10 @@ async def main() -> None:
                             for batch in DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES
                         }
                     ),
+                    "referrals": {
+                        "referral_count": len(referral_seed_items),
+                        "items": referral_seed_items,
+                    },
                 },
                 "workers": [
                     {

@@ -4,9 +4,16 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.advanced_filter import (
+    AdvancedFilterFieldDefinition,
+    build_advanced_filter_query_sql_condition,
+    has_advanced_filter_rules,
+    parse_advanced_filter_query,
+    validate_advanced_filter_query,
+)
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.company.service import (
@@ -18,6 +25,7 @@ from ..assets.model import Asset
 from ..assets.service import ensure_assets_exist, serialize_asset
 from ..contract_record.model import ContractRecord
 from ..contract_record.const import (
+    CONTRACT_STATUS_ACTIVE,
     CONTRACT_TYPE_TEAM_LEADER,
     INACTIVE_CONTRACT_STATUSES,
 )
@@ -36,8 +44,15 @@ from .schema import (
     ProjectTimesheetBatchCreateResponse,
     ProjectTimesheetBatchDeleteRequest,
     ProjectTimesheetBatchDeleteResponse,
+    ProjectTimesheetAnalyticsFilterOptionRead,
+    ProjectTimesheetAnalyticsMetricItemRead,
+    ProjectTimesheetAnalyticsRead,
+    ProjectTimesheetAnalyticsSummaryRead,
+    ProjectTimesheetAnalyticsTrendItemRead,
     ProjectTimesheetDashboardItemRead,
     ProjectTimesheetNoteAssetRead,
+    ProjectTimesheetOverviewItemRead,
+    ProjectTimesheetOverviewRead,
     ProjectTimesheetRecordRead,
     ProjectTimesheetUpdateRequest,
     ProjectTimesheetWorkerOptionRead,
@@ -46,6 +61,113 @@ from .schema import (
 from .team_leader_bonus import calculate_team_leader_bonus, get_month_bounds
 
 TWO_DECIMALS = Decimal("0.01")
+
+
+def _build_timesheet_team_leader_name_expression():
+    return (
+        select(func.coalesce(TalentProfile.full_name, User.name))
+        .select_from(User)
+        .outerjoin(TalentProfile, TalentProfile.user_id == User.id)
+        .where(
+            User.id == ProjectTimesheetRecord.team_leader_user_id,
+            User.is_deleted.is_(False),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _build_timesheet_note_images_expression():
+    note_image_count = func.json_length(ProjectTimesheetRecord.data, "$.note_asset_ids")
+    return case((note_image_count > 0, 1), else_=None)
+
+TIMESHEET_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
+    "sub_project_name": AdvancedFilterFieldDefinition(
+        name="sub_project_name",
+        filter_kind="text",
+        sql_expression=ProjectTimesheetRecord.sub_project_name,
+    ),
+    "work_date": AdvancedFilterFieldDefinition(
+        name="work_date",
+        filter_kind="date",
+        sql_expression=ProjectTimesheetRecord.work_date,
+    ),
+    "user_name": AdvancedFilterFieldDefinition(
+        name="user_name",
+        filter_kind="text",
+        sql_expression=ProjectTimesheetRecord.user_name_snapshot,
+    ),
+    "user_email": AdvancedFilterFieldDefinition(
+        name="user_email",
+        filter_kind="email",
+        sql_expression=ProjectTimesheetRecord.user_email_snapshot,
+    ),
+    "team_leader_name": AdvancedFilterFieldDefinition(
+        name="team_leader_name",
+        filter_kind="select",
+        sql_expression=_build_timesheet_team_leader_name_expression(),
+    ),
+    "language": AdvancedFilterFieldDefinition(
+        name="language",
+        filter_kind="select",
+        sql_expression=ProjectTimesheetRecord.language,
+    ),
+    "work_type": AdvancedFilterFieldDefinition(
+        name="work_type",
+        filter_kind="select",
+        sql_expression=ProjectTimesheetRecord.work_type,
+    ),
+    "output_quantity": AdvancedFilterFieldDefinition(
+        name="output_quantity",
+        filter_kind="number",
+        sql_expression=ProjectTimesheetRecord.output_quantity,
+    ),
+    "human_efficiency_minutes": AdvancedFilterFieldDefinition(
+        name="human_efficiency_minutes",
+        filter_kind="number",
+        sql_expression=ProjectTimesheetRecord.human_efficiency_minutes,
+    ),
+    "customer_duration_hours": AdvancedFilterFieldDefinition(
+        name="customer_duration_hours",
+        filter_kind="number",
+        sql_expression=ProjectTimesheetRecord.customer_duration_hours,
+    ),
+    "candidate_duration_hours": AdvancedFilterFieldDefinition(
+        name="candidate_duration_hours",
+        filter_kind="number",
+        sql_expression=ProjectTimesheetRecord.candidate_duration_hours,
+    ),
+    "role_name": AdvancedFilterFieldDefinition(
+        name="role_name",
+        filter_kind="select",
+        sql_expression=ProjectTimesheetRecord.role_name,
+    ),
+    "non_operational_duration_hours": AdvancedFilterFieldDefinition(
+        name="non_operational_duration_hours",
+        filter_kind="number",
+        sql_expression=ProjectTimesheetRecord.non_operational_duration_hours,
+    ),
+    "project_link": AdvancedFilterFieldDefinition(
+        name="project_link",
+        filter_kind="text",
+        sql_expression=ProjectTimesheetRecord.project_link,
+    ),
+    "poc_evaluation": AdvancedFilterFieldDefinition(
+        name="poc_evaluation",
+        filter_kind="text",
+        sql_expression=ProjectTimesheetRecord.poc_evaluation,
+    ),
+    "extra_notes": AdvancedFilterFieldDefinition(
+        name="extra_notes",
+        filter_kind="text",
+        sql_expression=ProjectTimesheetRecord.extra_notes,
+    ),
+    "note_images": AdvancedFilterFieldDefinition(
+        name="note_images",
+        filter_kind="file",
+        sql_expression=_build_timesheet_note_images_expression(),
+    ),
+}
 
 
 def _to_decimal(value: Any) -> Decimal | None:
@@ -228,6 +350,43 @@ def _serialize_timesheet_record(
     ).model_dump()
 
 
+def _build_timesheet_advanced_filter_record(
+    record: ProjectTimesheetRecord,
+    *,
+    asset_map: dict[int, dict[str, Any]],
+    team_leader_map: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    team_leader = team_leader_map.get(int(record.team_leader_user_id or 0)) if team_leader_map else None
+    note_images = _serialize_note_assets(record, asset_map)
+    return {
+        "sub_project_name": record.sub_project_name,
+        "work_date": record.work_date.isoformat(),
+        "user_name": record.user_name_snapshot or "",
+        "user_email": record.user_email_snapshot or "",
+        "team_leader_name": team_leader.get("name") if team_leader else "",
+        "language": record.language,
+        "work_type": record.work_type,
+        "output_quantity": float(record.output_quantity) if record.output_quantity is not None else None,
+        "human_efficiency_minutes": (
+            float(record.human_efficiency_minutes) if record.human_efficiency_minutes is not None else None
+        ),
+        "customer_duration_hours": (
+            float(record.customer_duration_hours) if record.customer_duration_hours is not None else None
+        ),
+        "candidate_duration_hours": (
+            float(record.candidate_duration_hours) if record.candidate_duration_hours is not None else None
+        ),
+        "role_name": record.role_name or "",
+        "non_operational_duration_hours": (
+            float(record.non_operational_duration_hours) if record.non_operational_duration_hours is not None else None
+        ),
+        "project_link": record.project_link or "",
+        "poc_evaluation": record.poc_evaluation or "",
+        "extra_notes": record.extra_notes or "",
+        "note_images": [item.get("name") for item in note_images],
+    }
+
+
 async def _load_team_leader_payload_map(
     *,
     db: AsyncSession,
@@ -332,7 +491,11 @@ async def list_project_timesheet_workspace(
     db: AsyncSession,
     start_date: date | None = None,
     end_date: date | None = None,
+    advanced_filter: str | None = None,
 ) -> dict[str, Any]:
+    advanced_filter_query = parse_advanced_filter_query(advanced_filter)
+    if has_advanced_filter_rules(advanced_filter_query):
+        validate_advanced_filter_query(advanced_filter_query, field_map=TIMESHEET_ADVANCED_FILTER_FIELD_MAP)
     company, project = await _get_company_and_project(company_id=company_id, project_id=project_id, db=db)
 
     conditions = [
@@ -345,16 +508,50 @@ async def list_project_timesheet_workspace(
     if end_date is not None:
         conditions.append(ProjectTimesheetRecord.work_date <= end_date)
 
+    available_team_leader_ids_result = await db.execute(
+        select(ProjectTimesheetRecord.team_leader_user_id)
+        .where(
+            *conditions,
+            ProjectTimesheetRecord.team_leader_user_id.is_not(None),
+        )
+        .distinct()
+    )
+    available_team_leader_ids = [
+        int(user_id)
+        for user_id in available_team_leader_ids_result.scalars().all()
+        if user_id is not None
+    ]
+    available_team_leader_map = await _load_team_leader_payload_map(
+        db=db,
+        user_ids=available_team_leader_ids,
+    )
+    available_team_leaders = sorted(
+        {
+            str((available_team_leader_map.get(int(user_id or 0)) or {}).get("name") or "").strip()
+            for user_id in available_team_leader_ids
+        }
+        - {""},
+        key=str.casefold,
+    )
+
+    filtered_conditions = list(conditions)
+    advanced_filter_condition = build_advanced_filter_query_sql_condition(
+        advanced_filter_query,
+        field_map=TIMESHEET_ADVANCED_FILTER_FIELD_MAP,
+    )
+    if advanced_filter_condition is not None:
+        filtered_conditions.append(advanced_filter_condition)
+
     records_result = await db.execute(
         select(ProjectTimesheetRecord)
-        .where(*conditions)
+        .where(*filtered_conditions)
         .order_by(ProjectTimesheetRecord.work_date.desc(), ProjectTimesheetRecord.id.desc())
     )
-    records = records_result.scalars().all()
+    filtered_records = records_result.scalars().all()
 
     note_asset_ids = {
         int(asset_id)
-        for record in records
+        for record in filtered_records
         for asset_id in ((record.data or {}).get("note_asset_ids") or [])
         if isinstance(asset_id, int) or str(asset_id).isdigit()
     }
@@ -368,37 +565,40 @@ async def list_project_timesheet_workspace(
         )
         asset_map = {int(asset.id): serialize_asset(asset) for asset in assets_result.scalars().all()}
 
-    dashboard_result = await db.execute(
-        select(
-            ProjectTimesheetRecord.language,
-            func.coalesce(func.sum(ProjectTimesheetRecord.customer_duration_hours), 0),
-            func.coalesce(func.sum(ProjectTimesheetRecord.candidate_duration_hours), 0),
-        )
-        .where(*conditions)
-        .group_by(ProjectTimesheetRecord.language)
-        .order_by(ProjectTimesheetRecord.language.asc())
-    )
-    dashboard_items = [
-        ProjectTimesheetDashboardItemRead(
-            language=str(language),
-            customer_duration_hours=_quantize_hours(_to_decimal(customer_hours)) or Decimal("0.00"),
-            candidate_duration_hours=_quantize_hours(_to_decimal(candidate_hours)) or Decimal("0.00"),
-            total_duration_hours=(
-                (_quantize_hours(_to_decimal(customer_hours)) or Decimal("0.00"))
-                + (_quantize_hours(_to_decimal(candidate_hours)) or Decimal("0.00"))
-            ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
-        ).model_dump()
-        for language, customer_hours, candidate_hours in dashboard_result.all()
-    ]
-
-    latest_result = await db.execute(
-        select(func.max(ProjectTimesheetRecord.created_at)).where(*conditions)
-    )
-    latest_created_at = latest_result.scalar_one_or_none()
     team_leader_map = await _load_team_leader_payload_map(
         db=db,
-        user_ids=[int(record.team_leader_user_id) for record in records if record.team_leader_user_id],
+        user_ids=[int(record.team_leader_user_id) for record in filtered_records if record.team_leader_user_id],
     )
+
+    dashboard_totals_by_language: dict[str, dict[str, Decimal]] = defaultdict(
+        lambda: {
+            "customer_duration_hours": _zero_decimal(),
+            "candidate_duration_hours": _zero_decimal(),
+        }
+    )
+    for record in filtered_records:
+        language = str(record.language or "").strip()
+        if not language:
+            continue
+        dashboard_totals_by_language[language]["customer_duration_hours"] += (
+            _quantize_hours(_to_decimal(record.customer_duration_hours)) or _zero_decimal()
+        )
+        dashboard_totals_by_language[language]["candidate_duration_hours"] += (
+            _quantize_hours(_to_decimal(record.candidate_duration_hours)) or _zero_decimal()
+        )
+    dashboard_items = [
+        ProjectTimesheetDashboardItemRead(
+            language=language,
+            customer_duration_hours=payload["customer_duration_hours"].quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
+            candidate_duration_hours=payload["candidate_duration_hours"].quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
+            total_duration_hours=(
+                payload["customer_duration_hours"] + payload["candidate_duration_hours"]
+            ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
+        ).model_dump()
+        for language, payload in sorted(dashboard_totals_by_language.items(), key=lambda item: item[0].casefold())
+    ]
+
+    latest_created_at = max((record.created_at for record in filtered_records), default=None)
 
     return ProjectTimesheetWorkspaceRead(
         company_id=company.id,
@@ -408,15 +608,503 @@ async def list_project_timesheet_workspace(
         timesheet_languages=_get_company_timesheet_languages(company),
         timesheet_work_types=_get_company_timesheet_work_types(company),
         timesheet_roles=_get_company_timesheet_roles(company),
+        available_team_leaders=available_team_leaders,
         available_workers=await list_active_project_workers(company_id=company_id, project_id=project_id, db=db),
         latest_created_at=latest_created_at,
         dashboard_items=dashboard_items,
         records=[
             _serialize_timesheet_record(record, asset_map=asset_map, team_leader_map=team_leader_map)
-            for record in records
+            for record in filtered_records
         ],
         start_date=start_date,
         end_date=end_date,
+    ).model_dump()
+
+
+async def list_project_timesheet_overview(
+    *,
+    db: AsyncSession,
+    company_id: int | None = None,
+) -> dict[str, Any]:
+    conditions = [
+        AdminCompany.is_deleted.is_(False),
+        AdminCompanyProject.is_deleted.is_(False),
+    ]
+    if company_id is not None:
+        conditions.append(AdminCompany.id == company_id)
+
+    result = await db.execute(
+        select(
+            AdminCompany.id,
+            AdminCompany.name,
+            AdminCompanyProject.id,
+            AdminCompanyProject.name,
+            func.count(ProjectTimesheetRecord.id),
+            func.coalesce(func.sum(ProjectTimesheetRecord.customer_duration_hours), 0),
+            func.coalesce(func.sum(ProjectTimesheetRecord.candidate_duration_hours), 0),
+            func.max(ProjectTimesheetRecord.created_at),
+        )
+        .join(AdminCompanyProject, AdminCompanyProject.company_id == AdminCompany.id)
+        .outerjoin(
+            ProjectTimesheetRecord,
+            (ProjectTimesheetRecord.company_id == AdminCompany.id)
+            & (ProjectTimesheetRecord.project_id == AdminCompanyProject.id)
+            & (ProjectTimesheetRecord.is_deleted.is_(False)),
+        )
+        .where(*conditions)
+        .group_by(AdminCompany.id, AdminCompany.name, AdminCompanyProject.id, AdminCompanyProject.name)
+        .order_by(AdminCompany.name.asc(), AdminCompanyProject.name.asc())
+    )
+
+    items = [
+        ProjectTimesheetOverviewItemRead(
+            company_id=int(raw_company_id),
+            company_name=str(company_name),
+            project_id=int(raw_project_id),
+            project_name=str(project_name),
+            record_count=int(record_count or 0),
+            customer_duration_hours=_quantize_hours(_to_decimal(customer_hours)) or _zero_decimal(),
+            candidate_duration_hours=_quantize_hours(_to_decimal(candidate_hours)) or _zero_decimal(),
+            latest_created_at=latest_created_at,
+        ).model_dump()
+        for (
+            raw_company_id,
+            company_name,
+            raw_project_id,
+            project_name,
+            record_count,
+            customer_hours,
+            candidate_hours,
+            latest_created_at,
+        ) in result.all()
+    ]
+
+    return ProjectTimesheetOverviewRead(items=items, company_id=company_id).model_dump()
+
+
+def _build_timesheet_analytics_conditions(
+    *,
+    company_id: int | None = None,
+    project_id: int | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    language: str | None = None,
+    work_type: str | None = None,
+    role_name: str | None = None,
+    keyword: str | None = None,
+) -> list[Any]:
+    conditions: list[Any] = [
+        ProjectTimesheetRecord.is_deleted.is_(False),
+        AdminCompany.is_deleted.is_(False),
+        AdminCompanyProject.is_deleted.is_(False),
+    ]
+    if company_id is not None:
+        conditions.append(ProjectTimesheetRecord.company_id == company_id)
+    if project_id is not None:
+        conditions.append(ProjectTimesheetRecord.project_id == project_id)
+    if start_date is not None:
+        conditions.append(ProjectTimesheetRecord.work_date >= start_date)
+    if end_date is not None:
+        conditions.append(ProjectTimesheetRecord.work_date <= end_date)
+    if language:
+        conditions.append(ProjectTimesheetRecord.language == language)
+    if work_type:
+        conditions.append(ProjectTimesheetRecord.work_type == work_type)
+    if role_name:
+        conditions.append(ProjectTimesheetRecord.role_name == role_name)
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        conditions.append(
+            or_(
+                AdminCompany.name.ilike(like),
+                AdminCompanyProject.name.ilike(like),
+                ProjectTimesheetRecord.sub_project_name.ilike(like),
+                ProjectTimesheetRecord.user_name_snapshot.ilike(like),
+                ProjectTimesheetRecord.user_email_snapshot.ilike(like),
+                ProjectTimesheetRecord.language.ilike(like),
+                ProjectTimesheetRecord.work_type.ilike(like),
+                ProjectTimesheetRecord.role_name.ilike(like),
+                ProjectTimesheetRecord.project_link.ilike(like),
+                ProjectTimesheetRecord.extra_notes.ilike(like),
+                ProjectTimesheetRecord.poc_evaluation.ilike(like),
+            )
+        )
+    return conditions
+
+
+def _timesheet_analytics_select_from(statement: Any) -> Any:
+    return (
+        statement.select_from(ProjectTimesheetRecord)
+        .join(AdminCompany, AdminCompany.id == ProjectTimesheetRecord.company_id)
+        .join(
+            AdminCompanyProject,
+            (AdminCompanyProject.id == ProjectTimesheetRecord.project_id)
+            & (AdminCompanyProject.company_id == AdminCompany.id),
+        )
+    )
+
+
+def _build_timesheet_metric_item(
+    *,
+    key: str,
+    label: str | None,
+    record_count: int | None,
+    output_quantity: Any,
+    customer_duration_hours: Any,
+    candidate_duration_hours: Any,
+    non_operational_duration_hours: Any,
+    company_id: int | None = None,
+    company_name: str | None = None,
+    project_id: int | None = None,
+    project_name: str | None = None,
+    user_id: int | None = None,
+    user_email: str | None = None,
+) -> ProjectTimesheetAnalyticsMetricItemRead:
+    return ProjectTimesheetAnalyticsMetricItemRead(
+        key=key,
+        label=label or "未填写",
+        company_id=company_id,
+        company_name=company_name,
+        project_id=project_id,
+        project_name=project_name,
+        user_id=user_id,
+        user_email=user_email,
+        record_count=int(record_count or 0),
+        output_quantity=_quantize_hours(_to_decimal(output_quantity)) or _zero_decimal(),
+        customer_duration_hours=_quantize_hours(_to_decimal(customer_duration_hours)) or _zero_decimal(),
+        candidate_duration_hours=_quantize_hours(_to_decimal(candidate_duration_hours)) or _zero_decimal(),
+        non_operational_duration_hours=_quantize_hours(_to_decimal(non_operational_duration_hours)) or _zero_decimal(),
+    )
+
+
+async def _load_timesheet_filter_options(
+    *,
+    db: AsyncSession,
+    conditions: list[Any],
+) -> ProjectTimesheetAnalyticsFilterOptionRead:
+    async def load_distinct(column: Any) -> list[str]:
+        result = await db.execute(
+            _timesheet_analytics_select_from(select(column))
+            .where(*conditions, column.is_not(None), column != "")
+            .distinct()
+            .order_by(column.asc())
+        )
+        return [str(item).strip() for item in result.scalars().all() if str(item or "").strip()]
+
+    return ProjectTimesheetAnalyticsFilterOptionRead(
+        languages=await load_distinct(ProjectTimesheetRecord.language),
+        work_types=await load_distinct(ProjectTimesheetRecord.work_type),
+        roles=await load_distinct(ProjectTimesheetRecord.role_name),
+    )
+
+
+async def list_project_timesheet_analytics(
+    *,
+    db: AsyncSession,
+    company_id: int | None = None,
+    project_id: int | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    language: str | None = None,
+    work_type: str | None = None,
+    role_name: str | None = None,
+    keyword: str | None = None,
+) -> dict[str, Any]:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise BadRequestException("Start date cannot be later than end date.")
+
+    scope_company_name: str | None = None
+    scope_project_name: str | None = None
+    if company_id is not None:
+        company = await db.get(AdminCompany, company_id)
+        if company is None or company.is_deleted:
+            raise NotFoundException("Company not found.")
+        scope_company_name = company.name
+    if project_id is not None:
+        project_result = await db.execute(
+            select(AdminCompanyProject).where(
+                AdminCompanyProject.id == project_id,
+                AdminCompanyProject.is_deleted.is_(False),
+                *( [AdminCompanyProject.company_id == company_id] if company_id is not None else [] ),
+            )
+        )
+        project = project_result.scalar_one_or_none()
+        if project is None:
+            raise NotFoundException("Project not found.")
+        scope_project_name = project.name
+        if company_id is None:
+            company_id = int(project.company_id)
+            company = await db.get(AdminCompany, company_id)
+            scope_company_name = company.name if company is not None and not company.is_deleted else None
+
+    conditions = _build_timesheet_analytics_conditions(
+        company_id=company_id,
+        project_id=project_id,
+        start_date=start_date,
+        end_date=end_date,
+        language=(language or "").strip() or None,
+        work_type=(work_type or "").strip() or None,
+        role_name=(role_name or "").strip() or None,
+        keyword=(keyword or "").strip() or None,
+    )
+
+    summary_result = await db.execute(
+        _timesheet_analytics_select_from(
+            select(
+                func.count(ProjectTimesheetRecord.id),
+                func.count(func.distinct(ProjectTimesheetRecord.company_id)),
+                func.count(func.distinct(ProjectTimesheetRecord.project_id)),
+                func.count(func.distinct(ProjectTimesheetRecord.user_id)),
+                func.count(func.distinct(ProjectTimesheetRecord.sub_project_name)),
+                func.coalesce(func.sum(ProjectTimesheetRecord.output_quantity), 0),
+                func.coalesce(func.sum(ProjectTimesheetRecord.customer_duration_hours), 0),
+                func.coalesce(func.sum(ProjectTimesheetRecord.candidate_duration_hours), 0),
+                func.coalesce(func.sum(ProjectTimesheetRecord.non_operational_duration_hours), 0),
+                func.max(func.coalesce(ProjectTimesheetRecord.updated_at, ProjectTimesheetRecord.created_at)),
+            )
+        ).where(*conditions)
+    )
+    (
+        record_count,
+        company_count,
+        project_count,
+        person_count,
+        sub_project_count,
+        output_quantity,
+        customer_hours,
+        candidate_hours,
+        non_operational_hours,
+        latest_created_at,
+    ) = summary_result.one()
+
+    summary = ProjectTimesheetAnalyticsSummaryRead(
+        company_count=int(company_count or 0),
+        project_count=int(project_count or 0),
+        person_count=int(person_count or 0),
+        sub_project_count=int(sub_project_count or 0),
+        record_count=int(record_count or 0),
+        output_quantity=_quantize_hours(_to_decimal(output_quantity)) or _zero_decimal(),
+        customer_duration_hours=_quantize_hours(_to_decimal(customer_hours)) or _zero_decimal(),
+        candidate_duration_hours=_quantize_hours(_to_decimal(candidate_hours)) or _zero_decimal(),
+        non_operational_duration_hours=_quantize_hours(_to_decimal(non_operational_hours)) or _zero_decimal(),
+        latest_created_at=latest_created_at,
+    )
+
+    trend_result = await db.execute(
+        _timesheet_analytics_select_from(
+            select(
+                ProjectTimesheetRecord.work_date,
+                func.count(ProjectTimesheetRecord.id),
+                func.coalesce(func.sum(ProjectTimesheetRecord.output_quantity), 0),
+                func.coalesce(func.sum(ProjectTimesheetRecord.customer_duration_hours), 0),
+                func.coalesce(func.sum(ProjectTimesheetRecord.candidate_duration_hours), 0),
+                func.coalesce(func.sum(ProjectTimesheetRecord.non_operational_duration_hours), 0),
+            )
+        )
+        .where(*conditions)
+        .group_by(ProjectTimesheetRecord.work_date)
+        .order_by(ProjectTimesheetRecord.work_date.asc())
+    )
+    trend = [
+        ProjectTimesheetAnalyticsTrendItemRead(
+            date=raw_date,
+            record_count=int(raw_count or 0),
+            output_quantity=_quantize_hours(_to_decimal(raw_output)) or _zero_decimal(),
+            customer_duration_hours=_quantize_hours(_to_decimal(raw_customer)) or _zero_decimal(),
+            candidate_duration_hours=_quantize_hours(_to_decimal(raw_candidate)) or _zero_decimal(),
+            non_operational_duration_hours=_quantize_hours(_to_decimal(raw_non_operational)) or _zero_decimal(),
+        )
+        for raw_date, raw_count, raw_output, raw_customer, raw_candidate, raw_non_operational in trend_result.all()
+    ]
+
+    async def load_breakdown(
+        *group_columns: Any,
+        order_by_candidate: bool = True,
+        limit: int | None = 12,
+    ) -> list[Any]:
+        candidate_sum = func.coalesce(func.sum(ProjectTimesheetRecord.candidate_duration_hours), 0)
+        statement = (
+            _timesheet_analytics_select_from(
+                select(
+                    *group_columns,
+                    func.count(ProjectTimesheetRecord.id),
+                    func.coalesce(func.sum(ProjectTimesheetRecord.output_quantity), 0),
+                    func.coalesce(func.sum(ProjectTimesheetRecord.customer_duration_hours), 0),
+                    candidate_sum,
+                    func.coalesce(func.sum(ProjectTimesheetRecord.non_operational_duration_hours), 0),
+                )
+            )
+            .where(*conditions)
+            .group_by(*group_columns)
+            .order_by(candidate_sum.desc() if order_by_candidate else func.count(ProjectTimesheetRecord.id).desc())
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
+        result = await db.execute(statement)
+        return result.all()
+
+    company_breakdown = [
+        _build_timesheet_metric_item(
+            key=f"company-{raw_company_id}",
+            label=company_name,
+            company_id=int(raw_company_id),
+            company_name=str(company_name),
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for (
+            raw_company_id,
+            company_name,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(AdminCompany.id, AdminCompany.name, limit=12)
+    ]
+
+    project_breakdown = [
+        _build_timesheet_metric_item(
+            key=f"project-{raw_project_id}",
+            label=project_name,
+            company_id=int(raw_company_id),
+            company_name=str(company_name),
+            project_id=int(raw_project_id),
+            project_name=str(project_name),
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for (
+            raw_company_id,
+            company_name,
+            raw_project_id,
+            project_name,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(AdminCompany.id, AdminCompany.name, AdminCompanyProject.id, AdminCompanyProject.name, limit=12)
+    ]
+
+    language_breakdown = [
+        _build_timesheet_metric_item(
+            key=f"language-{language_value or 'blank'}",
+            label=language_value,
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for language_value, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+            ProjectTimesheetRecord.language,
+            limit=12,
+        )
+    ]
+
+    work_type_breakdown = [
+        _build_timesheet_metric_item(
+            key=f"work-type-{work_type_value or 'blank'}",
+            label=work_type_value,
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for work_type_value, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+            ProjectTimesheetRecord.work_type,
+            limit=12,
+        )
+    ]
+
+    role_breakdown = [
+        _build_timesheet_metric_item(
+            key=f"role-{role_value or 'blank'}",
+            label=role_value,
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for role_value, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+            ProjectTimesheetRecord.role_name,
+            limit=12,
+        )
+    ]
+
+    person_ranking = [
+        _build_timesheet_metric_item(
+            key=f"user-{raw_user_id}",
+            label=user_name,
+            user_id=int(raw_user_id),
+            user_email=user_email,
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for (
+            raw_user_id,
+            user_name,
+            user_email,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(
+            ProjectTimesheetRecord.user_id,
+            ProjectTimesheetRecord.user_name_snapshot,
+            ProjectTimesheetRecord.user_email_snapshot,
+            limit=10,
+        )
+    ]
+
+    sub_project_ranking = [
+        _build_timesheet_metric_item(
+            key=f"sub-project-{sub_project_name or 'blank'}",
+            label=sub_project_name,
+            record_count=record_total,
+            output_quantity=raw_output,
+            customer_duration_hours=raw_customer,
+            candidate_duration_hours=raw_candidate,
+            non_operational_duration_hours=raw_non_operational,
+        )
+        for sub_project_name, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+            ProjectTimesheetRecord.sub_project_name,
+            limit=10,
+        )
+    ]
+
+    filter_options = await _load_timesheet_filter_options(db=db, conditions=conditions)
+
+    return ProjectTimesheetAnalyticsRead(
+        company_id=company_id,
+        company_name=scope_company_name,
+        project_id=project_id,
+        project_name=scope_project_name,
+        start_date=start_date,
+        end_date=end_date,
+        summary=summary,
+        trend=trend,
+        company_breakdown=company_breakdown,
+        project_breakdown=project_breakdown,
+        language_breakdown=language_breakdown,
+        work_type_breakdown=work_type_breakdown,
+        role_breakdown=role_breakdown,
+        person_ranking=person_ranking,
+        sub_project_ranking=sub_project_ranking,
+        filter_options=filter_options,
     ).model_dump()
 
 
@@ -530,6 +1218,12 @@ async def list_candidate_timesheet_workspace(
         ).model_dump()
 
     contract_ids = [int(contract_record.id) for contract_record, _, _, _ in contract_rows]
+    has_active_team_leader_contract = any(
+        contract_record.is_current
+        and contract_record.contract_status == CONTRACT_STATUS_ACTIVE
+        and contract_record.contract_type == CONTRACT_TYPE_TEAM_LEADER
+        for contract_record, _, _, _ in contract_rows
+    )
     record_conditions = [
         ProjectTimesheetRecord.user_id == user_id,
         ProjectTimesheetRecord.contract_record_id.in_(contract_ids),
@@ -576,7 +1270,6 @@ async def list_candidate_timesheet_workspace(
 
     contracts: list[dict[str, Any]] = []
     for contract_record, job, company, project in contract_rows:
-        is_team_leader_contract = contract_record.contract_type == CONTRACT_TYPE_TEAM_LEADER
         contract_records = records_by_contract_id.get(int(contract_record.id), [])
         work_hour_rows: list[dict[str, Any]] = []
         local_team_leader_rows: list[dict[str, Any]] = []
@@ -603,8 +1296,7 @@ async def list_candidate_timesheet_workspace(
             _zero_decimal(),
         ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP)
         rate = _quantize_hours(_to_decimal(contract_record.rate))
-        team_leader_bonus = team_performance_bonus if is_team_leader_contract else _zero_decimal()
-        estimated_income = (total_work_hours * (rate or _zero_decimal()) + referral_earnings + team_leader_bonus).quantize(
+        estimated_income = (total_work_hours * (rate or _zero_decimal())).quantize(
             TWO_DECIMALS,
             rounding=ROUND_HALF_UP,
         )
@@ -629,15 +1321,13 @@ async def list_candidate_timesheet_workspace(
                 end_date=contract_record.end_date,
                 work_hours=work_hour_rows,
                 local_team_leader_hours=local_team_leader_rows,
-                team_leader_bonus=(
-                    team_leader_bonus_payload if is_team_leader_contract else None
-                ),
+                team_leader_bonus=None,
                 referral_rewards=referral_rewards,
                 dashboard=CandidateTimesheetDashboardRead(
                     latest_updated_at=latest_updated_at,
                     total_work_hours=total_work_hours.quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
                     referral_earnings=referral_earnings,
-                    team_leader_bonus=team_leader_bonus,
+                    team_leader_bonus=_zero_decimal(),
                     estimated_income=estimated_income,
                 ),
             ).model_dump()
@@ -654,6 +1344,7 @@ async def list_candidate_timesheet_workspace(
         start_date=start_date,
         end_date=end_date,
         bonus_month=normalized_bonus_month,
+        team_leader_bonus=team_leader_bonus_payload if has_active_team_leader_contract else None,
     ).model_dump()
 
 

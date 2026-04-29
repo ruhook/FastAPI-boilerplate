@@ -27,6 +27,7 @@ async def read_talents(
     keyword: str | None = None,
     company_id: int | None = Query(default=None, ge=1),
     project_id: int | None = Query(default=None, ge=1),
+    advanced_filter: str | None = Query(default=None),
 ) -> dict[str, Any]:
     return await list_talent_profiles(
         db,
@@ -35,6 +36,7 @@ async def read_talents(
         keyword=keyword,
         company_id=company_id,
         project_id=project_id,
+        advanced_filter=advanced_filter,
     )
 
 

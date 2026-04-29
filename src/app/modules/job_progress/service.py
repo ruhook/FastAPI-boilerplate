@@ -6,9 +6,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import UploadFile
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.advanced_filter import (
+    AdvancedFilterFieldDefinition,
+    build_advanced_filter_query_sql_condition,
+    has_advanced_filter_rules,
+    parse_advanced_filter_query,
+    validate_advanced_filter_query,
+)
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..candidate_application.model import CandidateApplication
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
@@ -18,6 +25,10 @@ from ..assets.service import serialize_asset, upload_asset
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
 from ..contract_record.model import ContractRecord
+from ..contract_record.const import (
+    CONTRACT_STATUS_EXPIRED,
+    CONTRACT_STATUS_TERMINATED,
+)
 from ..contract_record.service import (
     get_current_contract_record_by_progress_id,
     list_current_contract_records_by_progress_ids,
@@ -26,6 +37,7 @@ from ..contract_record.service import (
 from ..job.const import (
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
+    JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_SHOW_COMPENSATION_KEY,
 )
 from ..job.model import Job
@@ -67,6 +79,16 @@ from .schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+ADVANCED_FILTER_BACKEND_STAGE_MAP: dict[str, str] = {
+    "screening": RecruitmentStage.PENDING_SCREENING.value,
+    "assessment": RecruitmentStage.ASSESSMENT_REVIEW.value,
+    "passed": RecruitmentStage.SCREENING_PASSED.value,
+    "contract": RecruitmentStage.CONTRACT_POOL.value,
+    "employed": RecruitmentStage.ACTIVE.value,
+    "replaced": RecruitmentStage.REPLACED.value,
+    "eliminated": RecruitmentStage.REJECTED.value,
+}
 
 CONTRACT_PROCESS_DATA_KEYS = {
     JobProgressDataKey.ACCEPTED_RATE.value,
@@ -147,6 +169,224 @@ def _normalize_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value).strip())
     except Exception:
         return None
+
+
+def _map_backend_stage_to_progress_stage(stage: str) -> str:
+    if stage == RecruitmentStage.PENDING_SCREENING.value:
+        return "screening"
+    if stage == RecruitmentStage.ASSESSMENT_REVIEW.value:
+        return "assessment"
+    if stage == RecruitmentStage.SCREENING_PASSED.value:
+        return "passed"
+    if stage == RecruitmentStage.CONTRACT_POOL.value:
+        return "contract"
+    if stage == RecruitmentStage.ACTIVE.value:
+        return "employed"
+    if stage == RecruitmentStage.REPLACED.value:
+        return "replaced"
+    return "eliminated"
+
+
+def _normalize_progress_filter_field_kind(field_type: str | None) -> str:
+    normalized = _normalize_text(field_type).lower()
+    if normalized in {"boolean", "select"}:
+        return "select"
+    if normalized == "multiselect":
+        return "multiselect"
+    if normalized == "file":
+        return "file"
+    if normalized == "number":
+        return "number"
+    if normalized == "email":
+        return "email"
+    return "text"
+
+
+def _build_progress_stage_sql_expression():
+    return case(
+        (JobProgress.current_stage == RecruitmentStage.PENDING_SCREENING.value, "screening"),
+        (JobProgress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value, "assessment"),
+        (JobProgress.current_stage == RecruitmentStage.SCREENING_PASSED.value, "passed"),
+        (JobProgress.current_stage == RecruitmentStage.CONTRACT_POOL.value, "contract"),
+        (JobProgress.current_stage == RecruitmentStage.ACTIVE.value, "employed"),
+        (JobProgress.current_stage == RecruitmentStage.REPLACED.value, "replaced"),
+        else_="eliminated",
+    )
+
+
+def _build_progress_application_field_sql_expression(
+    *,
+    field_key: str,
+    asset_only: bool = False,
+):
+    return (
+        select(
+            CandidateApplicationFieldValue.asset_id
+            if asset_only
+            else func.coalesce(
+                CandidateApplicationFieldValue.display_value,
+                CandidateApplicationFieldValue.raw_value,
+            )
+        )
+        .where(
+            CandidateApplicationFieldValue.application_id == JobProgress.application_id,
+            or_(
+                CandidateApplicationFieldValue.catalog_key == field_key,
+                and_(
+                    CandidateApplicationFieldValue.catalog_key.is_(None),
+                    CandidateApplicationFieldValue.field_key == field_key,
+                ),
+            ),
+        )
+        .order_by(
+            CandidateApplicationFieldValue.sort_order.asc(),
+            CandidateApplicationFieldValue.id.asc(),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _build_progress_json_text_expression(key: str):
+    return func.json_unquote(func.json_extract(JobProgress.data, f"$.{key}"))
+
+
+def _build_progress_contract_sql_expression(
+    *,
+    column_name: str | None = None,
+    data_key: str | None = None,
+):
+    if not column_name and not data_key:
+        raise ValueError("column_name or data_key is required.")
+    if data_key:
+        expression = func.json_unquote(func.json_extract(ContractRecord.data, f"$.{data_key}"))
+    else:
+        expression = getattr(ContractRecord, column_name or "")
+    return (
+        select(expression)
+        .where(
+            ContractRecord.job_progress_id == JobProgress.id,
+            ContractRecord.is_deleted.is_(False),
+            ContractRecord.is_current.is_(True),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, AdvancedFilterFieldDefinition]:
+    field_map: dict[str, AdvancedFilterFieldDefinition] = {}
+
+    form_fields = []
+    if job is not None:
+        form_fields = list(((job.data or {}).get(JOB_DATA_FORM_FIELDS_KEY) or []))
+
+    for field in form_fields:
+        if not isinstance(field, dict):
+            continue
+        key = _normalize_text(field.get("key"))
+        if not key:
+            continue
+        field_map[key] = AdvancedFilterFieldDefinition(
+            name=key,
+            filter_kind=_normalize_progress_filter_field_kind(field.get("type")),
+            sql_expression=_build_progress_application_field_sql_expression(
+                field_key=key,
+                asset_only=_normalize_progress_filter_field_kind(field.get("type")) == "file",
+            ),
+        )
+
+    process_field_kinds = {
+        "current_stage": "select",
+        "applied_at": "date",
+        "assessment_attachment": "file",
+        "assessment_submitted_at": "date",
+        "assessment_result": "select",
+        "assessment_review_comment": "text",
+        "assessment_reviewer": "select",
+        "qa_status": "select",
+        "qa_feedback": "text",
+        "signing_status": "select",
+        "contract_number": "text",
+        "contract_draft_attachment": "file",
+        "accepted_rate": "number",
+        "effective_date": "date",
+        "end_date": "date",
+        "submitted_contract_attachment": "file",
+        "submitted_contract_at": "date",
+        "contract_review": "select",
+        "contract_return_attachment": "file",
+        "onboarding_status": "select",
+        "rejected_from_stage": "select",
+        "replacement_reason": "text",
+        "note": "text",
+    }
+    for name, filter_kind in process_field_kinds.items():
+        sql_expression = None
+        if name == "current_stage":
+            sql_expression = _build_progress_stage_sql_expression()
+        elif name == "applied_at":
+            sql_expression = CandidateApplication.submitted_at
+        elif name == "assessment_attachment":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value)
+        elif name == "assessment_submitted_at":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value)
+        elif name == "assessment_result":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_RESULT.value)
+        elif name == "assessment_review_comment":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_REVIEW_COMMENT.value)
+        elif name == "assessment_reviewer":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_REVIEWER.value)
+        elif name == "qa_status":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.QA_STATUS.value)
+        elif name == "qa_feedback":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.QA_FEEDBACK.value)
+        elif name == "signing_status":
+            sql_expression = _build_progress_contract_sql_expression(data_key="signing_status")
+        elif name == "contract_number":
+            sql_expression = _build_progress_contract_sql_expression(column_name="agreement_ref_no")
+        elif name == "contract_draft_attachment":
+            sql_expression = _build_progress_contract_sql_expression(column_name="draft_contract_asset_id")
+        elif name == "accepted_rate":
+            sql_expression = _build_progress_contract_sql_expression(column_name="rate")
+        elif name == "effective_date":
+            sql_expression = _build_progress_contract_sql_expression(column_name="effective_date")
+        elif name == "end_date":
+            sql_expression = _build_progress_contract_sql_expression(column_name="end_date")
+        elif name == "submitted_contract_attachment":
+            sql_expression = _build_progress_contract_sql_expression(column_name="candidate_signed_contract_asset_id")
+        elif name == "submitted_contract_at":
+            sql_expression = _build_progress_contract_sql_expression(data_key="candidate_signed_contract_submitted_at")
+        elif name == "contract_review":
+            sql_expression = _build_progress_contract_sql_expression(data_key="contract_review")
+        elif name == "contract_return_attachment":
+            sql_expression = _build_progress_contract_sql_expression(column_name="company_sealed_contract_asset_id")
+        elif name == "onboarding_status":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ONBOARDING_STATUS.value)
+        elif name == "rejected_from_stage":
+            sql_expression = case(
+                (JobProgress.current_stage == RecruitmentStage.REJECTED.value, "assessment"),
+                else_="",
+            )
+        elif name == "replacement_reason":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.REPLACEMENT_REASON.value)
+        elif name == "note":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.NOTE.value)
+        field_map[name] = AdvancedFilterFieldDefinition(
+            name=name,
+            filter_kind=filter_kind,  # type: ignore[arg-type]
+            sql_expression=sql_expression,
+        )
+
+    return field_map
+
+
+def _serialize_filter_record_datetime(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return _normalize_text(value)
 
 
 async def _get_company_name_map_by_job_ids(
@@ -993,14 +1233,92 @@ def _serialize_contract_record_data(
     )
 
 
+def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dict[str, Any]:
+    contract_record = item.contract_record_data
+    assessment_submissions = item.process_data.get(JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value)
+    latest_assessment_submission = (
+        assessment_submissions[-1]
+        if isinstance(assessment_submissions, list) and assessment_submissions and isinstance(assessment_submissions[-1], dict)
+        else None
+    )
+    draft_attachment_name = (
+        contract_record.draft_contract_attachment.name
+        if contract_record is not None and contract_record.draft_contract_attachment is not None
+        else ""
+    )
+    candidate_signed_attachment_name = (
+        contract_record.candidate_signed_contract_attachment.name
+        if contract_record is not None and contract_record.candidate_signed_contract_attachment is not None
+        else ""
+    )
+    company_sealed_attachment_name = (
+        contract_record.company_sealed_contract_attachment.name
+        if contract_record is not None and contract_record.company_sealed_contract_attachment is not None
+        else ""
+    )
+    accepted_rate = _normalize_text(contract_record.rate) if contract_record is not None else ""
+
+    return {
+        **(item.application_snapshot or {}),
+        "current_stage": _map_backend_stage_to_progress_stage(item.current_stage),
+        "applied_at": _serialize_filter_record_datetime(item.applied_at),
+        "assessment_attachment": _normalize_text(
+            (latest_assessment_submission or {}).get("name")
+            or item.process_data.get(JobProgressDataKey.ASSESSMENT_ATTACHMENT.value)
+        ),
+        "assessment_submitted_at": _normalize_text(
+            (latest_assessment_submission or {}).get("submitted_at")
+            or item.process_data.get(JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value)
+        ),
+        "assessment_result": _normalize_text(item.process_data.get(JobProgressDataKey.ASSESSMENT_RESULT.value)),
+        "assessment_review_comment": _normalize_text(
+            item.process_data.get(JobProgressDataKey.ASSESSMENT_REVIEW_COMMENT.value)
+        ),
+        "assessment_reviewer": _normalize_text(item.process_data.get(JobProgressDataKey.ASSESSMENT_REVIEWER.value)),
+        "qa_status": _normalize_text(item.process_data.get(JobProgressDataKey.QA_STATUS.value)),
+        "qa_feedback": _normalize_text(item.process_data.get(JobProgressDataKey.QA_FEEDBACK.value)),
+        "signing_status": _normalize_text(contract_record.signing_status) if contract_record is not None else "",
+        "contract_number": _normalize_text(contract_record.agreement_ref_no) if contract_record is not None else "",
+        "contract_draft_attachment": draft_attachment_name,
+        "accepted_rate": accepted_rate,
+        "effective_date": _serialize_filter_record_datetime(contract_record.effective_date)
+        if contract_record is not None
+        else "",
+        "end_date": _serialize_filter_record_datetime(contract_record.end_date) if contract_record is not None else "",
+        "submitted_contract_attachment": candidate_signed_attachment_name,
+        "submitted_contract_at": _normalize_text(contract_record.submitted_contract_at) if contract_record is not None else "",
+        "contract_review": _normalize_text(contract_record.contract_review) if contract_record is not None else "",
+        "contract_return_attachment": company_sealed_attachment_name,
+        "onboarding_status": _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_STATUS.value)),
+        "rejected_from_stage": "assessment" if item.current_stage == RecruitmentStage.REJECTED.value else "",
+        "replacement_reason": _normalize_text(item.process_data.get(JobProgressDataKey.REPLACEMENT_REASON.value)),
+        "note": _normalize_text(item.process_data.get(JobProgressDataKey.NOTE.value)),
+    }
+
+
 async def list_job_progress(
     *,
     job_id: int,
+    active_stage: str | None = None,
+    advanced_filter: str | None = None,
     current_stages: list[str] | None = None,
     reviewer_admin_user_id: int | None = None,
     db: AsyncSession,
 ) -> dict[str, Any]:
+    advanced_filter_query = parse_advanced_filter_query(advanced_filter)
     normalized_stages = [stage for stage in (current_stages or []) if stage]
+    normalized_active_stage = _normalize_text(active_stage)
+    if normalized_active_stage and normalized_active_stage not in {
+        "all",
+        "screening",
+        "assessment",
+        "passed",
+        "contract",
+        "employed",
+        "replaced",
+        "eliminated",
+    }:
+        raise BadRequestException("Unsupported active stage for advanced filter.")
     job_result = await db.execute(
         select(Job).where(
             Job.id == job_id,
@@ -1124,7 +1442,42 @@ async def list_job_progress(
         )
         for progress, application in rows
     ]
-    return JobProgressListPage(items=items, total=len(items)).model_dump()
+    matched_progress_ids: list[int] | None = None
+    if has_advanced_filter_rules(advanced_filter_query):
+        field_map = _build_progress_advanced_filter_field_map(job)
+        validate_advanced_filter_query(advanced_filter_query, field_map=field_map)
+        matched_conditions = [
+            JobProgress.job_id == job_id,
+            JobProgress.is_deleted.is_(False),
+            CandidateApplication.is_deleted.is_(False),
+            *([JobProgress.current_stage.in_(normalized_stages)] if normalized_stages else []),
+            *(
+                [JobProgress.assessment_reviewer_admin_user_id == reviewer_admin_user_id]
+                if reviewer_admin_user_id is not None
+                else []
+            ),
+        ]
+        advanced_filter_condition = build_advanced_filter_query_sql_condition(
+            advanced_filter_query,
+            field_map=field_map,
+        )
+        if advanced_filter_condition is not None:
+            matched_conditions.append(advanced_filter_condition)
+        if normalized_active_stage not in {"", "all"}:
+            matched_conditions.append(field_map["current_stage"].sql_expression == normalized_active_stage)
+        matched_result = await db.execute(
+            select(JobProgress.id)
+            .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
+            .where(*matched_conditions)
+            .order_by(JobProgress.entered_stage_at.desc(), JobProgress.id.desc())
+        )
+        matched_progress_ids = [int(progress_id) for progress_id in matched_result.scalars().all()]
+
+    return JobProgressListPage(
+        items=items,
+        total=len(items),
+        matched_progress_ids=matched_progress_ids,
+    ).model_dump()
 
 
 async def list_candidate_job_applications(
@@ -2451,6 +2804,10 @@ async def submit_job_progress_candidate_signed_contract(
     contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
     if contract_record is None or contract_record.draft_contract_asset_id in (None, "", 0):
         raise BadRequestException("Draft contract is not available yet.")
+    if contract_record.contract_status in {CONTRACT_STATUS_TERMINATED, CONTRACT_STATUS_EXPIRED}:
+        raise BadRequestException(
+            "Contract signing is no longer available because this contract is inactive."
+        )
 
     current_contract_review = _normalize_text((contract_record.data or {}).get("contract_review"))
     if (

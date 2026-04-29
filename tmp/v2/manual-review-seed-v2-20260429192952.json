@@ -1,0 +1,372 @@
+{
+  "generated_at": "20260429192952",
+  "manual_review_accounts": {
+    "progress_admin": {
+      "username": "flowadmin",
+      "email": "flow-admin@example.com",
+      "password": "FlowAdmin123!"
+    },
+    "progress_candidate": {
+      "email": "progress.v2.manual@example.com",
+      "password": "Candidate123!"
+    },
+    "timesheet_admin": {
+      "username": "timesheetadmin",
+      "email": "timesheet-admin@example.com",
+      "password": "TimesheetAdmin123!",
+      "role": "工时联调管理员"
+    },
+    "timesheet_viewer": {
+      "username": "timesheetviewer",
+      "email": "timesheet.viewer@example.com",
+      "password": "Candidate123!"
+    },
+    "portal_candidate": {
+      "email": "712696307@qq.com",
+      "password": "12345678"
+    }
+  },
+  "manual_review_paths": {
+    "progress_jobs": [
+      "/jobs/1/progress",
+      "/jobs/2/progress",
+      "/jobs/3/progress",
+      "/jobs/4/progress"
+    ],
+    "timesheet_project_page": "/timesheets/companies/13/projects/13",
+    "candidate_working_hours": "/working-hours",
+    "candidate_portal_jobs": "/jobs",
+    "candidate_my_jobs": "/my-jobs",
+    "candidate_my_contracts": "/my-contracts",
+    "candidate_referral": "/referral",
+    "candidate_earnings": "/earnings"
+  },
+  "seed_payloads": {
+    "progress_demo": {
+      "admin": {
+        "username": "flowadmin",
+        "email": "flow-admin@example.com",
+        "password": "FlowAdmin123!"
+      },
+      "candidate": {
+        "name": "Progress Demo Candidate",
+        "email": "progress.v2.manual@example.com",
+        "password": "Candidate123!",
+        "user_id": 1147,
+        "resume_asset_id": 935
+      },
+      "form_template": {
+        "id": 1,
+        "name": "基础候选人报名模板"
+      },
+      "jobs": [
+        {
+          "job_id": 1,
+          "job_title": "Progress Demo 1 - Assessment + Automation",
+          "job_company_id": 1,
+          "company_name": "Progress Lab A",
+          "compensation_unit": "Per Hour",
+          "assessment_enabled": true,
+          "automation_rules_enabled": true,
+          "contract_example_seeded": true,
+          "application_id": 1162,
+          "talent_profile_id": 1144,
+          "expected_stage": "assessment_review",
+          "current_stage": "assessment_review",
+          "current_stage_cn_name": "测试题回收",
+          "screening_mode": "auto"
+        },
+        {
+          "job_id": 2,
+          "job_title": "Progress Demo 2 - No Assessment + Automation Pass",
+          "job_company_id": 2,
+          "company_name": "Progress Lab B",
+          "compensation_unit": "Per Day",
+          "assessment_enabled": false,
+          "automation_rules_enabled": true,
+          "contract_example_seeded": true,
+          "application_id": 1163,
+          "talent_profile_id": 1144,
+          "expected_stage": "screening_passed",
+          "current_stage": "screening_passed",
+          "current_stage_cn_name": "筛选通过",
+          "screening_mode": "auto"
+        },
+        {
+          "job_id": 3,
+          "job_title": "Progress Demo 3 - Assessment + Manual Screening",
+          "job_company_id": 3,
+          "company_name": "Progress Lab C",
+          "compensation_unit": "Per Line",
+          "assessment_enabled": true,
+          "automation_rules_enabled": false,
+          "contract_example_seeded": true,
+          "application_id": 1164,
+          "talent_profile_id": 1144,
+          "expected_stage": "pending_screening",
+          "current_stage": "pending_screening",
+          "current_stage_cn_name": "待筛选名单",
+          "screening_mode": "manual"
+        },
+        {
+          "job_id": 4,
+          "job_title": "Progress Demo 4 - No Assessment + Automation Reject",
+          "job_company_id": 4,
+          "company_name": "Progress Lab D",
+          "compensation_unit": "Per Month",
+          "assessment_enabled": false,
+          "automation_rules_enabled": true,
+          "contract_example_seeded": true,
+          "application_id": 1165,
+          "talent_profile_id": 1144,
+          "expected_stage": "rejected",
+          "current_stage": "rejected",
+          "current_stage_cn_name": "淘汰",
+          "screening_mode": "auto"
+        }
+      ],
+      "note": "第 4 个岗位按“无测试题 + 自动化流程”，并让投递不命中规则，用来保留一条淘汰数据，因为你给的第 2 和第 4 项配置描述重复。"
+    },
+    "timesheet_demo": {
+      "admin": {
+        "username": "timesheetadmin",
+        "email": "timesheet-admin@example.com",
+        "password": "TimesheetAdmin123!",
+        "role": "工时联调管理员"
+      },
+      "candidate_password": "Candidate123!",
+      "company": {
+        "id": 13,
+        "name": "TMX Timesheet Demo Lab",
+        "timesheet_languages": [
+          "en-US",
+          "es-MX",
+          "ja-JP",
+          "ar-EG",
+          "fr-FR"
+        ],
+        "timesheet_work_types": [
+          "Annotation",
+          "Review",
+          "QA",
+          "Training",
+          "Non-Operational"
+        ],
+        "timesheet_roles": [
+          "Annotator",
+          "Reviewer",
+          "QA Specialist",
+          "Trainer",
+          "Team Lead"
+        ]
+      },
+      "project": {
+        "id": 13,
+        "name": "Timesheet Active Project",
+        "timesheet_page_path": "/timesheets/companies/13/projects/13"
+      },
+      "job": {
+        "id": 13,
+        "title": "Timesheet Demo - 10 Active Contractors",
+        "status": "在招",
+        "applicant_count": 10,
+        "progress_page_path": "/jobs/13/progress?stage=active"
+      },
+      "contracts": {
+        "active_count": 10,
+        "sample_agreement_refs": [
+          "TMX-TS-001",
+          "TMX-TS-002",
+          "TMX-TS-003",
+          "TMX-TS-004",
+          "TMX-TS-005"
+        ]
+      },
+      "timesheets": {
+        "created_or_recreated_count": 16,
+        "total_active_records": 18,
+        "sub_project_prefix": "TS Demo · "
+      },
+      "candidate_portal_timesheet_viewer": {
+        "username": "timesheetviewer",
+        "email": "timesheet.viewer@example.com",
+        "password": "Candidate123!",
+        "page_path": "/working-hours",
+        "referral_page_path": "/referral",
+        "earnings_page_path": "/earnings",
+        "company": "TMX Timesheet Demo Lab",
+        "created_or_recreated_count": 8,
+        "total_active_records_across_projects": 8,
+        "bonus_month": "2026-04",
+        "contracts": [
+          {
+            "key": "localization",
+            "job_title": "C Portal Hours Demo - Localization Contract",
+            "project_name": "Localization Ops Department",
+            "agreement_ref_no": "TMX-TS-201",
+            "contract_status": "Active",
+            "contract_type": "normal",
+            "is_current": true,
+            "rate": "12.25"
+          },
+          {
+            "key": "quality",
+            "job_title": "C Portal Hours Demo - Quality Contract",
+            "project_name": "Quality Review Department",
+            "agreement_ref_no": "TMX-TS-202",
+            "contract_status": "Active",
+            "contract_type": "normal",
+            "is_current": true,
+            "rate": "14.75"
+          },
+          {
+            "key": "lead",
+            "job_title": "C Portal Hours Demo - Team Lead Contract",
+            "project_name": "Local Team Lead Department",
+            "agreement_ref_no": "TMX-TS-203",
+            "contract_status": "Active",
+            "contract_type": "team_leader",
+            "is_current": true,
+            "rate": "16.50"
+          },
+          {
+            "key": "legacy",
+            "job_title": "C Portal Hours Demo - Legacy Contract",
+            "project_name": "Legacy Archive Department",
+            "agreement_ref_no": "TMX-TS-204",
+            "contract_status": "Terminated",
+            "contract_type": "normal",
+            "is_current": false,
+            "rate": "11.80"
+          }
+        ],
+        "languages": [
+          "ar-EG",
+          "en-US",
+          "es-MX",
+          "fr-FR",
+          "ja-JP"
+        ],
+        "referrals": {
+          "referral_count": 3,
+          "items": [
+            {
+              "referral_record_id": 1,
+              "referred_user_id": 6,
+              "referred_email": "timesheet.worker.01@example.com",
+              "referred_name": "TS Demo 01",
+              "agreement_ref_no": "TMX-TS-001"
+            },
+            {
+              "referral_record_id": 2,
+              "referred_user_id": 7,
+              "referred_email": "timesheet.worker.02@example.com",
+              "referred_name": "TS Demo 02",
+              "agreement_ref_no": "TMX-TS-002"
+            },
+            {
+              "referral_record_id": 3,
+              "referred_user_id": 8,
+              "referred_email": "timesheet.worker.03@example.com",
+              "referred_name": "TS Demo 03",
+              "agreement_ref_no": "TMX-TS-003"
+            }
+          ]
+        }
+      },
+      "workers": [
+        {
+          "full_name": "Ana Silva",
+          "email": "timesheet.worker.01@example.com",
+          "agreement_ref_no": "TMX-TS-001",
+          "rate": "9.50"
+        },
+        {
+          "full_name": "Bruno Costa",
+          "email": "timesheet.worker.02@example.com",
+          "agreement_ref_no": "TMX-TS-002",
+          "rate": "10.00"
+        },
+        {
+          "full_name": "Carla Mendes",
+          "email": "timesheet.worker.03@example.com",
+          "agreement_ref_no": "TMX-TS-003",
+          "rate": "10.50"
+        },
+        {
+          "full_name": "Diego Ramirez",
+          "email": "timesheet.worker.04@example.com",
+          "agreement_ref_no": "TMX-TS-004",
+          "rate": "11.00"
+        },
+        {
+          "full_name": "Elena Petrova",
+          "email": "timesheet.worker.05@example.com",
+          "agreement_ref_no": "TMX-TS-005",
+          "rate": "11.50"
+        },
+        {
+          "full_name": "Fatima Noor",
+          "email": "timesheet.worker.06@example.com",
+          "agreement_ref_no": "TMX-TS-006",
+          "rate": "12.00"
+        },
+        {
+          "full_name": "Haru Sato",
+          "email": "timesheet.worker.07@example.com",
+          "agreement_ref_no": "TMX-TS-007",
+          "rate": "12.50"
+        },
+        {
+          "full_name": "Iris Chen",
+          "email": "timesheet.worker.08@example.com",
+          "agreement_ref_no": "TMX-TS-008",
+          "rate": "13.00"
+        },
+        {
+          "full_name": "Jamal Rahman",
+          "email": "timesheet.worker.09@example.com",
+          "agreement_ref_no": "TMX-TS-009",
+          "rate": "13.50"
+        },
+        {
+          "full_name": "Kenji Mori",
+          "email": "timesheet.worker.10@example.com",
+          "agreement_ref_no": "TMX-TS-010",
+          "rate": "14.00"
+        }
+      ]
+    },
+    "portal_demo_summary": {
+      "my_jobs_summary": [
+        "Candidate Portal Demo - Pending Screening: pending_screening",
+        "Candidate Portal Demo - Assessment Review: assessment_review",
+        "Candidate Portal Demo - Screening Passed: screening_passed",
+        "Candidate Portal Demo - Contract Pool: contract_pool",
+        "Candidate Portal Demo - Active: active",
+        "Candidate Portal Demo - Rejected: rejected",
+        "Candidate Portal Demo - Replaced: replaced"
+      ],
+      "my_contracts_summary": [
+        "Candidate Portal Demo - Active: stage=active status=Active",
+        "Candidate Portal Demo - Contract Pool: stage=contract_pool status=Pending Activation",
+        "Candidate Portal Demo - Screening Passed: stage=screening_passed status=Pending Activation"
+      ],
+      "fresh_job_title": "Candidate Portal Demo - Fresh Apply Flow",
+      "fresh_job_id": 12,
+      "candidate_email": "712696307@qq.com",
+      "candidate_password": "12345678"
+    }
+  },
+  "log_files": {
+    "base_form_seed": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429192936-v2-seed-base-form.log",
+    "progress_seed": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429192939-v2-seed-progress.log",
+    "timesheet_seed": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429192943-v2-seed-timesheets.log",
+    "portal_demo_seed": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429192952-v2-seed-portal-demo.log"
+  },
+  "notes": [
+    "The progress demo payload is structured JSON and is the best starting point for B-side stage / contract / mail checks.",
+    "The timesheet demo payload contains active, team-leader, and terminated contracts for working-hours and earnings checks.",
+    "The candidate portal demo log captures the My Jobs / My Contracts walkthrough summary for the 712696307@qq.com account."
+  ]
+}

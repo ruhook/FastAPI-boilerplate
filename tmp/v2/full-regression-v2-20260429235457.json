@@ -1,0 +1,60 @@
+{
+  "generated_at": "20260429235457",
+  "skip_seed": false,
+  "skip_browser": false,
+  "skip_advanced_filter_bulk": false,
+  "runs": [
+    {
+      "name": "seed",
+      "module": "src.scripts.v2.seed_manual_review_data",
+      "args": [],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429234638-v2-full-seed.log"
+    },
+    {
+      "name": "api-regression",
+      "module": "src.scripts.v2.run_api_regression_suite",
+      "args": [
+        "--skip-seed",
+        "--include-advanced-filter-bulk"
+      ],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429235400-v2-full-api-regression.log"
+    },
+    {
+      "name": "batch-contract",
+      "module": "src.scripts.v2.run_batch_contract_mutation_suite",
+      "args": [],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429235417-v2-full-batch-contract.log"
+    },
+    {
+      "name": "permission-matrix",
+      "module": "src.scripts.v2.run_permission_matrix_suite",
+      "args": [],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429235420-v2-full-permission-matrix.log"
+    },
+    {
+      "name": "register-verification",
+      "module": "src.scripts.v2.run_register_verification_suite",
+      "args": [],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429235421-v2-full-register-verification.log"
+    },
+    {
+      "name": "export-download",
+      "module": "src.scripts.v2.run_export_download_suite",
+      "args": [],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429235438-v2-full-export-download.log"
+    },
+    {
+      "name": "browser-e2e",
+      "module": "src.scripts.v2.run_browser_e2e_suite",
+      "args": [],
+      "returncode": 0,
+      "log_path": "/Users/ruanhaokang/workspace/hr/hr-server/tmp/v2/20260429235457-v2-full-browser-e2e.log"
+    }
+  ]
+}

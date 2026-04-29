@@ -28,7 +28,12 @@ from .run_client_apply_demo import (
     register_or_reuse_candidate,
     submit_application,
 )
-from .run_client_assessment_upload_demo import build_demo_pdf_bytes, upload_assessment
+from .run_client_assessment_upload_demo import (
+    build_demo_docx_bytes,
+    build_demo_pdf_bytes,
+    build_demo_xlsx_bytes,
+    upload_assessment,
+)
 from .seed_apply_demo_flow import DEMO_ADMIN_PASSWORD, DEMO_ADMIN_USERNAME
 from .seed_job_progress_demo_flow import (
     DEFAULT_CANDIDATE_EMAIL,
@@ -291,12 +296,12 @@ async def candidate_upload_signed_contract(
         headers={"Authorization": f"Bearer {access_token}"},
         files={
             "file": (
-                "candidate-signed-contract.pdf",
-                build_demo_pdf_bytes(
+                "candidate-signed-contract.docx",
+                build_demo_docx_bytes(
                     candidate_email=candidate_email,
                     note="Recruitment E2E candidate signed contract.",
                 ),
-                "application/pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
         },
     )
@@ -491,8 +496,8 @@ async def main() -> None:
             web_client,
             access_token=candidate_access_token,
             job_id=int(assessment_case["job"].id),
-            file_name="assessment-answer.pdf",
-            file_bytes=build_demo_pdf_bytes(
+            file_name="assessment-answer.xlsx",
+            file_bytes=build_demo_xlsx_bytes(
                 candidate_email=candidate_email,
                 note="Recruitment E2E demo assessment attachment.",
             ),

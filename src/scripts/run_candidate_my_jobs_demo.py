@@ -1,17 +1,21 @@
 import argparse
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import httpx
 from httpx import ASGITransport
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ..app.core.db.database import local_session
 from ..app.main_admin import app as admin_app
 from ..app.main_web import app as web_app
+from ..app.modules.assets.schema import AssetUploadPayload
+from ..app.modules.assets.service import create_asset_from_bytes
 from ..app.modules.candidate_application.model import CandidateApplication
 from ..app.modules.candidate_field.const import CandidateFieldKey
+from ..app.modules.contract_record.model import ContractRecord
 from ..app.modules.job.const import (
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
@@ -29,7 +33,12 @@ from .run_client_apply_demo import (
     register_or_reuse_candidate,
     submit_application,
 )
-from .run_client_assessment_upload_demo import build_demo_pdf_bytes, upload_assessment
+from .run_client_assessment_upload_demo import (
+    build_demo_docx_bytes,
+    build_demo_pdf_bytes,
+    build_demo_xlsx_bytes,
+    upload_assessment,
+)
 from .seed_apply_demo_flow import (
     DEMO_ADMIN_EMAIL,
     DEMO_ADMIN_PASSWORD,
@@ -556,6 +565,58 @@ async def admin_upload_company_sealed_contract(
     ensure_ok(response, "Upload company sealed contract failed")
 
 
+async def refresh_active_contract_attachment(
+    *,
+    progress_id: int,
+    admin_user_id: int,
+    file_name: str = "Active 2026 003 Company Returned Contract.pdf",
+) -> int | None:
+    async with local_session() as session:
+        progress = await session.get(JobProgress, progress_id)
+        if progress is None or progress.is_deleted:
+            return None
+
+        result = await session.execute(
+            select(ContractRecord)
+            .where(
+                ContractRecord.job_progress_id == progress_id,
+                ContractRecord.is_deleted.is_(False),
+            )
+            .order_by(ContractRecord.is_current.desc(), ContractRecord.version.desc(), ContractRecord.id.desc())
+        )
+        contract = result.scalars().first()
+        if contract is None:
+            return None
+
+        asset = await create_asset_from_bytes(
+            db=session,
+            payload=AssetUploadPayload(
+                type="file",
+                module="job_progress",
+                owner_type="job_progress",
+                owner_id=progress_id,
+            ),
+            original_name=file_name,
+            content=build_demo_pdf_bytes(
+                candidate_email=file_name,
+                note="Candidate portal active contract attachment refresh.",
+            ),
+            mime_type="application/pdf",
+            data={"generated_by": "run_candidate_my_jobs_demo"},
+        )
+        contract.company_sealed_contract_asset_id = int(asset.id)
+        contract.contract_attachment_asset_id = int(asset.id)
+        contract.contract_status = "Active"
+        contract.updated_by_admin_user_id = admin_user_id
+        contract.effective_date = contract.effective_date or datetime.now(UTC).date()
+        next_contract_data = dict(contract.data or {})
+        next_contract_data["company_sealed_contract_attachment_name"] = asset.original_name
+        next_contract_data["company_sealed_contract_uploaded_at"] = datetime.now(UTC).isoformat()
+        contract.data = next_contract_data
+        await session.commit()
+        return int(asset.id)
+
+
 async def admin_update_contract_record(
     client: httpx.AsyncClient,
     *,
@@ -602,6 +663,72 @@ async def fetch_existing_application(user_id: int, job_id: int) -> dict[str, int
             "application_id": int(application.id),
             "talent_profile_id": int(progress.talent_profile_id or 0),
             "job_progress_id": int(progress.id),
+        }
+
+
+async def reset_candidate_portal_demo_state(*, user_id: int, job_ids: list[int]) -> dict[str, int]:
+    now = datetime.now(UTC)
+    async with local_session() as session:
+        application_result = await session.execute(
+            select(CandidateApplication).where(
+                CandidateApplication.user_id == user_id,
+                CandidateApplication.job_id.in_(job_ids),
+                CandidateApplication.is_deleted.is_(False),
+            )
+        )
+        applications = list(application_result.scalars().all())
+        application_ids = [int(application.id) for application in applications]
+
+        progress_result = await session.execute(
+            select(JobProgress).where(
+                JobProgress.user_id == user_id,
+                JobProgress.job_id.in_(job_ids),
+                JobProgress.is_deleted.is_(False),
+            )
+        )
+        progresses = list(progress_result.scalars().all())
+        progress_ids = [int(progress.id) for progress in progresses]
+
+        contract_conditions = [
+            ContractRecord.user_id == user_id,
+            ContractRecord.is_deleted.is_(False),
+        ]
+        scoped_contract_conditions: list[Any] = []
+        if job_ids:
+            scoped_contract_conditions.append(ContractRecord.job_id.in_(job_ids))
+        if progress_ids:
+            scoped_contract_conditions.append(ContractRecord.job_progress_id.in_(progress_ids))
+        if application_ids:
+            scoped_contract_conditions.append(ContractRecord.application_id.in_(application_ids))
+
+        contracts: list[ContractRecord] = []
+        if scoped_contract_conditions:
+            contract_result = await session.execute(
+                select(ContractRecord).where(
+                    *contract_conditions,
+                    or_(*scoped_contract_conditions),
+                )
+            )
+            contracts = list(contract_result.scalars().all())
+
+        for contract in contracts:
+            contract.is_deleted = True
+            contract.deleted_at = now
+            contract.is_current = False
+
+        for progress in progresses:
+            progress.is_deleted = True
+            progress.deleted_at = now
+
+        for application in applications:
+            application.is_deleted = True
+            application.deleted_at = now
+
+        await session.commit()
+        return {
+            "applications": len(applications),
+            "progresses": len(progresses),
+            "contracts": len(contracts),
         }
 
 
@@ -714,10 +841,10 @@ async def candidate_upload_signed_contract_response(
         files={
             "file": (
                 file_name,
-                (
-                    f"Signed contract placeholder for {file_name}\n"
-                    "This file is used by the local demo script.\n"
-                ).encode("utf-8"),
+                build_demo_docx_bytes(
+                    candidate_email=file_name,
+                    note="Candidate portal signed contract demo file.",
+                ),
                 media_type,
             )
         },
@@ -784,6 +911,16 @@ async def main() -> None:
         admin_access_token = admin_login_payload["access_token"]
 
         print_step("Step 3/6: apply to each demo job once, and leave one fresh role for manual end-to-end testing")
+        reset_summary = await reset_candidate_portal_demo_state(
+            user_id=int(current_user["id"]),
+            job_ids=[int(job.id) for job in jobs],
+        )
+        print_detail(
+            "reset prior portal demo state: "
+            f"applications={reset_summary['applications']} "
+            f"progresses={reset_summary['progresses']} "
+            f"contracts={reset_summary['contracts']}"
+        )
         cases_by_key: dict[str, dict[str, Any]] = {}
         for definition, job in zip(PORTAL_JOB_DEFINITIONS, jobs, strict=True):
             if not should_auto_apply(definition):
@@ -856,8 +993,8 @@ async def main() -> None:
             web_client,
             access_token=access_token,
             job_id=int(assessment_case["job"].id),
-            file_name="candidate-assessment.pdf",
-            file_bytes=build_demo_pdf_bytes(
+            file_name="candidate-assessment.xlsx",
+            file_bytes=build_demo_xlsx_bytes(
                 candidate_email=args.candidate_email,
                 note="Candidate portal assessment submission.",
             ),
@@ -886,6 +1023,8 @@ async def main() -> None:
         contract_case = cases_by_key["contract_pool"]
         contract_case_stage = str(contract_case["detail"]["current_stage"])
         contract_case_record = dict(contract_case["detail"].get("contract_record_data") or {})
+        if contract_case_stage not in {"screening_passed", "contract_pool"}:
+            raise RuntimeError(f"Contract-pool demo expected screening_passed/contract_pool, got {contract_case_stage}")
         contract_case_update_kwargs: dict[str, Any] = {
             "agreement_ref_no": "POOL-2026-002",
             "rate": "6.80",
@@ -900,15 +1039,6 @@ async def main() -> None:
             progress_ids=[int(contract_case["job_progress_id"])],
             **contract_case_update_kwargs,
         )
-        if contract_case_stage != "contract_pool":
-            await admin_move_stage(
-                admin_client,
-                access_token=admin_access_token,
-                job_id=int(contract_case["job"].id),
-                progress_ids=[int(contract_case["job_progress_id"])],
-                target_stage="contract_pool",
-                reason="candidate_portal_demo_contract_pool",
-            )
 
         if not contract_case_record.get("draft_contract_attachment"):
             failed_signed_upload = await candidate_upload_signed_contract_response(
@@ -964,8 +1094,17 @@ async def main() -> None:
         active_case_stage = str(active_case["detail"]["current_stage"])
         active_case_record = dict(active_case["detail"].get("contract_record_data") or {})
         if active_case_stage == "active" and active_case_record.get("company_sealed_contract_attachment"):
-            print_detail("active job already has company-signed contract data and remains active")
+            refreshed_asset_id = await refresh_active_contract_attachment(
+                progress_id=int(active_case["job_progress_id"]),
+                admin_user_id=int(admin_login_payload["user"]["id"]),
+            )
+            print_detail(
+                "active job already has company-signed contract data and remains active"
+                + (f"; refreshed attachment asset_id={refreshed_asset_id}" if refreshed_asset_id else "")
+            )
         else:
+            if active_case_stage not in {"screening_passed", "contract_pool"}:
+                raise RuntimeError(f"Active demo expected screening_passed/contract_pool/active, got {active_case_stage}")
             active_case_update_kwargs: dict[str, Any] = {
                 "agreement_ref_no": "ACTIVE-2026-003",
                 "rate": "3500",
@@ -979,15 +1118,6 @@ async def main() -> None:
                 progress_ids=[int(active_case["job_progress_id"])],
                 **active_case_update_kwargs,
             )
-            if active_case_stage != "contract_pool":
-                await admin_move_stage(
-                    admin_client,
-                    access_token=admin_access_token,
-                    job_id=int(active_case["job"].id),
-                    progress_ids=[int(active_case["job_progress_id"])],
-                    target_stage="contract_pool",
-                    reason="candidate_portal_demo_active_contract_pool",
-                )
             await admin_upload_contract_draft(
                 admin_client,
                 access_token=admin_access_token,
@@ -1028,14 +1158,6 @@ async def main() -> None:
                 progress_id=int(active_case["job_progress_id"]),
                 file_name="Active 2026 003 Company Returned Contract.pdf",
             )
-            await admin_move_stage(
-                admin_client,
-                access_token=admin_access_token,
-                job_id=int(active_case["job"].id),
-                progress_ids=[int(active_case["job_progress_id"])],
-                target_stage="active",
-                reason="candidate_portal_demo_active",
-            )
             print_detail("active job now has draft, signed, company-returned contracts and is active")
 
         replaced_case = cases_by_key["replaced"]
@@ -1043,23 +1165,64 @@ async def main() -> None:
         if replaced_case_stage == "replaced":
             print_detail("replaced job already sits in replaced stage")
         else:
-            if replaced_case_stage != "contract_pool":
-                await admin_move_stage(
+            if replaced_case_stage not in {"screening_passed", "contract_pool", "active"}:
+                raise RuntimeError(f"Replaced demo expected screening_passed/contract_pool/active/replaced, got {replaced_case_stage}")
+            if replaced_case_stage != "active":
+                replaced_case_update_kwargs: dict[str, Any] = {
+                    "agreement_ref_no": "REPLACED-2026-004",
+                    "rate": "5.50",
+                }
+                if replaced_case_stage == "screening_passed":
+                    replaced_case_update_kwargs["signing_status"] = "已通知人选签合同"
+                await admin_update_contract_record(
                     admin_client,
                     access_token=admin_access_token,
                     job_id=int(replaced_case["job"].id),
                     progress_ids=[int(replaced_case["job_progress_id"])],
-                    target_stage="contract_pool",
-                    reason="candidate_portal_demo_replaced_contract_pool",
+                    **replaced_case_update_kwargs,
                 )
-            await admin_move_stage(
-                admin_client,
-                access_token=admin_access_token,
-                job_id=int(replaced_case["job"].id),
-                progress_ids=[int(replaced_case["job_progress_id"])],
-                target_stage="active",
-                reason="candidate_portal_demo_replaced_active",
-            )
+                replaced_case_record = dict(replaced_case["detail"].get("contract_record_data") or {})
+                if not replaced_case_record.get("draft_contract_attachment"):
+                    await admin_upload_contract_draft(
+                        admin_client,
+                        access_token=admin_access_token,
+                        job_id=int(replaced_case["job"].id),
+                        progress_id=int(replaced_case["job_progress_id"]),
+                        file_name="Replaced 2026 004 Draft Contract.pdf",
+                    )
+                if replaced_case_record.get("candidate_signed_contract_attachment") and replaced_case_record.get("contract_review") != "待修改":
+                    await admin_update_contract_record(
+                        admin_client,
+                        access_token=admin_access_token,
+                        job_id=int(replaced_case["job"].id),
+                        progress_ids=[int(replaced_case["job_progress_id"])],
+                        contract_review="待修改",
+                    )
+                replaced_signed_upload = await candidate_upload_signed_contract_response(
+                    web_client,
+                    access_token=access_token,
+                    job_id=int(replaced_case["job"].id),
+                    file_name="candidate-signed-contract-replaced.docx",
+                )
+                if replaced_signed_upload.status_code not in {200, 201}:
+                    raise RuntimeError(
+                        "Replaced-path signed contract upload should succeed, "
+                        f"got {replaced_signed_upload.status_code} {replaced_signed_upload.text}"
+                    )
+                await admin_update_contract_record(
+                    admin_client,
+                    access_token=admin_access_token,
+                    job_id=int(replaced_case["job"].id),
+                    progress_ids=[int(replaced_case["job_progress_id"])],
+                    contract_review="审核通过",
+                )
+                await admin_upload_company_sealed_contract(
+                    admin_client,
+                    access_token=admin_access_token,
+                    job_id=int(replaced_case["job"].id),
+                    progress_id=int(replaced_case["job_progress_id"]),
+                    file_name="Replaced 2026 004 Company Returned Contract.pdf",
+                )
             await admin_move_stage(
                 admin_client,
                 access_token=admin_access_token,

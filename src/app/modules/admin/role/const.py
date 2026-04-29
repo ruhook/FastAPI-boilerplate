@@ -1,7 +1,16 @@
 from collections.abc import Iterable
 
 
-BUSINESS_ADMIN_PERMISSIONS = ["工作台", "岗位管理", "合同管理", "工时记录", "总人才库", "邮件与模板"]
+BUSINESS_ADMIN_PERMISSIONS = [
+    "工作台",
+    "岗位管理",
+    "合同管理",
+    "工时记录",
+    "流水记录",
+    "邀请奖励",
+    "总人才库",
+    "邮件与模板",
+]
 SPECIAL_ADMIN_PERMISSIONS = ["测试题判题"]
 SETTINGS_ADMIN_PERMISSIONS = ["账户管理", "权限与角色", "常量字典", "报名表单策略", "公司管理"]
 CONFIGURABLE_ADMIN_PERMISSIONS = [*SPECIAL_ADMIN_PERMISSIONS]

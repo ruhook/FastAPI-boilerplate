@@ -1,0 +1,427 @@
+{
+  "generated_at": "20260429233432",
+  "reviewer_account": {
+    "id": 4,
+    "username": "judgereviewer",
+    "email": "judge.reviewer@example.com",
+    "password": "JudgeReview123!",
+    "created": 0
+  },
+  "actors": {
+    "super_admin": {
+      "username": "admin",
+      "is_superuser": true,
+      "permission_count": 14
+    },
+    "business_admin": {
+      "username": "flowadmin",
+      "is_superuser": false,
+      "permissions": []
+    },
+    "assessment_reviewer": {
+      "username": "judgereviewer",
+      "is_superuser": false,
+      "permissions": [
+        "测试题判题"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/dashboard/metrics",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/jobs",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/contracts",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/talents",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/timesheets/overview",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/payment-records",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/referrals",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/mail/templates?include_public=true",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/companies",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/accounts/reviewers",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/dictionaries",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/form-templates",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/accounts",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/roles",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "super_admin",
+      "method": "GET",
+      "path": "/v1/settings/permissions/catalog",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/dashboard/metrics",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/jobs",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/contracts",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/talents",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/timesheets/overview",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/payment-records",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/referrals",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/mail/templates?include_public=true",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/companies",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/accounts/reviewers",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/dictionaries",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/form-templates",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/accounts",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/roles",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "business_admin",
+      "method": "GET",
+      "path": "/v1/settings/permissions/catalog",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/dashboard/metrics",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/jobs",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/settings/accounts/reviewers",
+      "status_code": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/contracts",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/talents",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/timesheets/overview",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/payment-records",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/referrals",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/mail/templates?include_public=true",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/settings/companies",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/settings/dictionaries",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "assessment_reviewer",
+      "method": "GET",
+      "path": "/v1/settings/form-templates",
+      "status_code": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "actor": "anonymous",
+      "method": "GET",
+      "path": "/v1/jobs",
+      "status_code": 401,
+      "expected": [
+        401
+      ]
+    },
+    {
+      "actor": "candidate_token",
+      "method": "GET",
+      "path": "/v1/jobs",
+      "status_code": 401,
+      "expected": [
+        401
+      ]
+    }
+  ]
+}

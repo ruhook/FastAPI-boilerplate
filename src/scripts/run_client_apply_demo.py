@@ -160,7 +160,7 @@ async def ensure_resume_asset(*, user_id: int, email: str) -> Asset:
             select(Asset).where(
                 Asset.owner_type == "user",
                 Asset.owner_id == user_id,
-                Asset.module == "candidate",
+                Asset.module == "candidate_application",
                 Asset.type == "file",
                 Asset.original_name == "demo-resume.pdf",
                 Asset.is_deleted.is_(False),
@@ -179,7 +179,7 @@ async def ensure_resume_asset(*, user_id: int, email: str) -> Asset:
             db=session,
             payload=AssetUploadPayload(
                 type="file",
-                module="candidate",
+                module="candidate_application",
                 owner_type="user",
                 owner_id=user_id,
             ),

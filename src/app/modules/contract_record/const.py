@@ -34,7 +34,7 @@ def normalize_contract_status(value: str | None) -> str:
     if not text:
         return CONTRACT_STATUS_PENDING_ACTIVATION
     if text not in CONTRACT_STATUSES:
-        return text
+        raise ValueError("Invalid contract status.")
     return text
 
 
