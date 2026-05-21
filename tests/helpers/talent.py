@@ -7,14 +7,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.security import get_password_hash
+from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from src.app.modules.admin.form_template.model import AdminFormTemplate
 from src.app.modules.assets.model import Asset
-from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from src.app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from src.app.modules.job.model import Job
 from src.app.modules.operation_log.model import OperationLog
+from src.app.modules.referral_bonus_model.const import (
+    DEFAULT_REFERRAL_BONUS_CAP,
+    DEFAULT_REFERRAL_BONUS_CURRENCY,
+    DEFAULT_REFERRAL_BONUS_MODEL_NAME,
+    default_referral_bonus_milestones_payload,
+)
+from src.app.modules.referral_bonus_model.model import ReferralBonusModel
 from src.app.modules.user.model import User
-
 
 BASE_FORM_FIELDS: list[dict[str, object]] = [
     {"key": "full_name", "label": "Full Name", "type": "text", "required": True, "canFilter": True},
@@ -127,6 +133,30 @@ async def create_resume_asset(
     return asset
 
 
+async def ensure_default_referral_bonus_model(db_session: AsyncSession) -> ReferralBonusModel:
+    result = await db_session.execute(
+        select(ReferralBonusModel).where(
+            ReferralBonusModel.name == DEFAULT_REFERRAL_BONUS_MODEL_NAME,
+            ReferralBonusModel.is_deleted.is_(False),
+        )
+    )
+    model = result.scalar_one_or_none()
+    if model is not None:
+        return model
+
+    model = ReferralBonusModel(
+        name=DEFAULT_REFERRAL_BONUS_MODEL_NAME,
+        status="active",
+        currency=DEFAULT_REFERRAL_BONUS_CURRENCY,
+        reward_cap=DEFAULT_REFERRAL_BONUS_CAP,
+        data={"milestones": default_referral_bonus_milestones_payload()},
+    )
+    db_session.add(model)
+    await db_session.commit()
+    await db_session.refresh(model)
+    return model
+
+
 async def create_open_job(
     db_session: AsyncSession,
     *,
@@ -164,10 +194,13 @@ async def create_open_job(
         db_session.add(project)
         await db_session.flush()
 
+    referral_bonus_model = await ensure_default_referral_bonus_model(db_session)
+
     job = Job(
         title=title,
         company_id=company.id,
         project_id=project.id,
+        referral_bonus_model_id=referral_bonus_model.id,
         country="Brazil",
         status=JobStatus.OPEN.value,
         work_mode="Remote",

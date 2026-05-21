@@ -333,6 +333,11 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
                 response.status_code == 201,
                 f"Draft upload failed for progress {progress_id}: {response.status_code} {response.text}",
             )
+            draft_contract_data = response.json().get("contract_record_data") or {}
+            assert_true(
+                str(draft_contract_data.get("effective_date") or "") == date.today().isoformat(),
+                "Draft upload should set the contract effective date.",
+            )
 
         account_id = await get_mail_account_id(admin_client=admin_client, headers=admin_headers)
         notify_payload = await fetch_json(
@@ -438,7 +443,7 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
             assert_true(contract_data.get("contract_status") == "Active", "Company signed upload should activate contract.")
             assert_true(
                 str(contract_data.get("effective_date") or "") == date.today().isoformat(),
-                "Company signed upload should use upload date as effective date.",
+                "Company signed upload should preserve the draft upload effective date.",
             )
             activated_progress_ids.append(progress_id)
 

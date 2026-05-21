@@ -23,11 +23,13 @@ from app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from app.modules.assets.model import Asset
 from app.modules.candidate_application.model import CandidateApplication
 from app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from app.modules.candidate_internal_notification.model import CandidateInternalNotification
 from app.modules.contract_record.model import ContractRecord
 from app.modules.job.model import Job
 from app.modules.operation_log.model import OperationLog
 from app.modules.payment_record.model import PaymentRecord
 from app.modules.project_timesheet_record.model import ProjectTimesheetRecord
+from app.modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
 from app.modules.referral.model import ReferralRecord
 from app.modules.talent_profile.model import TalentProfile
 from app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
@@ -64,10 +66,13 @@ REGISTERED_MODELS = (
     User,
     CandidateApplication,
     CandidateApplicationFieldValue,
+    CandidateInternalNotification,
     ContractRecord,
     OperationLog,
     PaymentRecord,
     ProjectTimesheetRecord,
+    ReferralBonusModel,
+    UserReferralProfile,
     ReferralRecord,
     TalentProfile,
     TalentProfileMergeLog,

@@ -1,7 +1,7 @@
 import logging
 from collections import defaultdict
-from decimal import Decimal
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -16,39 +16,43 @@ from ...core.advanced_filter import (
     parse_advanced_filter_query,
     validate_advanced_filter_query,
 )
+from ...core.config import settings
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
-from ..candidate_application.model import CandidateApplication
-from ..candidate_application_field_value.model import CandidateApplicationFieldValue
+from ..admin.admin_user.model import AdminUser
+from ..admin.company.model import AdminCompany, AdminCompanyProject
+from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
+from ..admin.internal_notification.service import create_admin_internal_notification
+from ..admin.mail_task.schema import MailRecipient, MailTaskCreate
+from ..admin.mail_task.service import create_mail_task, dispatch_mail_task_created_event
+from ..admin.mail_template.service import get_mail_template_model
 from ..assets.model import Asset
 from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
-from ..admin.company.model import AdminCompany, AdminCompanyProject
-from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
-from ..contract_record.model import ContractRecord
+from ..candidate_application.model import CandidateApplication
+from ..candidate_application_field_value.model import CandidateApplicationFieldValue
+from ..candidate_internal_notification.service import create_candidate_internal_notification
 from ..contract_record.const import (
     CONTRACT_STATUS_EXPIRED,
     CONTRACT_STATUS_TERMINATED,
 )
+from ..contract_record.model import ContractRecord
 from ..contract_record.service import (
     get_current_contract_record_by_progress_id,
     list_current_contract_records_by_progress_ids,
     upsert_contract_record_for_progress,
 )
 from ..job.const import (
+    JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY,
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
     JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_SHOW_COMPENSATION_KEY,
 )
 from ..job.model import Job
-from ..admin.admin_user.model import AdminUser
-from ..user.model import User
-from ..admin.internal_notification.service import create_admin_internal_notification
-from ..admin.mail_task.schema import MailRecipient, MailTaskCreate
-from ..admin.mail_task.service import create_mail_task, dispatch_mail_task_created_event
-from ..admin.mail_template.service import get_mail_template_model
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
+from ..referral_bonus_model.service import ensure_user_referral_profile_from_job
+from ..user.model import User
 from .const import (
     JOB_PROGRESS_ATTACHMENT_ASSET_KEY_MAP,
     JobProgressDataKey,
@@ -68,13 +72,13 @@ from .schema import (
     JobProgressAssessmentUploadResponse,
     JobProgressCandidateSignedContractUploadResponse,
     JobProgressCompanySealedContractUploadResponse,
+    JobProgressContractAssetRead,
+    JobProgressContractDraftUploadResponse,
     JobProgressContractRecordUpdateItemRead,
     JobProgressContractRecordUpdateResponse,
-    JobProgressNotifySignContractResponse,
-    JobProgressContractDraftUploadResponse,
-    JobProgressContractAssetRead,
     JobProgressListItemRead,
     JobProgressListPage,
+    JobProgressNotifySignContractResponse,
     JobProgressRead,
 )
 
@@ -251,6 +255,40 @@ def _build_progress_json_text_expression(key: str):
     return func.json_unquote(func.json_extract(JobProgress.data, f"$.{key}"))
 
 
+def _build_progress_assessment_attachment_filter_expression():
+    legacy_asset_id = func.lower(
+        func.trim(
+            func.coalesce(
+                _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value),
+                "",
+            )
+        )
+    )
+    legacy_name = func.trim(
+        func.coalesce(
+            _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_ATTACHMENT.value),
+            "",
+        )
+    )
+    submission_count = func.coalesce(
+        func.json_length(
+            func.json_extract(JobProgress.data, f"$.{JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value}")
+        ),
+        0,
+    )
+    return case(
+        (
+            or_(
+                submission_count > 0,
+                legacy_asset_id.notin_(["", "0", "none", "null"]),
+                legacy_name != "",
+            ),
+            "submitted",
+        ),
+        else_="",
+    )
+
+
 def _build_progress_contract_sql_expression(
     *,
     column_name: str | None = None,
@@ -274,12 +312,12 @@ def _build_progress_contract_sql_expression(
     )
 
 
-def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, AdvancedFilterFieldDefinition]:
+def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, AdvancedFilterFieldDefinition]:  # noqa: C901
     field_map: dict[str, AdvancedFilterFieldDefinition] = {}
 
     form_fields = []
     if job is not None:
-        form_fields = list(((job.data or {}).get(JOB_DATA_FORM_FIELDS_KEY) or []))
+        form_fields = list((job.data or {}).get(JOB_DATA_FORM_FIELDS_KEY) or [])
 
     for field in form_fields:
         if not isinstance(field, dict):
@@ -328,7 +366,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         elif name == "applied_at":
             sql_expression = CandidateApplication.submitted_at
         elif name == "assessment_attachment":
-            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value)
+            sql_expression = _build_progress_assessment_attachment_filter_expression()
         elif name == "assessment_submitted_at":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value)
         elif name == "assessment_result":
@@ -383,10 +421,18 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
 
 def _serialize_filter_record_datetime(value: Any) -> str:
     if isinstance(value, datetime):
-        return value.isoformat()
+        return _ensure_utc_datetime(value).isoformat()
     if isinstance(value, date):
         return value.isoformat()
     return _normalize_text(value)
+
+
+def _ensure_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 async def _get_company_name_map_by_job_ids(
@@ -486,8 +532,9 @@ def _validate_contract_record_update_stage(*, stage: str, changed_fields: list[s
         }
     )
     if unsupported_fields:
+        stage_name = get_recruitment_stage_cn_name(stage)
         raise BadRequestException(
-            f"Contract fields {', '.join(unsupported_fields)} cannot be updated in {get_recruitment_stage_cn_name(stage)}."
+            f"Contract fields {', '.join(unsupported_fields)} cannot be updated in {stage_name}."
         )
 
 
@@ -607,17 +654,11 @@ def _resolve_initial_stage(
             "岗位未配置自动筛选规则，申请停留在待筛选名单。",
         )
 
-    if matched and job.assessment_enabled:
-        return (
-            RecruitmentStage.ASSESSMENT_REVIEW,
-            RecruitmentScreeningMode.AUTO,
-            "自动筛选通过，且岗位开启测试题环节，进入测试题回收。",
-        )
     if matched:
         return (
-            RecruitmentStage.SCREENING_PASSED,
+            RecruitmentStage.PENDING_SCREENING,
             RecruitmentScreeningMode.AUTO,
-            "自动筛选通过，且岗位无需测试题，进入筛选通过。",
+            "自动筛选通过，申请停留在待筛选名单，等待测试题提交或人工处理。",
         )
     return (
         RecruitmentStage.REJECTED,
@@ -629,11 +670,19 @@ def _resolve_initial_stage(
 def _get_job_mail_context(job: Job, company_name: str | None) -> dict[str, Any]:
     job_data = job.data or {}
     resolved_company_name = (company_name or "").strip()
+    assessment_external_url = str(
+        job_data.get(JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY)
+        or job_data.get("assessment_external_url")
+        or job_data.get("assessment_link")
+        or job_data.get("assessmentLink")
+        or ""
+    )
     return {
         "job": {
             "title": job.title,
             "job_title": job.title,
-            "assessment_link": str(job_data.get("assessment_link") or job_data.get("assessmentLink") or ""),
+            "assessment_external_url": assessment_external_url,
+            "assessment_link": assessment_external_url,
             "due_date": str(job_data.get("due_date") or job_data.get("dueDate") or ""),
         },
         "company": {
@@ -641,6 +690,14 @@ def _get_job_mail_context(job: Job, company_name: str | None) -> dict[str, Any]:
             "company_name": resolved_company_name,
         },
     }
+
+
+def _build_candidate_contract_upload_url(application_id: int | None) -> str:
+    if application_id is None:
+        return ""
+    base_url = settings.CANDIDATE_WEB_BASE_URL.strip().rstrip("/")
+    path = f"/my-contracts/{application_id}/upload"
+    return f"{base_url}{path}" if base_url else path
 
 
 def _get_stage_mail_config(job: Job, target_stage: RecruitmentStage) -> dict[str, int] | None:
@@ -874,7 +931,7 @@ async def create_job_progress_for_application(
             },
         )
 
-    if final_stage in {RecruitmentStage.ASSESSMENT_REVIEW, RecruitmentStage.REJECTED}:
+    if final_stage == RecruitmentStage.REJECTED:
         await _trigger_stage_mail_task(
             job=job,
             application=application,
@@ -928,9 +985,9 @@ def serialize_job_progress(progress: JobProgress) -> dict[str, Any]:
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
         screening_mode=progress.screening_mode,
-        entered_stage_at=progress.entered_stage_at,
-        created_at=progress.created_at,
-        updated_at=progress.updated_at,
+        entered_stage_at=_ensure_utc_datetime(progress.entered_stage_at),
+        created_at=_ensure_utc_datetime(progress.created_at),
+        updated_at=_ensure_utc_datetime(progress.updated_at),
         data=_serialize_process_data(progress.data or {}, {}, exclude_contract_fields=True),
         process_assets={},
         contract_record_data=_serialize_contract_record_data(
@@ -1143,7 +1200,6 @@ def _serialize_contract_record_data(
     current_company_name: str | None = None,
     current_project_name: str | None = None,
 ) -> ContractRecordDataRead | None:
-    progress_data = progress.data or {}
     contract_data = (contract_record.data or {}) if contract_record is not None else {}
 
     if contract_record is None:
@@ -1236,9 +1292,14 @@ def _serialize_contract_record_data(
 def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dict[str, Any]:
     contract_record = item.contract_record_data
     assessment_submissions = item.process_data.get(JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value)
+    has_latest_assessment_submission = (
+        isinstance(assessment_submissions, list)
+        and bool(assessment_submissions)
+        and isinstance(assessment_submissions[-1], dict)
+    )
     latest_assessment_submission = (
         assessment_submissions[-1]
-        if isinstance(assessment_submissions, list) and assessment_submissions and isinstance(assessment_submissions[-1], dict)
+        if has_latest_assessment_submission
         else None
     )
     draft_attachment_name = (
@@ -1284,9 +1345,13 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
         "effective_date": _serialize_filter_record_datetime(contract_record.effective_date)
         if contract_record is not None
         else "",
-        "end_date": _serialize_filter_record_datetime(contract_record.end_date) if contract_record is not None else "",
+        "end_date": (
+            _serialize_filter_record_datetime(contract_record.end_date) if contract_record is not None else ""
+        ),
         "submitted_contract_attachment": candidate_signed_attachment_name,
-        "submitted_contract_at": _normalize_text(contract_record.submitted_contract_at) if contract_record is not None else "",
+        "submitted_contract_at": (
+            _normalize_text(contract_record.submitted_contract_at) if contract_record is not None else ""
+        ),
         "contract_review": _normalize_text(contract_record.contract_review) if contract_record is not None else "",
         "contract_return_attachment": company_sealed_attachment_name,
         "onboarding_status": _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_STATUS.value)),
@@ -1407,7 +1472,7 @@ async def list_job_progress(
             current_stage=progress.current_stage,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
             screening_mode=progress.screening_mode,
-            applied_at=application.submitted_at,
+            applied_at=_ensure_utc_datetime(application.submitted_at),
             job_title=application.job_snapshot_title,
             job_company_name=current_company_name,
             application_snapshot=_serialize_application_snapshot(grouped_field_rows.get(application.id, [])),
@@ -1518,6 +1583,7 @@ async def list_candidate_job_applications(
         conditions.append(
             JobProgress.current_stage.in_(
                 [
+                    RecruitmentStage.PENDING_SCREENING.value,
                     RecruitmentStage.ASSESSMENT_REVIEW.value,
                     RecruitmentStage.SCREENING_PASSED.value,
                     RecruitmentStage.CONTRACT_POOL.value,
@@ -1527,6 +1593,10 @@ async def list_candidate_job_applications(
         conditions.append(
             or_(
                 JobProgress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value,
+                and_(
+                    JobProgress.current_stage == RecruitmentStage.PENDING_SCREENING.value,
+                    Job.assessment_enabled.is_(True),
+                ),
                 and_(
                     JobProgress.current_stage.in_(
                         [
@@ -1643,7 +1713,8 @@ async def list_candidate_job_applications(
             current_stage=progress.current_stage,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
             screening_mode=progress.screening_mode,
-            applied_at=application.submitted_at,
+            applied_at=_ensure_utc_datetime(application.submitted_at),
+            assessment_enabled=job.assessment_enabled,
             application_snapshot=_serialize_application_snapshot(grouped_field_rows.get(application.id, [])),
             application_assets=_serialize_application_assets(grouped_field_rows.get(application.id, []), asset_map),
             process_data=_serialize_process_data(progress.data or {}, asset_map, exclude_contract_fields=True),
@@ -1788,7 +1859,7 @@ async def list_candidate_contracts(
             job_status=job.status,
             current_stage=progress.current_stage,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
-            applied_at=application.submitted_at,
+            applied_at=_ensure_utc_datetime(application.submitted_at),
             compensation_unit=job.compensation_unit,
             contract_record_data=_serialize_contract_record_data(
                 progress=progress,
@@ -1849,11 +1920,19 @@ async def get_candidate_job_application_detail(
 
     contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
     contract_company_name_map = await _get_company_name_map_by_company_ids(
-        company_ids=[contract_record.service_customer_company_id] if contract_record and contract_record.service_customer_company_id else [],
+        company_ids=(
+            [contract_record.service_customer_company_id]
+            if contract_record and contract_record.service_customer_company_id
+            else []
+        ),
         db=db,
     )
     contract_project_name_map = await _get_project_name_map_by_project_ids(
-        project_ids=[contract_record.service_customer_project_id] if contract_record and contract_record.service_customer_project_id else [],
+        project_ids=(
+            [contract_record.service_customer_project_id]
+            if contract_record and contract_record.service_customer_project_id
+            else []
+        ),
         db=db,
     )
 
@@ -1880,7 +1959,7 @@ async def get_candidate_job_application_detail(
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
         screening_mode=progress.screening_mode,
-        applied_at=application.submitted_at,
+        applied_at=_ensure_utc_datetime(application.submitted_at),
         description_html=job.description,
         contract_example_html=str((job.data or {}).get(JOB_DATA_CONTRACT_EXAMPLE_KEY) or ""),
         country=job.country,
@@ -1888,7 +1967,9 @@ async def get_candidate_job_application_detail(
         work_mode=job.work_mode,
         show_compensation=_should_show_candidate_compensation(job),
         compensation_unit=job.compensation_unit,
-        compensation_label=_build_candidate_compensation_label(job) if _should_show_candidate_compensation(job) else "-",
+        compensation_label=(
+            _build_candidate_compensation_label(job) if _should_show_candidate_compensation(job) else "-"
+        ),
         assessment_enabled=job.assessment_enabled,
         application_snapshot=_serialize_application_snapshot(field_rows),
         application_assets=_serialize_application_assets(field_rows, asset_map),
@@ -1912,7 +1993,7 @@ async def get_candidate_job_application_detail(
     ).model_dump()
 
 
-async def move_job_progress_stage(
+async def move_job_progress_stage(  # noqa: C901
     *,
     job_id: int,
     progress_ids: list[int],
@@ -1978,6 +2059,13 @@ async def move_job_progress_stage(
             assessment_result = _normalize_text((progress.data or {}).get(JobProgressDataKey.ASSESSMENT_RESULT.value))
             if assessment_result not in {"通过", "待定"}:
                 raise BadRequestException("Screening passed stage requires assessment result 通过 or 待定.")
+        if (
+            progress.current_stage == RecruitmentStage.SCREENING_PASSED.value
+            and normalized_target_stage == RecruitmentStage.ASSESSMENT_REVIEW
+        ):
+            qa_status = _normalize_text((progress.data or {}).get(JobProgressDataKey.QA_STATUS.value))
+            if qa_status != "待返修":
+                raise BadRequestException("Only QA rework records can move back to assessment review.")
 
         if normalized_target_stage == RecruitmentStage.ACTIVE:
             contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
@@ -2026,6 +2114,13 @@ async def move_job_progress_stage(
             contract_record = active_contract_record_map[progress.id]
             contract_record.contract_status = "Active"
             contract_record.updated_by_admin_user_id = admin_user_id
+            await ensure_user_referral_profile_from_job(
+                user_id=int(progress.user_id),
+                job=job,
+                db=db,
+                admin_user_id=admin_user_id,
+                contract_record=contract_record,
+            )
         if progress.id in leaving_active_contract_record_map:
             contract_record = leaving_active_contract_record_map[progress.id]
             contract_record.contract_status = "Terminated"
@@ -2053,11 +2148,8 @@ async def move_job_progress_stage(
         )
 
         should_trigger_stage_mail = (
-            normalized_target_stage == RecruitmentStage.ASSESSMENT_REVIEW
-            or (
-                normalized_target_stage == RecruitmentStage.REJECTED
-                and from_stage != RecruitmentStage.ACTIVE.value
-            )
+            normalized_target_stage == RecruitmentStage.REJECTED
+            and from_stage != RecruitmentStage.ACTIVE.value
         )
         if should_trigger_stage_mail:
             application = application_map.get(int(progress.application_id))
@@ -2090,6 +2182,8 @@ async def execute_job_progress_assessment_automation(
     passed_ids: list[int] = []
     rejected_ids: list[int] = []
     untouched_ids: list[int] = []
+    missing_attachment_ids: list[int] = []
+    missing_result_ids: list[int] = []
 
     for progress in progress_items:
         if progress.current_stage != RecruitmentStage.ASSESSMENT_REVIEW.value:
@@ -2100,6 +2194,11 @@ async def execute_job_progress_assessment_automation(
         ):
             raise NotFoundException("Job progress record not found.")
 
+        if not _has_assessment_attachment(progress):
+            untouched_ids.append(progress.id)
+            missing_attachment_ids.append(progress.id)
+            continue
+
         assessment_result = _normalize_text((progress.data or {}).get(JobProgressDataKey.ASSESSMENT_RESULT.value))
         if assessment_result in {"通过", "待定"}:
             passed_ids.append(progress.id)
@@ -2107,6 +2206,7 @@ async def execute_job_progress_assessment_automation(
             rejected_ids.append(progress.id)
         else:
             untouched_ids.append(progress.id)
+            missing_result_ids.append(progress.id)
 
     if passed_ids:
         await move_job_progress_stage(
@@ -2133,6 +2233,8 @@ async def execute_job_progress_assessment_automation(
         "passed_count": len(passed_ids),
         "rejected_count": len(rejected_ids),
         "untouched_count": len(untouched_ids),
+        "missing_attachment_count": len(missing_attachment_ids),
+        "missing_result_count": len(missing_result_ids),
     }
 
 
@@ -2212,7 +2314,9 @@ async def update_job_progress_assessment_review(
             RecruitmentStage.SCREENING_PASSED.value,
             RecruitmentStage.REJECTED.value,
         }:
-            raise BadRequestException("Only assessment review, screening passed, or rejected stage records can update review fields here.")
+            raise BadRequestException(
+                "Only assessment review, screening passed, or rejected stage records can update review fields here."
+            )
         if reviewer_field_updates and progress.current_stage != RecruitmentStage.ASSESSMENT_REVIEW.value:
             raise BadRequestException("Only assessment review stage records can update reviewer fields here.")
         if qa_field_updates and progress.current_stage not in {
@@ -2333,6 +2437,71 @@ async def update_job_progress_assessment_review(
     return {
         "updated_count": len(progress_items),
         "updated_field_keys": updated_field_keys,
+    }
+
+
+async def update_job_progress_note(
+    *,
+    job_id: int,
+    progress_ids: list[int],
+    note: str | None,
+    admin_user_id: int,
+    db: AsyncSession,
+) -> dict[str, Any]:
+    job_result = await db.execute(
+        select(Job).where(
+            Job.id == job_id,
+            Job.is_deleted.is_(False),
+        )
+    )
+    job = job_result.scalar_one_or_none()
+    if job is None:
+        raise NotFoundException("Job not found.")
+
+    progress_items = await get_job_progress_models(job_id=job_id, progress_ids=progress_ids, db=db)
+    normalized_note = (note or "").strip()
+    changed_count = 0
+
+    for progress in progress_items:
+        next_data = dict(progress.data or {})
+        previous_value = _normalize_text(next_data.get(JobProgressDataKey.NOTE.value))
+        if previous_value == normalized_note:
+            continue
+
+        if normalized_note:
+            next_data[JobProgressDataKey.NOTE.value] = normalized_note
+        else:
+            next_data.pop(JobProgressDataKey.NOTE.value, None)
+        progress.data = next_data
+        changed_count += 1
+
+        await create_operation_log(
+            db=db,
+            user_id=progress.user_id,
+            job_id=progress.job_id,
+            application_id=progress.application_id,
+            talent_profile_id=progress.talent_profile_id,
+            log_type=OperationLogType.JOB_PROGRESS_NOTE_UPDATED.value,
+            data={
+                "job_progress_id": progress.id,
+                "job_id": job.id,
+                "job_title": job.title,
+                "current_stage": progress.current_stage,
+                "current_stage_cn_name": get_recruitment_stage_cn_name(progress.current_stage),
+                "operator_admin_user_id": admin_user_id,
+                "updated_fields": {
+                    JobProgressDataKey.NOTE.value: {
+                        "from": previous_value,
+                        "to": normalized_note,
+                    },
+                },
+            },
+        )
+
+    await db.flush()
+    return {
+        "updated_count": changed_count,
+        "updated_field_keys": [JobProgressDataKey.NOTE.value],
     }
 
 
@@ -2545,7 +2714,7 @@ async def notify_job_progress_sign_contract(
         candidate = user_map[progress.user_id]
         candidate_email = (candidate.email or "").strip()
         candidate_name = (candidate.name or candidate_email).strip()
-        contract_record = contract_record_map[progress.id]
+        contract_upload_url = _build_candidate_contract_upload_url(progress.application_id)
         task = await create_mail_task(
             MailTaskCreate(
                 account_id=account_id,
@@ -2556,23 +2725,23 @@ async def notify_job_progress_sign_contract(
                 to_recipients=[MailRecipient(name=candidate_name, email=candidate_email)],
                 cc_recipients=cc_recipients,
                 bcc_recipients=bcc_recipients,
-                attachment_asset_ids=list(
-                    dict.fromkeys(
-                        [
-                            int(contract_record.draft_contract_asset_id),
-                            *[int(asset_id) for asset_id in attachment_asset_ids],
-                        ]
-                    )
-                ),
+                attachment_asset_ids=list(dict.fromkeys(int(asset_id) for asset_id in attachment_asset_ids)),
                 render_context={
                     **base_render_context,
                     "candidate_name": candidate_name,
                     "candidate_email": candidate_email,
+                    "contract_upload_url": contract_upload_url,
+                    "contract_link": contract_upload_url,
                     "candidate": {
                         "name": candidate_name,
                         "candidate_name": candidate_name,
                         "email": candidate_email,
                         "candidate_email": candidate_email,
+                    },
+                    "contract": {
+                        "upload_url": contract_upload_url,
+                        "contract_upload_url": contract_upload_url,
+                        "contract_link": contract_upload_url,
                     },
                 },
             ),
@@ -2677,7 +2846,12 @@ async def submit_job_progress_assessment(
         .where(
             JobProgress.job_id == job_id,
             JobProgress.user_id == user_id,
-            JobProgress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value,
+            JobProgress.current_stage.in_(
+                [
+                    RecruitmentStage.PENDING_SCREENING.value,
+                    RecruitmentStage.ASSESSMENT_REVIEW.value,
+                ]
+            ),
             JobProgress.is_deleted.is_(False),
             CandidateApplication.is_deleted.is_(False),
         )
@@ -2698,9 +2872,8 @@ async def submit_job_progress_assessment(
         ),
         upload=upload,
     )
-    uploaded_at = datetime.now(UTC)
-
     submitted_at = datetime.now(UTC)
+    previous_stage = progress.current_stage
     next_data = dict(progress.data or {})
     submission_records = _get_assessment_submission_records(next_data)
     submission_records.append(
@@ -2716,6 +2889,29 @@ async def submit_job_progress_assessment(
     next_data[JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value] = submitted_at.isoformat()
     progress.data = next_data
 
+    if previous_stage != RecruitmentStage.ASSESSMENT_REVIEW.value:
+        progress.current_stage = RecruitmentStage.ASSESSMENT_REVIEW.value
+        progress.entered_stage_at = submitted_at
+        await create_operation_log(
+            db=db,
+            user_id=progress.user_id,
+            job_id=progress.job_id,
+            application_id=progress.application_id,
+            talent_profile_id=progress.talent_profile_id,
+            log_type=OperationLogType.JOB_PROGRESS_STAGE_CHANGED.value,
+            data={
+                "job_progress_id": progress.id,
+                "job_id": progress.job_id,
+                "application_id": progress.application_id,
+                "from_stage": previous_stage,
+                "from_stage_cn_name": get_recruitment_stage_cn_name(previous_stage),
+                "to_stage": RecruitmentStage.ASSESSMENT_REVIEW.value,
+                "to_stage_cn_name": get_recruitment_stage_cn_name(RecruitmentStage.ASSESSMENT_REVIEW.value),
+                "reason": "候选人上传测试题，自动进入测试题回收。",
+                "screening_mode": progress.screening_mode,
+            },
+        )
+
     await create_operation_log(
         db=db,
         user_id=progress.user_id,
@@ -2727,6 +2923,7 @@ async def submit_job_progress_assessment(
             "job_progress_id": progress.id,
             "job_id": progress.job_id,
             "application_id": progress.application_id,
+            "previous_stage": previous_stage,
             "current_stage": progress.current_stage,
             "current_stage_cn_name": get_recruitment_stage_cn_name(progress.current_stage),
             "assessment_asset_id": int(asset_payload["id"]),
@@ -2816,7 +3013,8 @@ async def submit_job_progress_candidate_signed_contract(
         and current_contract_review != "待修改"
     ):
         raise BadRequestException(
-            "Your signed contract is currently under review. You can upload a new version after the review status changes to Needs Revision."
+            "Your signed contract is currently under review. "
+            "You can upload a new version after the review status changes to Needs Revision."
         )
 
     asset_payload = await upload_asset(
@@ -2997,6 +3195,7 @@ async def upload_job_progress_contract_draft(
         admin_user_id=admin_user_id,
         field_updates={
             "draft_contract_asset_id": int(asset_payload["id"]),
+            "effective_date": uploaded_at.date(),
         },
         data_updates={
             "source": "single_draft_upload",
@@ -3073,7 +3272,9 @@ async def upload_job_progress_company_sealed_contract(
     if contract_record is None:
         raise BadRequestException("Company signed contract requires a contract record.")
     if contract_record.candidate_signed_contract_asset_id in (None, 0, ""):
-        raise BadRequestException("Company signed contract can only be uploaded after the candidate signed contract is submitted.")
+        raise BadRequestException(
+            "Company signed contract can only be uploaded after the candidate signed contract is submitted."
+        )
 
     current_contract_review = _normalize_text((contract_record.data or {}).get("contract_review"))
     if current_contract_review != "审核通过":
@@ -3111,16 +3312,19 @@ async def upload_job_progress_company_sealed_contract(
         },
     )
 
+    field_updates: dict[str, Any] = {
+        "company_sealed_contract_asset_id": int(asset_payload["id"]),
+        "contract_attachment_asset_id": int(asset_payload["id"]),
+    }
+    if contract_record.effective_date is None:
+        field_updates["effective_date"] = uploaded_at.date()
+
     contract_record = await upsert_contract_record_for_progress(
         progress=progress,
         job=job,
         db=db,
         admin_user_id=admin_user_id,
-        field_updates={
-            "company_sealed_contract_asset_id": int(asset_payload["id"]),
-            "contract_attachment_asset_id": int(asset_payload["id"]),
-            "effective_date": uploaded_at.date(),
-        },
+        field_updates=field_updates,
         data_updates={
             "source": "single_company_sealed_upload",
             "company_sealed_contract_attachment_name": asset_payload["original_name"],
@@ -3131,6 +3335,13 @@ async def upload_job_progress_company_sealed_contract(
     progress.entered_stage_at = uploaded_at
     contract_record.contract_status = "Active"
     contract_record.updated_by_admin_user_id = admin_user_id
+    await ensure_user_referral_profile_from_job(
+        user_id=int(progress.user_id),
+        job=job,
+        db=db,
+        admin_user_id=admin_user_id,
+        contract_record=contract_record,
+    )
     await create_operation_log(
         db=db,
         user_id=progress.user_id,
@@ -3148,6 +3359,24 @@ async def upload_job_progress_company_sealed_contract(
             "to_stage_cn_name": get_recruitment_stage_cn_name(RecruitmentStage.ACTIVE.value),
             "reason": "company_sealed_contract_uploaded",
             "operator_admin_user_id": admin_user_id,
+        },
+    )
+    await create_candidate_internal_notification(
+        db=db,
+        recipient_user_id=progress.user_id,
+        sender_admin_user_id=admin_user_id,
+        category="contract_company_signed",
+        title="Your contract is ready",
+        description=f"The company countersigned contract for {job.title} is ready. You can view it in My Contracts.",
+        action_url=f"/my-contracts/{progress.application_id}",
+        data={
+            "job_id": job.id,
+            "job_title": job.title,
+            "job_progress_id": progress.id,
+            "application_id": progress.application_id,
+            "contract_record_id": contract_record.id,
+            "company_sealed_contract_asset_id": int(asset_payload["id"]),
+            "company_sealed_contract_attachment": asset_payload["original_name"],
         },
     )
     await db.flush()

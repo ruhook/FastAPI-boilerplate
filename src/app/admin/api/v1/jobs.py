@@ -3,37 +3,40 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
 from ....core.db.database import async_get_db
 from ....modules.admin.role.const import is_assessment_reviewer_only_permissions
 from ....modules.job.schema import JobCreate, JobListPage, JobRead, JobUpdate
+from ....modules.job.service import create_job, get_job_for_admin, list_jobs, update_job
+from ....modules.job_progress.const import RecruitmentStage
 from ....modules.job_progress.schema import (
     JobProgressAssessmentAutomationRequest,
     JobProgressAssessmentAutomationResponse,
     JobProgressAssessmentReviewUpdateRequest,
     JobProgressAssessmentReviewUpdateResponse,
     JobProgressCompanySealedContractUploadResponse,
+    JobProgressContractDraftUploadResponse,
     JobProgressContractRecordUpdateRequest,
     JobProgressContractRecordUpdateResponse,
-    JobProgressContractDraftUploadResponse,
     JobProgressListPage,
+    JobProgressNoteUpdateRequest,
+    JobProgressNoteUpdateResponse,
     JobProgressNotifySignContractRequest,
     JobProgressNotifySignContractResponse,
     JobProgressStageMoveRequest,
     JobProgressStageMoveResponse,
 )
-from ....modules.job_progress.const import RecruitmentStage
 from ....modules.job_progress.service import (
     execute_job_progress_assessment_automation,
     list_job_progress,
     move_job_progress_stage,
     notify_job_progress_sign_contract,
+    update_job_progress_assessment_review,
+    update_job_progress_contract_record,
+    update_job_progress_note,
     upload_job_progress_company_sealed_contract,
     upload_job_progress_contract_draft,
-    update_job_progress_contract_record,
-    update_job_progress_assessment_review,
 )
-from ....modules.job.service import create_job, get_job_for_admin, list_jobs, update_job
+from ..dependencies import get_current_admin_user, require_admin_permission, require_any_admin_permission
 
 router = APIRouter(prefix="/jobs", tags=["admin-jobs"])
 
@@ -99,16 +102,14 @@ async def read_job_progress(
     advanced_filter: str | None = Query(default=None),
 ) -> dict[str, Any]:
     current_stages = None
-    reviewer_admin_user_id = None
     if _is_assessment_reviewer_only(current_admin):
         current_stages = [RecruitmentStage.ASSESSMENT_REVIEW.value]
-        reviewer_admin_user_id = int(current_admin["id"])
     return await list_job_progress(
         job_id=job_id,
         active_stage=active_stage,
         advanced_filter=advanced_filter,
         current_stages=current_stages,
-        reviewer_admin_user_id=reviewer_admin_user_id,
+        reviewer_admin_user_id=None,
         db=db,
     )
 
@@ -146,14 +147,11 @@ async def execute_job_progress_assessment_automation_endpoint(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    reviewer_scope_admin_user_id = None
-    if _is_assessment_reviewer_only(current_admin):
-        reviewer_scope_admin_user_id = int(current_admin["id"])
     return await execute_job_progress_assessment_automation(
         job_id=job_id,
         progress_ids=payload.progress_ids,
         admin_user_id=int(current_admin["id"]),
-        reviewer_scope_admin_user_id=reviewer_scope_admin_user_id,
+        reviewer_scope_admin_user_id=None,
         db=db,
     )
 
@@ -222,9 +220,6 @@ async def update_job_progress_assessment_review_endpoint(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
-    reviewer_scope_admin_user_id = None
-    if _is_assessment_reviewer_only(current_admin):
-        reviewer_scope_admin_user_id = int(current_admin["id"])
     return await update_job_progress_assessment_review(
         job_id=job_id,
         progress_ids=payload.progress_ids,
@@ -235,7 +230,27 @@ async def update_job_progress_assessment_review_endpoint(
         qa_status=payload.qa_status,
         qa_feedback=payload.qa_feedback,
         admin_user_id=int(current_admin["id"]),
-        reviewer_scope_admin_user_id=reviewer_scope_admin_user_id,
+        reviewer_scope_admin_user_id=None,
+        db=db,
+    )
+
+
+@router.patch(
+    "/{job_id}/progress/note",
+    response_model=JobProgressNoteUpdateResponse,
+    dependencies=[Depends(require_admin_permission("岗位管理"))],
+)
+async def update_job_progress_note_endpoint(
+    job_id: int,
+    payload: JobProgressNoteUpdateRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    return await update_job_progress_note(
+        job_id=job_id,
+        progress_ids=payload.progress_ids,
+        note=payload.note,
+        admin_user_id=int(current_admin["id"]),
         db=db,
     )
 

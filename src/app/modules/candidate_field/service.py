@@ -83,6 +83,7 @@ async def hydrate_candidate_field_options(
 
     for raw_field in form_fields:
         field = dict(raw_field)
+        field["visible"] = field.get("visible", True) is not False
         dictionary_id = _normalize_dictionary_id(field.get("dictionaryId"))
         if dictionary_id is not None and dictionary_id in dictionary_option_map:
             field["options"] = dictionary_option_map[dictionary_id]

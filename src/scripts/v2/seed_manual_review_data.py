@@ -4,7 +4,14 @@ import argparse
 import json
 from pathlib import Path
 
+from ..create_assessment_reviewer import (
+    DEFAULT_EMAIL as DEFAULT_REVIEWER_EMAIL,
+    DEFAULT_NAME as DEFAULT_REVIEWER_NAME,
+    DEFAULT_ROLE_NAME as DEFAULT_REVIEWER_ROLE_NAME,
+)
 from .shared import (
+    DEFAULT_ASSESSMENT_REVIEWER_PASSWORD,
+    DEFAULT_ASSESSMENT_REVIEWER_USERNAME,
     DEFAULT_PORTAL_CANDIDATE_EMAIL,
     DEFAULT_PORTAL_CANDIDATE_PASSWORD,
     DEFAULT_PROGRESS_CANDIDATE_EMAIL,
@@ -53,11 +60,11 @@ def main() -> None:
     args = parse_args()
     TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    print_step("Step 1/4: seed candidate base dictionaries and form template")
+    print_step("Step 1/5: seed candidate base dictionaries and form template")
     form_seed = run_module("src.scripts.seed_candidate_base_form_template", log_prefix="v2-seed-base-form")
     print_detail(f"candidate base form seed refreshed: {form_seed.log_path}")
 
-    print_step("Step 2/4: seed recruitment progress manual-review data")
+    print_step("Step 2/5: seed recruitment progress manual-review data")
     progress_seed = run_module(
         "src.scripts.seed_job_progress_demo_flow",
         "--candidate-email",
@@ -74,7 +81,19 @@ def main() -> None:
         f"jobs={len(progress_payload['jobs'])}"
     )
 
-    print_step("Step 3/4: seed contracts, timesheets, earnings, and referral demo data")
+    print_step("Step 3/5: seed assessment reviewer account")
+    reviewer_seed = run_module(
+        "src.scripts.create_assessment_reviewer",
+        "--reset-password",
+        log_prefix="v2-seed-assessment-reviewer",
+    )
+    print_detail(
+        "assessment reviewer ready: "
+        f"username={DEFAULT_ASSESSMENT_REVIEWER_USERNAME} "
+        f"role={DEFAULT_REVIEWER_ROLE_NAME}"
+    )
+
+    print_step("Step 4/5: seed contracts, timesheets, earnings, and referral demo data")
     timesheet_seed = run_module("src.scripts.seed_timesheet_demo_flow", log_prefix="v2-seed-timesheets")
     timesheet_payload = extract_trailing_json(timesheet_seed.stdout)
     print_detail(
@@ -84,7 +103,7 @@ def main() -> None:
         f"contracts={len(timesheet_payload['candidate_portal_timesheet_viewer']['contracts'])}"
     )
 
-    print_step("Step 4/4: seed candidate-portal My Jobs / My Contracts walkthrough data")
+    print_step("Step 5/5: seed candidate-portal My Jobs / My Contracts walkthrough data")
     portal_seed = run_module(
         "src.scripts.run_candidate_my_jobs_demo",
         "--candidate-email",
@@ -119,6 +138,13 @@ def main() -> None:
                 "password": progress_payload["candidate"]["password"],
             },
             "timesheet_admin": timesheet_payload["admin"],
+            "assessment_reviewer": {
+                "name": DEFAULT_REVIEWER_NAME,
+                "username": DEFAULT_ASSESSMENT_REVIEWER_USERNAME,
+                "email": DEFAULT_REVIEWER_EMAIL,
+                "password": DEFAULT_ASSESSMENT_REVIEWER_PASSWORD,
+                "role": DEFAULT_REVIEWER_ROLE_NAME,
+            },
             "timesheet_viewer": {
                 "username": timesheet_payload["candidate_portal_timesheet_viewer"]["username"],
                 "email": timesheet_payload["candidate_portal_timesheet_viewer"]["email"],
@@ -147,6 +173,7 @@ def main() -> None:
         "log_files": {
             "base_form_seed": form_seed.log_path,
             "progress_seed": progress_seed.log_path,
+            "assessment_reviewer_seed": reviewer_seed.log_path,
             "timesheet_seed": timesheet_seed.log_path,
             "portal_demo_seed": portal_seed.log_path,
         },

@@ -50,7 +50,8 @@ class ProjectTimesheetRecordRead(BaseModel):
     language: str
     work_type: str
     output_quantity: Decimal | None = None
-    human_efficiency_minutes: Decimal | None = None
+    customer_human_efficiency_minutes: Decimal | None = None
+    candidate_human_efficiency_minutes: Decimal | None = None
     customer_duration_hours: Decimal | None = None
     candidate_duration_hours: Decimal | None = None
     role_name: str | None = None
@@ -206,7 +207,8 @@ class ProjectTimesheetBatchCreateRequest(BaseModel):
     work_date: date
     language: str = Field(..., min_length=1, max_length=64)
     project_link: str = Field(..., min_length=1, max_length=2048)
-    human_efficiency_minutes: Decimal = Field(..., gt=0)
+    customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
+    candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
     team_leader_user_id: int = Field(..., ge=1)
     entries: list[ProjectTimesheetBatchCreateEntry] = Field(..., min_length=1)
 
@@ -234,7 +236,8 @@ class ProjectTimesheetUpdateRequest(BaseModel):
     work_date: date
     language: str = Field(..., min_length=1, max_length=64)
     project_link: str = Field(..., min_length=1, max_length=2048)
-    human_efficiency_minutes: Decimal = Field(..., gt=0)
+    customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
+    candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
     team_leader_user_id: int = Field(..., ge=1)
     contract_record_id: int = Field(..., ge=1)
     user_id: int | None = Field(default=None, ge=1)

@@ -160,6 +160,7 @@ class MailDeliverySettings(BaseSettings):
 
 
 class CandidateRegisterVerificationSettings(BaseSettings):
+    CANDIDATE_WEB_BASE_URL: str = "http://localhost:3002"
     CANDIDATE_REGISTER_VERIFICATION_ENABLED: bool = True
     CANDIDATE_REGISTER_VERIFICATION_SENDER_NAME: str = "T-Maxx Recruit"
     CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL: str = "betty-recruit@t-maxx.cc"
@@ -174,6 +175,7 @@ class CandidateRegisterVerificationSettings(BaseSettings):
     CANDIDATE_REGISTER_VERIFICATION_MAX_ATTEMPTS: int = 5
     CANDIDATE_REGISTER_VERIFICATION_CODE_LENGTH: int = 6
     CANDIDATE_REGISTER_VERIFICATION_REDIS_PREFIX: str = "candidate:register:verification:"
+    CANDIDATE_PASSWORD_RESET_VERIFICATION_REDIS_PREFIX: str = "candidate:password-reset:verification:"
 
 
 class AssetStorageSettings(BaseSettings):

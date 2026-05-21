@@ -1,10 +1,9 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ...core.schemas import PersistentDeletion, TimestampSchema
 from .const import JobStatus, JobWorkMode
 
 
@@ -29,6 +28,19 @@ class JobAssessmentConfig(BaseModel):
     mail_account_label: str | None = None
     mail_template_name: str | None = None
     mail_signature_name: str | None = None
+    assessment_external_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("assessment_external_url")
+    @classmethod
+    def normalize_assessment_external_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("Assessment external URL must start with http:// or https://.")
+        return normalized
 
 
 class JobRejectionMailConfig(BaseModel):
@@ -46,9 +58,17 @@ class JobFormField(BaseModel):
     label: str
     type: str
     required: bool
+    visible: bool = True
     canFilter: bool
     dictionaryId: str | None = None
     options: list[str] | None = None
+
+    @model_validator(mode="after")
+    def normalize_hidden_field_flags(self) -> "JobFormField":
+        if not self.visible:
+            self.required = False
+            self.canFilter = False
+        return self
 
 
 class JobApplicationSummary(BaseModel):
@@ -82,9 +102,12 @@ class JobAutomationRuleGroup(BaseModel):
 
 
 class JobBase(BaseModel):
+    require_complete_mail_config: ClassVar[bool] = True
+
     title: str = Field(min_length=1, max_length=120)
     company_id: int = Field(ge=1)
     project_id: int = Field(ge=1)
+    referral_bonus_model_id: int = Field(ge=1)
     country: str = Field(min_length=1, max_length=64)
     status: str = Field(default=JobStatus.OPEN.value, min_length=1, max_length=20)
     work_mode: str = Field(default=JobWorkMode.REMOTE.value, min_length=1, max_length=20)
@@ -146,6 +169,8 @@ class JobBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_assessment_config(self) -> "JobBase":
+        if not self.require_complete_mail_config:
+            return self
         if self.assessment_config.enabled:
             if self.assessment_config.mail_account_id is None:
                 raise ValueError("Assessment mail account is required when assessment is enabled.")
@@ -164,9 +189,13 @@ class JobBase(BaseModel):
 
 
 class JobRead(JobBase):
+    require_complete_mail_config: ClassVar[bool] = False
+
     id: int
     company: str
     project: str
+    referral_bonus_model_id: int
+    referral_bonus_model_name: str | None = None
     applicant_count: int
     owner_admin_user_id: int
     created_at: datetime
@@ -181,6 +210,8 @@ class JobListItemRead(BaseModel):
     company_id: int
     project: str
     project_id: int
+    referral_bonus_model_id: int
+    referral_bonus_model_name: str | None = None
     country: str
     status: str
     applicants: int
@@ -216,6 +247,7 @@ class JobCreateInternal(BaseModel):
     description: str
     owner_admin_user_id: int
     form_template_id: int
+    referral_bonus_model_id: int
     assessment_enabled: bool = True
     assessment_mail_account_id: int | None = None
     assessment_mail_template_id: int | None = None
@@ -230,6 +262,7 @@ class JobUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     company_id: int | None = None
     project_id: int | None = None
+    referral_bonus_model_id: int | None = Field(default=None, ge=1)
     country: str | None = Field(default=None, min_length=1, max_length=64)
     status: str | None = Field(default=None, min_length=1, max_length=20)
     work_mode: str | None = Field(default=None, min_length=1, max_length=20)
@@ -297,6 +330,7 @@ class JobUpdateInternal(BaseModel):
     title: str | None = None
     company_id: int | None = None
     project_id: int | None = None
+    referral_bonus_model_id: int | None = None
     country: str | None = None
     status: str | None = None
     work_mode: str | None = None

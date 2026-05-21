@@ -49,6 +49,7 @@ from .seed_apply_demo_flow import (
     ensure_company_project,
     ensure_dictionary,
     ensure_form_template,
+    ensure_referral_bonus_model,
     ensure_role,
 )
 from .seed_candidate_base_form_template import DICTIONARY_DEFINITIONS
@@ -407,6 +408,7 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
                     compensation_unit=str(definition["compensation_unit"]),
                 ),
             }
+            referral_bonus_model = await ensure_referral_bonus_model(session)
             if rejection_enabled:
                 data["rejection_mail_config"] = {
                     "enabled": True,
@@ -422,6 +424,7 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
                     title=definition["title"],
                     company_id=company.id,
                     project_id=project.id,
+                    referral_bonus_model_id=referral_bonus_model.id,
                     country=definition["country"],
                     status=JobStatus.OPEN.value,
                     work_mode=definition["work_mode"],
@@ -442,6 +445,7 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
             else:
                 job.company_id = company.id
                 job.project_id = project.id
+                job.referral_bonus_model_id = referral_bonus_model.id
                 job.country = definition["country"]
                 job.status = JobStatus.OPEN.value
                 job.work_mode = definition["work_mode"]
@@ -511,6 +515,30 @@ async def admin_move_stage(
         },
     )
     ensure_ok(response, f"Move stage to {target_stage} failed")
+
+
+async def ensure_admin_stage(
+    client: httpx.AsyncClient,
+    *,
+    access_token: str,
+    case: dict[str, Any],
+    target_stage: str,
+    reason: str,
+) -> None:
+    current_stage = str(case.get("detail", {}).get("current_stage") or "")
+    if current_stage == target_stage:
+        return
+    await admin_move_stage(
+        client,
+        access_token=access_token,
+        job_id=int(case["job"].id),
+        progress_ids=[int(case["job_progress_id"])],
+        target_stage=target_stage,
+        reason=reason,
+    )
+    next_detail = dict(case.get("detail") or {})
+    next_detail["current_stage"] = target_stage
+    case["detail"] = next_detail
 
 
 async def admin_upload_contract_draft(
@@ -1002,6 +1030,13 @@ async def main() -> None:
         print_detail("assessment_review job received one candidate submission")
 
         screening_case = cases_by_key["screening_passed"]
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=screening_case,
+            target_stage="screening_passed",
+            reason="Prepare candidate portal screening-passed contract demo data.",
+        )
         await admin_update_contract_record(
             admin_client,
             access_token=admin_access_token,
@@ -1021,6 +1056,13 @@ async def main() -> None:
         print_detail("screening_passed job now has a ready-to-sign draft contract")
 
         contract_case = cases_by_key["contract_pool"]
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=contract_case,
+            target_stage="screening_passed",
+            reason="Prepare candidate portal contract-pool demo data.",
+        )
         contract_case_stage = str(contract_case["detail"]["current_stage"])
         contract_case_record = dict(contract_case["detail"].get("contract_record_data") or {})
         if contract_case_stage not in {"screening_passed", "contract_pool"}:
@@ -1103,6 +1145,14 @@ async def main() -> None:
                 + (f"; refreshed attachment asset_id={refreshed_asset_id}" if refreshed_asset_id else "")
             )
         else:
+            await ensure_admin_stage(
+                admin_client,
+                access_token=admin_access_token,
+                case=active_case,
+                target_stage="screening_passed",
+                reason="Prepare candidate portal active contract demo data.",
+            )
+            active_case_stage = str(active_case["detail"]["current_stage"])
             if active_case_stage not in {"screening_passed", "contract_pool"}:
                 raise RuntimeError(f"Active demo expected screening_passed/contract_pool/active, got {active_case_stage}")
             active_case_update_kwargs: dict[str, Any] = {
@@ -1165,6 +1215,14 @@ async def main() -> None:
         if replaced_case_stage == "replaced":
             print_detail("replaced job already sits in replaced stage")
         else:
+            await ensure_admin_stage(
+                admin_client,
+                access_token=admin_access_token,
+                case=replaced_case,
+                target_stage="screening_passed",
+                reason="Prepare candidate portal replaced contract demo data.",
+            )
+            replaced_case_stage = str(replaced_case["detail"]["current_stage"])
             if replaced_case_stage not in {"screening_passed", "contract_pool", "active"}:
                 raise RuntimeError(f"Replaced demo expected screening_passed/contract_pool/active/replaced, got {replaced_case_stage}")
             if replaced_case_stage != "active":
@@ -1353,10 +1411,15 @@ async def main() -> None:
         )
         if not needs_action_payload.get("items"):
             raise RuntimeError("Needs-action filter returned no items.")
-        if any(item.get("current_stage") not in {"assessment_review", "screening_passed", "contract_pool"} for item in needs_action_payload["items"]):
+        if any(
+            item.get("current_stage")
+            not in {"pending_screening", "assessment_review", "screening_passed", "contract_pool"}
+            for item in needs_action_payload["items"]
+        ):
             raise RuntimeError("Needs-action filter returned a non-action stage.")
         needs_action_titles = {str(item["job_title"]) for item in needs_action_payload["items"]}
         expected_needs_action_titles = {
+            str(cases_by_key["pending_screening"]["job"].title),
             str(cases_by_key["assessment_review"]["job"].title),
             str(cases_by_key["screening_passed"]["job"].title),
             str(cases_by_key["contract_pool"]["job"].title),

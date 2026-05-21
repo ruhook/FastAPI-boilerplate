@@ -14,6 +14,12 @@ from ..app.modules.admin.form_template.model import AdminFormTemplate
 from ..app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from ..app.modules.job.const import JOB_DATA_CONTRACT_EXAMPLE_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..app.modules.job.model import Job
+from ..app.modules.referral_bonus_model.const import (
+    DEFAULT_REFERRAL_BONUS_CAP,
+    DEFAULT_REFERRAL_BONUS_MODEL_NAME,
+    default_referral_bonus_milestones_payload,
+)
+from ..app.modules.referral_bonus_model.model import ReferralBonusModel
 from ..app.modules.admin.mail_account.model import MailAccount  # noqa: F401
 from ..app.modules.admin.mail_signature.model import MailSignature  # noqa: F401
 from ..app.modules.admin.mail_template.model import MailTemplate  # noqa: F401
@@ -235,6 +241,33 @@ async def ensure_admin_user(session, *, role_id: int) -> AdminUser:
     return admin
 
 
+async def ensure_referral_bonus_model(session) -> ReferralBonusModel:
+    result = await session.execute(
+        select(ReferralBonusModel).where(
+            ReferralBonusModel.name == DEFAULT_REFERRAL_BONUS_MODEL_NAME,
+            ReferralBonusModel.is_deleted.is_(False),
+        )
+    )
+    model = result.scalar_one_or_none()
+    if model is None:
+        model = ReferralBonusModel(
+            name=DEFAULT_REFERRAL_BONUS_MODEL_NAME,
+            status="active",
+            currency="USD",
+            reward_cap=DEFAULT_REFERRAL_BONUS_CAP,
+            data={"milestones": default_referral_bonus_milestones_payload()},
+        )
+        session.add(model)
+    else:
+        model.status = "active"
+        model.currency = "USD"
+        model.reward_cap = DEFAULT_REFERRAL_BONUS_CAP
+        model.data = {"milestones": default_referral_bonus_milestones_payload()}
+    await session.flush()
+    await session.refresh(model)
+    return model
+
+
 async def ensure_job(
     session,
     *,
@@ -242,6 +275,7 @@ async def ensure_job(
     form_template: AdminFormTemplate,
     definition: dict,
 ) -> Job:
+    referral_bonus_model = await ensure_referral_bonus_model(session)
     company = await ensure_company(session, name=definition.get("company_name", "DA"))
     project = await ensure_company_project(
         session,
@@ -270,6 +304,7 @@ async def ensure_job(
             title=definition["title"],
             company_id=company.id,
             project_id=project.id,
+            referral_bonus_model_id=referral_bonus_model.id,
             country=definition["country"],
             status=JobStatus.OPEN.value,
             work_mode=definition["work_mode"],
@@ -287,6 +322,7 @@ async def ensure_job(
     else:
         job.company_id = company.id
         job.project_id = project.id
+        job.referral_bonus_model_id = referral_bonus_model.id
         job.country = definition["country"]
         job.status = JobStatus.OPEN.value
         job.work_mode = definition["work_mode"]

@@ -24,6 +24,25 @@ class ReferralRecord(DataBackedSoftDeleteEntityMixin, Base):
     referred_snapshot_name: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     referred_snapshot_email: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     source_referral_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    referral_bonus_model_id: Mapped[int] = mapped_column(
+        ForeignKey("referral_bonus_model.id"),
+        nullable=False,
+        index=True,
+    )
+    model_snapshot_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        default="USD",
+        server_default=text("'USD'"),
+        index=True,
+    )
+    reward_cap: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default=text("0.00"),
+    )
 
     paid_reward_amount: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
@@ -44,4 +63,3 @@ class ReferralRecord(DataBackedSoftDeleteEntityMixin, Base):
         nullable=True,
         index=True,
     )
-

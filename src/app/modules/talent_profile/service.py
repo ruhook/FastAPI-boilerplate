@@ -347,7 +347,11 @@ async def _validate_application_items(
         for field in list((job.data or {}).get(JOB_DATA_FORM_FIELDS_KEY) or [])
         if isinstance(field, dict) and field.get("key")
     ]
-    hydrated_fields = await hydrate_candidate_field_options(raw_fields, db=db)
+    hydrated_fields = [
+        field
+        for field in await hydrate_candidate_field_options(raw_fields, db=db)
+        if field.get("visible", True) is not False
+    ]
     field_snapshot_map = {
         str(field.get("key")): dict(field)
         for field in hydrated_fields

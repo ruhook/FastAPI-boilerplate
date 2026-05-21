@@ -11,6 +11,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 
 from redis.asyncio import Redis
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
@@ -21,6 +22,7 @@ from ...core.exceptions.http_exceptions import (
     UnprocessableEntityException,
 )
 from ..user.crud import crud_users
+from ..user.model import User
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +35,16 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def _verification_cache_key(email: str) -> str:
+def _verification_cache_key(email: str, *, prefix: str | None = None) -> str:
     normalized = _normalize_email(email)
     email_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-    return f"{settings.CANDIDATE_REGISTER_VERIFICATION_REDIS_PREFIX}{email_hash}"
+    return f"{prefix or settings.CANDIDATE_REGISTER_VERIFICATION_REDIS_PREFIX}{email_hash}"
 
 
 def _hash_code(email: str, code: str) -> str:
     normalized = _normalize_email(email)
     secret = settings.CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET.get_secret_value()
-    raw = f"{normalized}:{code}:{secret}".encode("utf-8")
+    raw = f"{normalized}:{code}:{secret}".encode()
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -52,14 +54,32 @@ def _generate_verification_code() -> str:
     return str(secrets.randbelow(upper)).zfill(digits)
 
 
-def _build_message(email: str, code: str) -> EmailMessage:
+def _build_message(email: str, code: str, *, purpose: str = "register") -> EmailMessage:
     sender_name = settings.CANDIDATE_REGISTER_VERIFICATION_SENDER_NAME.strip() or "Primnota Recruitment"
     sender_email = settings.CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL.strip()
     if not sender_email:
         raise BadRequestException("Candidate registration verification sender email is not configured.")
 
-    subject = settings.CANDIDATE_REGISTER_VERIFICATION_SUBJECT.strip() or "Your verification code"
+    is_password_reset = purpose == "password_reset"
+    subject = (
+        "Reset your Primnota password"
+        if is_password_reset
+        else settings.CANDIDATE_REGISTER_VERIFICATION_SUBJECT.strip() or "Your verification code"
+    )
     ttl_minutes = max(1, settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS // 60)
+    plain_action = (
+        "reset your Primnota password"
+        if is_password_reset
+        else "finish creating your account"
+    )
+    eyebrow = "Password Reset" if is_password_reset else "Account Verification"
+    pill = "Secure Password Reset" if is_password_reset else "Secure Sign Up"
+    title = "Reset your password" if is_password_reset else "Your verification code"
+    html_action = (
+        "reset your password and return to the candidate portal"
+        if is_password_reset
+        else "complete your registration and continue to the candidate portal"
+    )
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -70,7 +90,7 @@ def _build_message(email: str, code: str) -> EmailMessage:
             [
                 "Hello,",
                 "",
-                "Use the verification code below to finish creating your account.",
+                f"Use the verification code below to {plain_action}.",
                 "",
                 f"Verification code: {code}",
                 f"Expires in: {ttl_minutes} minutes",
@@ -87,18 +107,18 @@ def _build_message(email: str, code: str) -> EmailMessage:
           <body style="margin: 0; padding: 28px 16px; font-family: Arial, sans-serif; color: #163247; background: linear-gradient(180deg, #eef8fd 0%, #f8fbfd 100%);">
             <div style="max-width: 560px; margin: 0 auto;">
               <div style="margin-bottom: 16px; color: #6d8494; font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase;">
-                Account Verification
+                {eyebrow}
               </div>
               <div style="background: #ffffff; border: 1px solid #d6e8f3; border-radius: 24px; overflow: hidden; box-shadow: 0 18px 48px rgba(19, 128, 175, 0.08);">
                 <div style="padding: 24px 28px; background: linear-gradient(135deg, rgba(19,128,175,0.12) 0%, rgba(255,255,255,1) 70%); border-bottom: 1px solid #e3eef5;">
                   <div style="display: inline-block; padding: 8px 14px; border-radius: 999px; background: rgba(19,128,175,0.1); color: #1380af; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;">
-                    Secure Sign Up
+                    {pill}
                   </div>
                   <h1 style="margin: 16px 0 10px; font-size: 30px; line-height: 1.2; color: #17324a;">
-                    Your verification code
+                    {title}
                   </h1>
                   <p style="margin: 0; line-height: 1.75; font-size: 15px; color: #486476;">
-                    Use the code below to complete your registration and continue to the candidate portal.
+                    Use the code below to {html_action}.
                   </p>
                 </div>
                 <div style="padding: 28px;">
@@ -131,7 +151,7 @@ def _build_message(email: str, code: str) -> EmailMessage:
     return message
 
 
-def _send_mail_sync(email: str, code: str) -> None:
+def _send_mail_sync(email: str, code: str, *, purpose: str = "register") -> None:
     sender_email = settings.CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL.strip()
     username = settings.CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME.strip() or sender_email
     host = settings.CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST.strip()
@@ -142,7 +162,7 @@ def _send_mail_sync(email: str, code: str) -> None:
     if not sender_email or not username or not host or not auth_secret:
         raise BadRequestException("Candidate registration verification mail settings are incomplete.")
 
-    message = _build_message(email, code)
+    message = _build_message(email, code, purpose=purpose)
     context = ssl.create_default_context()
 
     if security_mode == "ssl":
@@ -203,18 +223,73 @@ async def send_register_verification_code(
     return int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
 
 
-async def verify_register_verification_code(
+async def send_password_reset_verification_code(
+    *,
+    email: str,
+    redis: Redis,
+    db: AsyncSession,
+) -> int:
+    normalized_email = _normalize_email(email)
+    user_result = await db.execute(
+        select(User.id).where(
+            func.lower(User.email) == normalized_email,
+            User.is_deleted.is_(False),
+        )
+    )
+    if user_result.scalar_one_or_none() is None:
+        raise BadRequestException("No candidate account was found for this email.")
+
+    now = int(time.time())
+    cache_key = _verification_cache_key(
+        normalized_email,
+        prefix=settings.CANDIDATE_PASSWORD_RESET_VERIFICATION_REDIS_PREFIX,
+    )
+    existing_payload_raw = await redis.get(cache_key)
+    if existing_payload_raw:
+        try:
+            existing_payload = json.loads(existing_payload_raw)
+        except json.JSONDecodeError:
+            existing_payload = {}
+        sent_at = int(existing_payload.get("sent_at", 0) or 0)
+        cooldown = int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+        retry_after = cooldown - (now - sent_at)
+        if retry_after > 0:
+            raise RateLimitException(f"Please wait {retry_after} seconds before requesting another verification code.")
+
+    verification_code = _generate_verification_code()
+    payload = {
+        "email": normalized_email,
+        "code_hash": _hash_code(normalized_email, verification_code),
+        "sent_at": now,
+        "attempt_count": 0,
+    }
+
+    ttl_seconds = int(settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS)
+    await redis.set(cache_key, json.dumps(payload), ex=ttl_seconds)
+
+    try:
+        await asyncio.to_thread(_send_mail_sync, normalized_email, verification_code, purpose="password_reset")
+    except Exception as exc:
+        await redis.delete(cache_key)
+        logger.exception("Failed to send candidate password reset email", extra={"email": normalized_email})
+        raise BadRequestException(f"Failed to send password reset email: {exc}") from exc
+
+    return int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+
+
+async def _verify_verification_code(
     *,
     email: str,
     code: str,
     redis: Redis,
+    prefix: str | None = None,
 ) -> None:
     normalized_email = _normalize_email(email)
     normalized_code = code.strip()
     if not normalized_code:
         raise UnprocessableEntityException("Verification code is required.")
 
-    cache_key = _verification_cache_key(normalized_email)
+    cache_key = _verification_cache_key(normalized_email, prefix=prefix)
     cached_payload_raw = await redis.get(cache_key)
     if not cached_payload_raw:
         raise UnprocessableEntityException("Verification code has expired or has not been requested.")
@@ -245,3 +320,26 @@ async def verify_register_verification_code(
     else:
         await redis.set(cache_key, json.dumps(payload), ex=int(settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS))
     raise UnprocessableEntityException(f"Verification code is incorrect. {remaining_attempts} attempt(s) remaining.")
+
+
+async def verify_register_verification_code(
+    *,
+    email: str,
+    code: str,
+    redis: Redis,
+) -> None:
+    await _verify_verification_code(email=email, code=code, redis=redis)
+
+
+async def verify_password_reset_verification_code(
+    *,
+    email: str,
+    code: str,
+    redis: Redis,
+) -> None:
+    await _verify_verification_code(
+        email=email,
+        code=code,
+        redis=redis,
+        prefix=settings.CANDIDATE_PASSWORD_RESET_VERIFICATION_REDIS_PREFIX,
+    )

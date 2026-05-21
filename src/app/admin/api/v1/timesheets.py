@@ -84,6 +84,7 @@ async def read_project_timesheet_workspace(
     _current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
+    keyword: str | None = Query(default=None),
     advanced_filter: str | None = Query(default=None),
 ) -> dict[str, Any]:
     return await list_project_timesheet_workspace(
@@ -92,6 +93,7 @@ async def read_project_timesheet_workspace(
         db=db,
         start_date=start_date,
         end_date=end_date,
+        keyword=keyword,
         advanced_filter=advanced_filter,
     )
 

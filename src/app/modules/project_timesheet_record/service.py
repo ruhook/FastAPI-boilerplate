@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 from datetime import UTC, date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import case, func, or_, select
@@ -23,12 +23,12 @@ from ..admin.company.service import (
 )
 from ..assets.model import Asset
 from ..assets.service import ensure_assets_exist, serialize_asset
-from ..contract_record.model import ContractRecord
 from ..contract_record.const import (
     CONTRACT_STATUS_ACTIVE,
     CONTRACT_TYPE_TEAM_LEADER,
     INACTIVE_CONTRACT_STATUSES,
 )
+from ..contract_record.model import ContractRecord
 from ..job.model import Job
 from ..talent_profile.model import TalentProfile
 from ..user.model import User
@@ -40,15 +40,15 @@ from .schema import (
     CandidateTimesheetReferralRewardRead,
     CandidateTimesheetTeamLeaderBonusRead,
     CandidateTimesheetWorkspaceRead,
-    ProjectTimesheetBatchCreateRequest,
-    ProjectTimesheetBatchCreateResponse,
-    ProjectTimesheetBatchDeleteRequest,
-    ProjectTimesheetBatchDeleteResponse,
     ProjectTimesheetAnalyticsFilterOptionRead,
     ProjectTimesheetAnalyticsMetricItemRead,
     ProjectTimesheetAnalyticsRead,
     ProjectTimesheetAnalyticsSummaryRead,
     ProjectTimesheetAnalyticsTrendItemRead,
+    ProjectTimesheetBatchCreateRequest,
+    ProjectTimesheetBatchCreateResponse,
+    ProjectTimesheetBatchDeleteRequest,
+    ProjectTimesheetBatchDeleteResponse,
     ProjectTimesheetDashboardItemRead,
     ProjectTimesheetNoteAssetRead,
     ProjectTimesheetOverviewItemRead,
@@ -80,6 +80,7 @@ def _build_timesheet_team_leader_name_expression():
 def _build_timesheet_note_images_expression():
     note_image_count = func.json_length(ProjectTimesheetRecord.data, "$.note_asset_ids")
     return case((note_image_count > 0, 1), else_=None)
+
 
 TIMESHEET_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
     "sub_project_name": AdvancedFilterFieldDefinition(
@@ -122,10 +123,15 @@ TIMESHEET_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = 
         filter_kind="number",
         sql_expression=ProjectTimesheetRecord.output_quantity,
     ),
-    "human_efficiency_minutes": AdvancedFilterFieldDefinition(
-        name="human_efficiency_minutes",
+    "customer_human_efficiency_minutes": AdvancedFilterFieldDefinition(
+        name="customer_human_efficiency_minutes",
         filter_kind="number",
-        sql_expression=ProjectTimesheetRecord.human_efficiency_minutes,
+        sql_expression=ProjectTimesheetRecord.customer_human_efficiency_minutes,
+    ),
+    "candidate_human_efficiency_minutes": AdvancedFilterFieldDefinition(
+        name="candidate_human_efficiency_minutes",
+        filter_kind="number",
+        sql_expression=ProjectTimesheetRecord.candidate_human_efficiency_minutes,
     ),
     "customer_duration_hours": AdvancedFilterFieldDefinition(
         name="customer_duration_hours",
@@ -187,6 +193,10 @@ def _quantize_hours(value: Decimal | None) -> Decimal | None:
 
 def _zero_decimal() -> Decimal:
     return Decimal("0.00")
+
+
+def _resolve_contract_rate(contract_record: ContractRecord, job: Job) -> Decimal | None:
+    return _quantize_hours(_to_decimal(contract_record.rate)) or _quantize_hours(_to_decimal(job.compensation_min))
 
 
 def _get_company_timesheet_languages(company: AdminCompany) -> list[str]:
@@ -336,7 +346,8 @@ def _serialize_timesheet_record(
         language=record.language,
         work_type=record.work_type,
         output_quantity=record.output_quantity,
-        human_efficiency_minutes=record.human_efficiency_minutes,
+        customer_human_efficiency_minutes=record.customer_human_efficiency_minutes,
+        candidate_human_efficiency_minutes=record.candidate_human_efficiency_minutes,
         customer_duration_hours=record.customer_duration_hours,
         candidate_duration_hours=record.candidate_duration_hours,
         role_name=record.role_name,
@@ -367,8 +378,15 @@ def _build_timesheet_advanced_filter_record(
         "language": record.language,
         "work_type": record.work_type,
         "output_quantity": float(record.output_quantity) if record.output_quantity is not None else None,
-        "human_efficiency_minutes": (
-            float(record.human_efficiency_minutes) if record.human_efficiency_minutes is not None else None
+        "customer_human_efficiency_minutes": (
+            float(record.customer_human_efficiency_minutes)
+            if record.customer_human_efficiency_minutes is not None
+            else None
+        ),
+        "candidate_human_efficiency_minutes": (
+            float(record.candidate_human_efficiency_minutes)
+            if record.candidate_human_efficiency_minutes is not None
+            else None
         ),
         "customer_duration_hours": (
             float(record.customer_duration_hours) if record.customer_duration_hours is not None else None
@@ -491,6 +509,7 @@ async def list_project_timesheet_workspace(
     db: AsyncSession,
     start_date: date | None = None,
     end_date: date | None = None,
+    keyword: str | None = None,
     advanced_filter: str | None = None,
 ) -> dict[str, Any]:
     advanced_filter_query = parse_advanced_filter_query(advanced_filter)
@@ -507,6 +526,22 @@ async def list_project_timesheet_workspace(
         conditions.append(ProjectTimesheetRecord.work_date >= start_date)
     if end_date is not None:
         conditions.append(ProjectTimesheetRecord.work_date <= end_date)
+    normalized_keyword = (keyword or "").strip()
+    if normalized_keyword:
+        like = f"%{normalized_keyword}%"
+        conditions.append(
+            or_(
+                ProjectTimesheetRecord.sub_project_name.ilike(like),
+                ProjectTimesheetRecord.user_name_snapshot.ilike(like),
+                ProjectTimesheetRecord.user_email_snapshot.ilike(like),
+                ProjectTimesheetRecord.language.ilike(like),
+                ProjectTimesheetRecord.work_type.ilike(like),
+                ProjectTimesheetRecord.role_name.ilike(like),
+                ProjectTimesheetRecord.project_link.ilike(like),
+                ProjectTimesheetRecord.extra_notes.ilike(like),
+                ProjectTimesheetRecord.poc_evaluation.ilike(like),
+            )
+        )
 
     available_team_leader_ids_result = await db.execute(
         select(ProjectTimesheetRecord.team_leader_user_id)
@@ -517,9 +552,7 @@ async def list_project_timesheet_workspace(
         .distinct()
     )
     available_team_leader_ids = [
-        int(user_id)
-        for user_id in available_team_leader_ids_result.scalars().all()
-        if user_id is not None
+        int(user_id) for user_id in available_team_leader_ids_result.scalars().all() if user_id is not None
     ]
     available_team_leader_map = await _load_team_leader_payload_map(
         db=db,
@@ -591,9 +624,9 @@ async def list_project_timesheet_workspace(
             language=language,
             customer_duration_hours=payload["customer_duration_hours"].quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
             candidate_duration_hours=payload["candidate_duration_hours"].quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
-            total_duration_hours=(
-                payload["customer_duration_hours"] + payload["candidate_duration_hours"]
-            ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
+            total_duration_hours=(payload["customer_duration_hours"] + payload["candidate_duration_hours"]).quantize(
+                TWO_DECIMALS, rounding=ROUND_HALF_UP
+            ),
         ).model_dump()
         for language, payload in sorted(dashboard_totals_by_language.items(), key=lambda item: item[0].casefold())
     ]
@@ -825,7 +858,7 @@ async def list_project_timesheet_analytics(
             select(AdminCompanyProject).where(
                 AdminCompanyProject.id == project_id,
                 AdminCompanyProject.is_deleted.is_(False),
-                *( [AdminCompanyProject.company_id == company_id] if company_id is not None else [] ),
+                *([AdminCompanyProject.company_id == company_id] if company_id is not None else []),
             )
         )
         project = project_result.scalar_one_or_none()
@@ -990,7 +1023,9 @@ async def list_project_timesheet_analytics(
             raw_customer,
             raw_candidate,
             raw_non_operational,
-        ) in await load_breakdown(AdminCompany.id, AdminCompany.name, AdminCompanyProject.id, AdminCompanyProject.name, limit=12)
+        ) in await load_breakdown(
+            AdminCompany.id, AdminCompany.name, AdminCompanyProject.id, AdminCompanyProject.name, limit=12
+        )
     ]
 
     language_breakdown = [
@@ -1003,7 +1038,14 @@ async def list_project_timesheet_analytics(
             candidate_duration_hours=raw_candidate,
             non_operational_duration_hours=raw_non_operational,
         )
-        for language_value, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+        for (
+            language_value,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(
             ProjectTimesheetRecord.language,
             limit=12,
         )
@@ -1019,7 +1061,14 @@ async def list_project_timesheet_analytics(
             candidate_duration_hours=raw_candidate,
             non_operational_duration_hours=raw_non_operational,
         )
-        for work_type_value, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+        for (
+            work_type_value,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(
             ProjectTimesheetRecord.work_type,
             limit=12,
         )
@@ -1035,7 +1084,14 @@ async def list_project_timesheet_analytics(
             candidate_duration_hours=raw_candidate,
             non_operational_duration_hours=raw_non_operational,
         )
-        for role_value, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+        for (
+            role_value,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(
             ProjectTimesheetRecord.role_name,
             limit=12,
         )
@@ -1080,7 +1136,14 @@ async def list_project_timesheet_analytics(
             candidate_duration_hours=raw_candidate,
             non_operational_duration_hours=raw_non_operational,
         )
-        for sub_project_name, record_total, raw_output, raw_customer, raw_candidate, raw_non_operational in await load_breakdown(
+        for (
+            sub_project_name,
+            record_total,
+            raw_output,
+            raw_customer,
+            raw_candidate,
+            raw_non_operational,
+        ) in await load_breakdown(
             ProjectTimesheetRecord.sub_project_name,
             limit=10,
         )
@@ -1121,16 +1184,19 @@ def _is_local_team_leader_record(record: ProjectTimesheetRecord) -> bool:
         return False
     compact_text = re.sub(r"[\s_-]+", " ", marker_text).strip()
     tokens = set(re.findall(r"[a-z0-9]+", compact_text))
-    return any(
-        marker in marker_text
-        for marker in [
-            "local team leader",
-            "team leader",
-            "leader",
-            "小组长",
-            "组长",
-        ]
-    ) or "tl" in tokens
+    return (
+        any(
+            marker in marker_text
+            for marker in [
+                "local team leader",
+                "team leader",
+                "leader",
+                "小组长",
+                "组长",
+            ]
+        )
+        or "tl" in tokens
+    )
 
 
 def _serialize_candidate_timesheet_entry(
@@ -1289,13 +1355,12 @@ async def list_candidate_timesheet_workspace(
         referral_rewards = _serialize_candidate_referral_rewards(contract_record)
         referral_earnings = sum(
             (
-                _quantize_hours(_to_decimal(reward.get("referral_earnings")))
-                or _zero_decimal()
+                _quantize_hours(_to_decimal(reward.get("referral_earnings"))) or _zero_decimal()
                 for reward in referral_rewards
             ),
             _zero_decimal(),
         ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP)
-        rate = _quantize_hours(_to_decimal(contract_record.rate))
+        rate = _resolve_contract_rate(contract_record, job)
         estimated_income = (total_work_hours * (rate or _zero_decimal())).quantize(
             TWO_DECIMALS,
             rounding=ROUND_HALF_UP,
@@ -1365,18 +1430,15 @@ async def create_project_timesheet_records(
     timesheet_work_types = set(_get_company_timesheet_work_types(company))
     timesheet_roles = set(_get_company_timesheet_roles(company))
     worker_options = await list_active_project_workers(company_id=company_id, project_id=project_id, db=db)
-    worker_map = {int(worker["contract_record_id"]): worker for worker in worker_options if worker.get("contract_record_id")}
+    worker_map = {
+        int(worker["contract_record_id"]): worker for worker in worker_options if worker.get("contract_record_id")
+    }
     active_worker_user_ids = {int(worker["user_id"]) for worker in worker_options}
     if int(payload.team_leader_user_id) not in active_worker_user_ids:
         raise BadRequestException("Selected team leader is not available for this project.")
 
     note_asset_ids = sorted(
-        {
-            int(asset_id)
-            for entry in payload.entries
-            for asset_id in entry.note_asset_ids
-            if int(asset_id) > 0
-        }
+        {int(asset_id) for entry in payload.entries for asset_id in entry.note_asset_ids if int(asset_id) > 0}
     )
     await _validate_timesheet_note_assets(
         db=db,
@@ -1410,7 +1472,8 @@ async def create_project_timesheet_records(
             language=payload.language,
             work_type=entry.work_type,
             output_quantity=_quantize_hours(entry.output_quantity),
-            human_efficiency_minutes=_quantize_hours(payload.human_efficiency_minutes),
+            customer_human_efficiency_minutes=_quantize_hours(payload.customer_human_efficiency_minutes),
+            candidate_human_efficiency_minutes=_quantize_hours(payload.candidate_human_efficiency_minutes),
             customer_duration_hours=_quantize_hours(entry.customer_duration_hours),
             candidate_duration_hours=_quantize_hours(entry.candidate_duration_hours),
             role_name=role_name,
@@ -1508,7 +1571,8 @@ async def update_project_timesheet_record(
     record.language = payload.language
     record.work_type = payload.work_type
     record.output_quantity = _quantize_hours(payload.output_quantity)
-    record.human_efficiency_minutes = _quantize_hours(payload.human_efficiency_minutes)
+    record.customer_human_efficiency_minutes = _quantize_hours(payload.customer_human_efficiency_minutes)
+    record.candidate_human_efficiency_minutes = _quantize_hours(payload.candidate_human_efficiency_minutes)
     record.customer_duration_hours = _quantize_hours(payload.customer_duration_hours)
     record.candidate_duration_hours = _quantize_hours(payload.candidate_duration_hours)
     record.role_name = role_name

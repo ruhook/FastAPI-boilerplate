@@ -6,6 +6,7 @@ from .candidate_fields import router as candidate_fields_router
 from .dictionaries import router as dictionaries_router
 from .form_templates import router as form_templates_router
 from .permissions import router as permissions_router
+from .referral_bonus_models import router as referral_bonus_models_router
 from .roles import router as roles_router
 
 router = APIRouter(prefix="/settings")
@@ -16,5 +17,6 @@ router.include_router(permissions_router)
 router.include_router(candidate_fields_router)
 router.include_router(dictionaries_router)
 router.include_router(form_templates_router)
+router.include_router(referral_bonus_models_router)
 
 __all__ = ["router"]

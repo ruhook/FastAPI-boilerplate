@@ -158,6 +158,26 @@ async def main_async() -> int:
             await check(actor="business_admin", token=business_token, method="GET", path=path, expected={403})
         for path in reviewer_allowed_paths:
             await check(actor="assessment_reviewer", token=reviewer_token, method="GET", path=path, expected={200})
+        reviewer_jobs = ensure_status(
+            await admin_client.get("/v1/jobs?page_size=20", headers=bearer_headers(reviewer_token)),
+            "Reviewer jobs scope failed",
+        )
+        reviewer_job_items = reviewer_jobs.get("items") or []
+        if not reviewer_job_items:
+            raise AssertionError("Assessment reviewer should see jobs that currently have assessment-review records.")
+        reviewer_job_id = int(reviewer_job_items[0]["id"])
+        reviewer_progress = ensure_status(
+            await admin_client.get(
+                f"/v1/jobs/{reviewer_job_id}/progress?stage=assessment",
+                headers=bearer_headers(reviewer_token),
+            ),
+            "Reviewer assessment progress scope failed",
+        )
+        reviewer_progress_items = reviewer_progress.get("items") or []
+        if not reviewer_progress_items:
+            raise AssertionError("Assessment reviewer should see all assessment-review records for the selected job.")
+        if any(item.get("current_stage") != "assessment_review" for item in reviewer_progress_items):
+            raise AssertionError("Assessment reviewer must only receive assessment-review stage rows.")
         for path in reviewer_forbidden_paths:
             await check(actor="assessment_reviewer", token=reviewer_token, method="GET", path=path, expected={403})
 

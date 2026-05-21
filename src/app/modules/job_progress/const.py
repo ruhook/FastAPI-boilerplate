@@ -83,13 +83,13 @@ RECRUITMENT_STAGE_ENTRY_RULES: dict[RecruitmentStage, tuple[str, ...]] = {
         "后续其他阶段的人选也可以被人工移回待筛选名单重新评估。",
     ),
     RecruitmentStage.ASSESSMENT_REVIEW: (
-        "岗位开启自动筛选时，符合条件的人选会自动进入测试题回收。",
-        "只有岗位开启测试题环节时，自动筛选通过才会进入测试题回收。",
-        "进入测试题回收后，会自动触发测试题邮件发送流程。",
+        "候选人初始投递只会进入待筛选名单或淘汰，不会直接进入测试题回收。",
+        "岗位开启测试题环节时，候选人从 C 端上传测试题后自动进入测试题回收。",
+        "测试题回收阶段支持多次上传，默认展示最新提交的测试题附件。",
     ),
     RecruitmentStage.SCREENING_PASSED: (
-        "岗位未开启测试题环节时，自动筛选通过的人选会直接进入筛选通过。",
         "测试题回收阶段中，评审通过的人选会进入筛选通过。",
+        "待筛选名单中的人选也可以由运营人工流转到筛选通过。",
     ),
     RecruitmentStage.CONTRACT_POOL: (
         "筛选通过阶段的人选开始推进签约时，进入合同库。",
@@ -221,6 +221,7 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
         RecruitmentStage.REJECTED,
     ),
     RecruitmentStage.SCREENING_PASSED: (
+        RecruitmentStage.ASSESSMENT_REVIEW,
         RecruitmentStage.REJECTED,
     ),
     RecruitmentStage.CONTRACT_POOL: (

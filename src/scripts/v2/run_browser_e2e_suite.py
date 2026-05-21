@@ -214,10 +214,11 @@ async def main_async() -> int:
         await admin_page.goto(f"{admin_origin}{timesheet_path}", wait_until="domcontentloaded", timeout=25_000)
         await wait_for_frontend_idle(admin_page)
         try:
+            await admin_page.get_by_role("button", name="导出当前结果").click(timeout=8_000)
             async with admin_page.expect_download(timeout=8_000) as download_info:
-                await admin_page.get_by_text("导出全部", exact=True).click(timeout=8_000)
+                await admin_page.get_by_role("button", name="确认导出").click(timeout=8_000)
             download = await download_info.value
-            downloads.append({"name": "timesheet_export_all", "suggested_filename": download.suggested_filename})
+            downloads.append({"name": "timesheet_export_current", "suggested_filename": download.suggested_filename})
         except PlaywrightTimeoutError as exc:
             raise AssertionError("Timesheet export button did not trigger a browser download.") from exc
 

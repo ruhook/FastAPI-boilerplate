@@ -4,18 +4,23 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from redis.asyncio import Redis
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ..dependencies import get_current_user
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import BadRequestException, DuplicateValueException
+from ...core.passwords import validate_password_strength
 from ...core.security import get_password_hash
 from ...core.utils.cache import async_get_redis
 from ...modules.user.crud import crud_users
+from ...modules.user.model import User
 from ...modules.user.register_verification_service import (
     is_register_verification_enabled,
+    send_password_reset_verification_code,
     send_register_verification_code,
+    verify_password_reset_verification_code,
     verify_register_verification_code,
 )
 from ...modules.referral.service import create_referral_from_code
@@ -57,6 +62,26 @@ class RegisterVerificationCodeRequest(BaseModel):
 class RegisterVerificationCodeResponse(BaseModel):
     message: str
     cooldown_seconds: int
+
+
+class PasswordResetCodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    verification_code: str = Field(min_length=4, max_length=12)
+    password: str = Field(min_length=8, max_length=128)
+    confirm_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
 
 def _build_candidate_data(payload: WebRegisterRequest) -> dict[str, Any]:
@@ -137,6 +162,54 @@ async def send_register_code(
         message="Verification code sent.",
         cooldown_seconds=cooldown_seconds,
     )
+
+
+@router.post("/password-reset/send-code", response_model=RegisterVerificationCodeResponse)
+async def send_password_reset_code(
+    payload: PasswordResetCodeRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    redis: Annotated[Redis, Depends(async_get_redis)],
+) -> RegisterVerificationCodeResponse:
+    cooldown_seconds = await send_password_reset_verification_code(
+        email=str(payload.email),
+        redis=redis,
+        db=db,
+    )
+    return RegisterVerificationCodeResponse(
+        message="Password reset verification code sent.",
+        cooldown_seconds=cooldown_seconds,
+    )
+
+
+@router.post("/password-reset/confirm")
+async def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    redis: Annotated[Redis, Depends(async_get_redis)],
+) -> dict[str, str]:
+    if payload.password != payload.confirm_password:
+        raise BadRequestException("Passwords do not match.")
+
+    normalized_email = str(payload.email).strip().lower()
+    await verify_password_reset_verification_code(
+        email=normalized_email,
+        code=payload.verification_code,
+        redis=redis,
+    )
+
+    result = await db.execute(
+        select(User).where(
+            func.lower(User.email) == normalized_email,
+            User.is_deleted.is_(False),
+        )
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise BadRequestException("No candidate account was found for this email.")
+
+    user.hashed_password = get_password_hash(payload.password)
+    await db.commit()
+    return {"message": "Password reset successfully."}
 
 
 @router.get("/me", response_model=UserAuth)

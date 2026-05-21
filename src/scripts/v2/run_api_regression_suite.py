@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import httpx
 
@@ -144,7 +145,9 @@ async def check_candidate_my_jobs_and_contract_views(context: SuiteContext) -> s
             "rejected",
             "replaced",
         }
-        assert_true(expected_stages.issubset(stages), f"Missing expected application stages: {sorted(expected_stages - stages)}")
+        assert_true(
+            expected_stages.issubset(stages), f"Missing expected application stages: {sorted(expected_stages - stages)}"
+        )
 
         needs_action = await fetch_json(
             client,
@@ -191,10 +194,21 @@ async def check_candidate_my_jobs_and_contract_views(context: SuiteContext) -> s
         )
         screening_contract = screening_detail.get("contract_record_data") or {}
         active_contract = active_detail.get("contract_record_data") or {}
-        assert_true(bool(screening_detail.get("contract_example_html")), "Screening-passed detail is missing contract example HTML.")
-        assert_true(bool(screening_contract.get("draft_contract_attachment")), "Screening-passed detail is missing draft contract.")
-        assert_true(bool(active_contract.get("company_sealed_contract_attachment")), "Active detail is missing company sealed contract.")
-        assert_true(active_contract.get("contract_status") == "Active", "Active detail did not return Active contract status.")
+        assert_true(
+            bool(screening_detail.get("contract_example_html")),
+            "Screening-passed detail is missing contract example HTML.",
+        )
+        assert_true(
+            bool(screening_contract.get("draft_contract_attachment")),
+            "Screening-passed detail is missing draft contract.",
+        )
+        assert_true(
+            bool(active_contract.get("company_sealed_contract_attachment")),
+            "Active detail is missing company sealed contract.",
+        )
+        assert_true(
+            active_contract.get("contract_status") == "Active", "Active detail did not return Active contract status."
+        )
     return f"applications={applications['total']} needs_action={needs_action['total']} stages_ok={len(expected_stages)}"
 
 
@@ -223,7 +237,9 @@ async def check_public_jobs_search_and_detail(context: SuiteContext) -> str:
 
         detail_payload = await fetch_json(client, "GET", f"/jobs/{fresh_job_id}")
         assert_true(detail_payload.get("title") == fresh_job_title, "Public job detail title mismatch.")
-        assert_true(bool(detail_payload.get("contract_example_html")), "Public job detail is missing contract example HTML.")
+        assert_true(
+            bool(detail_payload.get("contract_example_html")), "Public job detail is missing contract example HTML."
+        )
         assert_true(bool(detail_payload.get("form_fields")), "Public job detail is missing hydrated form fields.")
     return f"fresh_job_id={fresh_job_id} search_hits={len(items)}"
 
@@ -237,7 +253,9 @@ async def check_candidate_assessment_upload_guardrails(context: SuiteContext) ->
         )
         headers = {"Authorization": f"Bearer {token}"}
         applications = await fetch_json(client, "GET", "/me/applications", headers=headers, params={"page_size": 50})
-        assessment_item = next(item for item in applications.get("items", []) if item.get("current_stage") == "assessment_review")
+        assessment_item = next(
+            item for item in applications.get("items", []) if item.get("current_stage") == "assessment_review"
+        )
         job_id = int(assessment_item["job_id"])
 
         bad_response = await client.post(
@@ -245,7 +263,9 @@ async def check_candidate_assessment_upload_guardrails(context: SuiteContext) ->
             headers=headers,
             files={"file": ("assessment.pdf", b"bad", "application/pdf")},
         )
-        assert_true(bad_response.status_code == 400, f"Assessment upload should reject PDF, got {bad_response.status_code}.")
+        assert_true(
+            bad_response.status_code == 400, f"Assessment upload should reject PDF, got {bad_response.status_code}."
+        )
         assert_true("Excel" in bad_response.text, f"Unexpected assessment PDF rejection: {bad_response.text}")
 
         good_response = await client.post(
@@ -259,7 +279,10 @@ async def check_candidate_assessment_upload_guardrails(context: SuiteContext) ->
                 )
             },
         )
-        assert_true(good_response.status_code == 201, f"Assessment upload should accept XLSX, got {good_response.status_code}: {good_response.text}")
+        assert_true(
+            good_response.status_code == 201,
+            f"Assessment upload should accept XLSX, got {good_response.status_code}: {good_response.text}",
+        )
         payload = good_response.json()
         assert_true(payload.get("job_id") == job_id, "Assessment upload response returned the wrong job id.")
     return f"job_id={job_id} rejected_pdf=400 accepted_xlsx=201"
@@ -297,8 +320,13 @@ async def check_candidate_signed_contract_guardrails(context: SuiteContext) -> s
             headers=headers,
             files={"file": ("contract.pdf", b"bad", "application/pdf")},
         )
-        assert_true(bad_response.status_code == 400, f"Signed contract upload should reject PDF, got {bad_response.status_code}.")
-        assert_true(".doc or .docx" in bad_response.text, f"Unexpected signed-contract PDF rejection: {bad_response.text}")
+        assert_true(
+            bad_response.status_code == 400,
+            f"Signed contract upload should reject PDF, got {bad_response.status_code}.",
+        )
+        assert_true(
+            ".doc or .docx" in bad_response.text, f"Unexpected signed-contract PDF rejection: {bad_response.text}"
+        )
 
         good_response = await client.post(
             f"/jobs/{job_id}/signed-contract/upload",
@@ -344,20 +372,27 @@ async def check_candidate_contract_asset_downloads(context: SuiteContext) -> str
                     continue
                 normalized_path = str(download_url).removeprefix("/api/v1")
                 response = await client.get(normalized_path, headers=headers)
-                assert_true(response.status_code == 200, f"Asset download failed for {asset_key}: {response.status_code}")
+                assert_true(
+                    response.status_code == 200, f"Asset download failed for {asset_key}: {response.status_code}"
+                )
                 assert_true(bool(response.content), f"Asset download for {asset_key} returned empty content.")
                 downloaded_assets += 1
                 break
 
-        assert_true(downloaded_assets >= 2, f"Expected at least 2 downloadable contract assets, got {downloaded_assets}.")
+        assert_true(
+            downloaded_assets >= 2, f"Expected at least 2 downloadable contract assets, got {downloaded_assets}."
+        )
     return f"contracts={len(items)} downloaded_assets={downloaded_assets}"
 
 
 async def check_inactive_contract_upload_block(context: SuiteContext) -> str:
-    async with httpx.AsyncClient(base_url=context.web_base_url, timeout=30.0) as web_client, httpx.AsyncClient(
-        base_url=context.admin_base_url,
-        timeout=30.0,
-    ) as admin_client:
+    async with (
+        httpx.AsyncClient(base_url=context.web_base_url, timeout=30.0) as web_client,
+        httpx.AsyncClient(
+            base_url=context.admin_base_url,
+            timeout=30.0,
+        ) as admin_client,
+    ):
         candidate_token = await login_candidate(
             web_client,
             email=DEFAULT_PORTAL_CANDIDATE_EMAIL,
@@ -371,7 +406,9 @@ async def check_inactive_contract_upload_block(context: SuiteContext) -> str:
         candidate_headers = {"Authorization": f"Bearer {candidate_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
 
-        contracts = await fetch_json(web_client, "GET", "/me/contracts", headers=candidate_headers, params={"page_size": 20})
+        contracts = await fetch_json(
+            web_client, "GET", "/me/contracts", headers=candidate_headers, params={"page_size": 20}
+        )
         target = next(
             item
             for item in contracts.get("items", [])
@@ -389,7 +426,10 @@ async def check_inactive_contract_upload_block(context: SuiteContext) -> str:
                 headers=admin_headers,
                 json={"contract_status": "Terminated"},
             )
-            assert_true(update_response.status_code == 200, f"Failed to terminate contract for guardrail check: {update_response.text}")
+            assert_true(
+                update_response.status_code == 200,
+                f"Failed to terminate contract for guardrail check: {update_response.text}",
+            )
 
             upload_response = await web_client.post(
                 f"/jobs/{job_id}/signed-contract/upload",
@@ -406,7 +446,10 @@ async def check_inactive_contract_upload_block(context: SuiteContext) -> str:
                 upload_response.status_code == 400,
                 f"Inactive contract upload should be blocked, got {upload_response.status_code}: {upload_response.text}",
             )
-            assert_true("inactive" in upload_response.text.lower(), f"Unexpected inactive upload rejection: {upload_response.text}")
+            assert_true(
+                "inactive" in upload_response.text.lower(),
+                f"Unexpected inactive upload rejection: {upload_response.text}",
+            )
         finally:
             restore_response = await admin_client.patch(
                 f"/v1/contracts/{contract_record_id}",
@@ -435,7 +478,10 @@ async def check_candidate_timesheet_dashboard(context: SuiteContext) -> str:
         assert_true(bool(contracts), "Timesheet workspace returned no contracts.")
         assert_true(bool(payload.get("team_leader_bonus")), "Team leader bonus payload is missing.")
         statuses = {str(item.get("contract_status")) for item in contracts}
-        assert_true("Active" in statuses and "Terminated" in statuses, f"Unexpected timesheet contract statuses: {sorted(statuses)}")
+        assert_true(
+            "Active" in statuses and "Terminated" in statuses,
+            f"Unexpected timesheet contract statuses: {sorted(statuses)}",
+        )
 
         for contract in contracts:
             dashboard = contract.get("dashboard") or {}
@@ -462,10 +508,16 @@ async def check_candidate_referrals_and_earnings(context: SuiteContext) -> str:
         referral_payload = await fetch_json(client, "GET", "/me/referrals", headers=headers)
         milestones = normalize_milestones(referral_payload.get("milestones", []))
         assert_true(milestones == EXPECTED_REFERRAL_MILESTONES, f"Candidate referral milestones mismatch: {milestones}")
-        assert_true(int(referral_payload.get("active_referral_count") or 0) > 0, "Candidate referral dashboard should have active referrals.")
+        assert_true(
+            int(referral_payload.get("active_referral_count") or 0) > 0,
+            "Candidate referral dashboard should have active referrals.",
+        )
 
         earnings_response = await client.get("/me/earnings", headers=headers, params={"payment_type": "invalid_type"})
-        assert_true(earnings_response.status_code == 400, f"Candidate earnings invalid payment_type should return 400, got {earnings_response.status_code}.")
+        assert_true(
+            earnings_response.status_code == 400,
+            f"Candidate earnings invalid payment_type should return 400, got {earnings_response.status_code}.",
+        )
     return f"milestones_ok={len(milestones)} active_referrals={referral_payload.get('active_referral_count')}"
 
 
@@ -481,10 +533,17 @@ async def check_admin_referrals_and_payment_filters(context: SuiteContext) -> st
         referrals_payload = await fetch_json(client, "GET", "/v1/referrals", headers=headers, params={"page_size": 5})
         milestones = normalize_milestones(referrals_payload.get("milestones", []))
         assert_true(milestones == EXPECTED_REFERRAL_MILESTONES, f"Admin referral milestones mismatch: {milestones}")
-        assert_true(int(referrals_payload.get("total") or 0) > 0, "Admin referrals should contain seeded referral records.")
+        assert_true(
+            int(referrals_payload.get("total") or 0) > 0, "Admin referrals should contain seeded referral records."
+        )
 
-        payment_response = await client.get("/v1/payment-records", headers=headers, params={"payment_type": "invalid_type"})
-        assert_true(payment_response.status_code == 400, f"Admin payment invalid payment_type should return 400, got {payment_response.status_code}.")
+        payment_response = await client.get(
+            "/v1/payment-records", headers=headers, params={"payment_type": "invalid_type"}
+        )
+        assert_true(
+            payment_response.status_code == 400,
+            f"Admin payment invalid payment_type should return 400, got {payment_response.status_code}.",
+        )
     return f"milestones_ok={len(milestones)} referrals_total={referrals_payload.get('total')}"
 
 
@@ -586,10 +645,13 @@ async def check_admin_payment_record_mutations(context: SuiteContext) -> str:
     worker = context.seed_summary["seed_payloads"]["timesheet_demo"]["workers"][0]
     worker_email = str(worker["email"])
 
-    async with httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client, httpx.AsyncClient(
-        base_url=context.web_base_url,
-        timeout=30.0,
-    ) as web_client:
+    async with (
+        httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client,
+        httpx.AsyncClient(
+            base_url=context.web_base_url,
+            timeout=30.0,
+        ) as web_client,
+    ):
         admin_token = await login_admin(
             admin_client,
             username_or_email=DEFAULT_FLOW_ADMIN_USERNAME,
@@ -611,9 +673,7 @@ async def check_admin_payment_record_mutations(context: SuiteContext) -> str:
             params={"keyword": worker_email, "page_size": 20},
         )
         worker_contract = next(
-            item
-            for item in worker_contracts_payload.get("items", [])
-            if item.get("contract_status") == "Active"
+            item for item in worker_contracts_payload.get("items", []) if item.get("contract_status") == "Active"
         )
         worker_user_id = int(worker_contract["user_id"])
         marker = f"V2PAY-{timestamp_tag()}"
@@ -716,10 +776,13 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
     company_id = int(timesheet_seed["company"]["id"])
     project_id = int(timesheet_seed["project"]["id"])
 
-    async with httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client, httpx.AsyncClient(
-        base_url=context.web_base_url,
-        timeout=30.0,
-    ) as web_client:
+    async with (
+        httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client,
+        httpx.AsyncClient(
+            base_url=context.web_base_url,
+            timeout=30.0,
+        ) as web_client,
+    ):
         admin_token = await login_admin(
             admin_client,
             username_or_email=DEFAULT_FLOW_ADMIN_USERNAME,
@@ -741,7 +804,9 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
             params={"page_size": 20},
         )
         target_group = next(
-            group for group in referrals_payload.get("items", []) if group.get("referrer_email") == DEFAULT_TIMESHEET_CANDIDATE_EMAIL
+            group
+            for group in referrals_payload.get("items", [])
+            if group.get("referrer_email") == DEFAULT_TIMESHEET_CANDIDATE_EMAIL
         )
         target_record = next(
             (
@@ -758,7 +823,9 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
             f"/v1/timesheets/companies/{company_id}/projects/{project_id}/workspace",
             headers=admin_headers,
         )
-        available_workers = [item for item in workspace_payload.get("available_workers", []) if item.get("contract_record_id")]
+        available_workers = [
+            item for item in workspace_payload.get("available_workers", []) if item.get("contract_record_id")
+        ]
         leader_user_id = int(
             (workspace_payload.get("records", [{}])[0] or {}).get("team_leader_user_id")
             or available_workers[0]["user_id"]
@@ -793,7 +860,8 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
                     "work_date": date.today().isoformat(),
                     "language": str((workspace_payload.get("timesheet_languages") or ["en-US"])[0]),
                     "project_link": f"https://example.com/{top_up_marker.lower()}",
-                    "human_efficiency_minutes": 5,
+                    "customer_human_efficiency_minutes": 5,
+                    "candidate_human_efficiency_minutes": 5,
                     "team_leader_user_id": leader_user_id,
                     "entries": [
                         {
@@ -825,7 +893,9 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
                 params={"page_size": 20},
             )
             target_group = next(
-                group for group in referrals_payload.get("items", []) if group.get("referrer_email") == DEFAULT_TIMESHEET_CANDIDATE_EMAIL
+                group
+                for group in referrals_payload.get("items", [])
+                if group.get("referrer_email") == DEFAULT_TIMESHEET_CANDIDATE_EMAIL
             )
             target_record = next(
                 (
@@ -906,7 +976,9 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
             ),
             None,
         )
-        assert_true(candidate_record is not None, "Candidate referral dashboard did not return the marked referral record.")
+        assert_true(
+            candidate_record is not None, "Candidate referral dashboard did not return the marked referral record."
+        )
         assert_true(
             str(candidate_record.get("payout_status")) == "paid",
             "Candidate referral dashboard did not reflect paid status.",
@@ -931,9 +1003,13 @@ async def check_admin_contract_mutations(context: SuiteContext) -> str:
             params={"keyword": DEFAULT_PORTAL_CANDIDATE_EMAIL, "page_size": 100},
         )
         portal_contracts = portal_contracts_payload.get("items", [])
-        pending_contract = next(item for item in portal_contracts if item.get("contract_status") == "Pending Activation")
+        pending_contract = next(
+            item for item in portal_contracts if item.get("contract_status") == "Pending Activation"
+        )
         active_contract = next(
-            item for item in portal_contracts if item.get("contract_status") == "Active" and bool(item.get("is_current"))
+            item
+            for item in portal_contracts
+            if item.get("contract_status") == "Active" and bool(item.get("is_current"))
         )
 
         invalid_activate_response = await client.patch(
@@ -972,8 +1048,13 @@ async def check_admin_contract_mutations(context: SuiteContext) -> str:
             },
         )
         patched_item = patched_payload.get("item") or {}
-        assert_true(str(patched_item.get("agreement_ref_no")) == patch_marker, "Contract patch did not persist the ref no.")
-        assert_true(str(patched_item.get("end_date")) == date.today().isoformat(), "Contract patch did not persist the end date.")
+        assert_true(
+            str(patched_item.get("agreement_ref_no")) == patch_marker, "Contract patch did not persist the ref no."
+        )
+        assert_true(
+            str(patched_item.get("end_date")) == date.today().isoformat(),
+            "Contract patch did not persist the end date.",
+        )
 
         resign_marker = f"V2-RESIGN-{timestamp_tag()}"
         resign_response = await client.post(
@@ -1017,7 +1098,10 @@ async def check_admin_contract_mutations(context: SuiteContext) -> str:
             params={"keyword": resign_marker, "page_size": 10},
         )
         assert_true(
-            any(int(item.get("id") or 0) == int(resigned_item["id"]) for item in resigned_lookup_payload.get("items", [])),
+            any(
+                int(item.get("id") or 0) == int(resigned_item["id"])
+                for item in resigned_lookup_payload.get("items", [])
+            ),
             "Re-signed contract lookup did not return the new version.",
         )
     return f"patched_contract={terminated_contract['id']} resigned_contract={resigned_item.get('id')}"
@@ -1043,7 +1127,9 @@ async def check_admin_timesheet_mutations(context: SuiteContext) -> str:
             f"/v1/timesheets/companies/{company_id}/projects/{project_id}/workspace",
             headers=headers,
         )
-        available_workers = [item for item in workspace_payload.get("available_workers", []) if item.get("contract_record_id")]
+        available_workers = [
+            item for item in workspace_payload.get("available_workers", []) if item.get("contract_record_id")
+        ]
         assert_true(bool(available_workers), "No active workers were returned for the timesheet workspace.")
         leader_user_id = int(
             (workspace_payload.get("records", [{}])[0] or {}).get("team_leader_user_id")
@@ -1075,7 +1161,8 @@ async def check_admin_timesheet_mutations(context: SuiteContext) -> str:
                 "work_date": date.today().isoformat(),
                 "language": language,
                 "project_link": f"https://example.com/{invalid_marker.lower()}",
-                "human_efficiency_minutes": 5,
+                "customer_human_efficiency_minutes": 5,
+                "candidate_human_efficiency_minutes": 5,
                 "team_leader_user_id": leader_user_id,
                 "entries": [
                     {
@@ -1127,7 +1214,8 @@ async def check_admin_timesheet_mutations(context: SuiteContext) -> str:
                 "work_date": date.today().isoformat(),
                 "language": language,
                 "project_link": f"https://example.com/{marker.lower()}",
-                "human_efficiency_minutes": 5,
+                "customer_human_efficiency_minutes": 5,
+                "candidate_human_efficiency_minutes": 5,
                 "team_leader_user_id": leader_user_id,
                 "entries": entries,
             },
@@ -1174,7 +1262,8 @@ async def check_admin_timesheet_mutations(context: SuiteContext) -> str:
                 "work_date": date.today().isoformat(),
                 "language": language,
                 "project_link": f"https://example.com/{marker.lower()}",
-                "human_efficiency_minutes": 6,
+                "customer_human_efficiency_minutes": 6,
+                "candidate_human_efficiency_minutes": 6,
                 "team_leader_user_id": leader_user_id,
                 "contract_record_id": int(updated_record["contract_record_id"]),
                 "user_id": int(updated_record["user_id"]),
@@ -1220,7 +1309,9 @@ async def check_admin_timesheet_mutations(context: SuiteContext) -> str:
         deleted_matches = [
             item for item in deleted_workspace.get("records", []) if str(item.get("sub_project_name")) == marker
         ]
-        assert_true(not deleted_matches, f"Deleted timesheet records for marker {marker} are still visible in workspace.")
+        assert_true(
+            not deleted_matches, f"Deleted timesheet records for marker {marker} are still visible in workspace."
+        )
     return f"timesheet_marker={marker} created={len(entries)} deleted={len(created_record_ids)}"
 
 
@@ -1240,10 +1331,13 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
     job_id = int(target_job["job_id"])
     candidate_user_id = int(progress_candidate["user_id"])
 
-    async with httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client, httpx.AsyncClient(
-        base_url=context.web_base_url,
-        timeout=30.0,
-    ) as web_client:
+    async with (
+        httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client,
+        httpx.AsyncClient(
+            base_url=context.web_base_url,
+            timeout=30.0,
+        ) as web_client,
+    ):
         admin_token = await login_admin(
             admin_client,
             username_or_email=DEFAULT_FLOW_ADMIN_USERNAME,
@@ -1260,9 +1354,15 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
         marker = f"V2-PROGRESS-{timestamp_tag()}"
 
         async def fetch_candidate_progress_item() -> dict[str, Any]:
-            progress_payload = await fetch_json(admin_client, "GET", f"/v1/jobs/{job_id}/progress", headers=admin_headers)
+            progress_payload = await fetch_json(
+                admin_client, "GET", f"/v1/jobs/{job_id}/progress", headers=admin_headers
+            )
             progress_item = next(
-                (item for item in progress_payload.get("items", []) if int(item.get("user_id") or 0) == candidate_user_id),
+                (
+                    item
+                    for item in progress_payload.get("items", [])
+                    if int(item.get("user_id") or 0) == candidate_user_id
+                ),
                 None,
             )
             assert_true(
@@ -1450,7 +1550,9 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
             headers=candidate_headers,
             params={"page_size": 50},
         )
-        candidate_contract = next(item for item in candidate_contracts_payload.get("items", []) if int(item.get("job_id") or 0) == job_id)
+        candidate_contract = next(
+            item for item in candidate_contracts_payload.get("items", []) if int(item.get("job_id") or 0) == job_id
+        )
         assert_true(
             str(candidate_contract.get("current_stage")) == "active",
             "Candidate contract list did not reflect the active-stage contract after company signed upload.",
@@ -1526,7 +1628,9 @@ async def main_async() -> int:
     if args.include_advanced_filter_bulk:
         print_step("Optional: advanced filter bulk regression")
         try:
-            bulk_run = run_module("src.scripts.run_advanced_filter_bulk_demo", log_prefix="v2-regression-advanced-filters")
+            bulk_run = run_module(
+                "src.scripts.run_advanced_filter_bulk_demo", log_prefix="v2-regression-advanced-filters"
+            )
             advanced_filter_result = {
                 "passed": True,
                 "log_path": bulk_run.log_path,

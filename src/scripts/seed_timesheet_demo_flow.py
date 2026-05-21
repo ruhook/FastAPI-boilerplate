@@ -34,6 +34,11 @@ from ..app.modules.project_timesheet_record.schema import (
 from ..app.modules.project_timesheet_record.service import create_project_timesheet_records
 from ..app.modules.referral.model import ReferralRecord
 from ..app.modules.referral.service import ensure_user_referral_code
+from ..app.modules.referral_bonus_model.service import (
+    REFERRAL_BONUS_MILESTONES_DATA_KEY,
+    build_referral_bonus_snapshot,
+    ensure_user_referral_profile_from_job,
+)
 from ..app.modules.talent_profile.model import TalentProfile
 from ..app.modules.user.const import DEFAULT_USER_PROFILE_IMAGE_URL
 from ..app.modules.user.model import User
@@ -270,7 +275,8 @@ DEMO_TIMESHEET_BATCHES = [
         "work_date_offset": 0,
         "language": "en-US",
         "project_link": "https://example.com/projects/timesheet-demo/april-kickoff",
-        "human_efficiency_minutes": Decimal("2.40"),
+        "customer_human_efficiency_minutes": Decimal("2.40"),
+        "candidate_human_efficiency_minutes": Decimal("2.40"),
         "entries": [
             {
                 "worker_index": 1,
@@ -309,7 +315,8 @@ DEMO_TIMESHEET_BATCHES = [
         "work_date_offset": -1,
         "language": "es-MX",
         "project_link": "https://example.com/projects/timesheet-demo/latam-burst",
-        "human_efficiency_minutes": Decimal("3.00"),
+        "customer_human_efficiency_minutes": Decimal("3.00"),
+        "candidate_human_efficiency_minutes": Decimal("3.00"),
         "entries": [
             {
                 "worker_index": 4,
@@ -348,7 +355,8 @@ DEMO_TIMESHEET_BATCHES = [
         "work_date_offset": -6,
         "language": "ja-JP",
         "project_link": "https://example.com/projects/timesheet-demo/jp-review-wave",
-        "human_efficiency_minutes": Decimal("2.10"),
+        "customer_human_efficiency_minutes": Decimal("2.10"),
+        "candidate_human_efficiency_minutes": Decimal("2.10"),
         "entries": [
             {
                 "worker_index": 7,
@@ -387,7 +395,8 @@ DEMO_TIMESHEET_BATCHES = [
         "work_date_offset": -18,
         "language": "ar-EG",
         "project_link": "https://example.com/projects/timesheet-demo/arabic-coverage",
-        "human_efficiency_minutes": Decimal("2.80"),
+        "customer_human_efficiency_minutes": Decimal("2.80"),
+        "candidate_human_efficiency_minutes": Decimal("2.80"),
         "entries": [
             {
                 "worker_index": 6,
@@ -416,7 +425,8 @@ DEMO_TIMESHEET_BATCHES = [
         "work_date_offset": -39,
         "language": "fr-FR",
         "project_link": "https://example.com/projects/timesheet-demo/quarter-closeout",
-        "human_efficiency_minutes": Decimal("3.20"),
+        "customer_human_efficiency_minutes": Decimal("3.20"),
+        "candidate_human_efficiency_minutes": Decimal("3.20"),
         "entries": [
             {
                 "worker_index": 3,
@@ -455,7 +465,8 @@ DEMO_TIMESHEET_BATCHES = [
         "work_date_offset": -96,
         "language": "en-US",
         "project_link": "https://example.com/projects/timesheet-demo/archive-sample",
-        "human_efficiency_minutes": Decimal("2.60"),
+        "customer_human_efficiency_minutes": Decimal("2.60"),
+        "candidate_human_efficiency_minutes": Decimal("2.60"),
         "entries": [
             {
                 "worker_index": 1,
@@ -488,7 +499,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": 0,
         "language": "en-US",
         "project_link": "https://example.com/projects/candidate-portal/dl-902",
-        "human_efficiency_minutes": Decimal("2.40"),
+        "customer_human_efficiency_minutes": Decimal("2.40"),
+        "candidate_human_efficiency_minutes": Decimal("2.40"),
         "work_type": "Annotation",
         "output_quantity": Decimal("138"),
         "candidate_duration_hours": Decimal("5.50"),
@@ -503,7 +515,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -7,
         "language": "es-MX",
         "project_link": "https://example.com/projects/candidate-portal/dl-915",
-        "human_efficiency_minutes": Decimal("2.80"),
+        "customer_human_efficiency_minutes": Decimal("2.80"),
+        "candidate_human_efficiency_minutes": Decimal("2.80"),
         "work_type": "Review",
         "output_quantity": Decimal("86"),
         "candidate_duration_hours": Decimal("3.75"),
@@ -518,7 +531,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -38,
         "language": "fr-FR",
         "project_link": "https://example.com/projects/candidate-portal/dl-928",
-        "human_efficiency_minutes": Decimal("3.10"),
+        "customer_human_efficiency_minutes": Decimal("3.10"),
+        "candidate_human_efficiency_minutes": Decimal("3.10"),
         "work_type": "QA",
         "output_quantity": Decimal("54"),
         "candidate_duration_hours": Decimal("2.90"),
@@ -533,7 +547,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -2,
         "language": "ja-JP",
         "project_link": "https://example.com/projects/candidate-portal/qa-104",
-        "human_efficiency_minutes": Decimal("2.20"),
+        "customer_human_efficiency_minutes": Decimal("2.20"),
+        "candidate_human_efficiency_minutes": Decimal("2.20"),
         "work_type": "QA",
         "output_quantity": Decimal("120"),
         "candidate_duration_hours": Decimal("4.80"),
@@ -548,7 +563,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -20,
         "language": "ar-EG",
         "project_link": "https://example.com/projects/candidate-portal/qa-211",
-        "human_efficiency_minutes": Decimal("2.60"),
+        "customer_human_efficiency_minutes": Decimal("2.60"),
+        "candidate_human_efficiency_minutes": Decimal("2.60"),
         "work_type": "Review",
         "output_quantity": Decimal("74"),
         "candidate_duration_hours": Decimal("3.35"),
@@ -563,7 +579,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -1,
         "language": "en-US",
         "project_link": "https://example.com/projects/candidate-portal/tl-301",
-        "human_efficiency_minutes": Decimal("1.00"),
+        "customer_human_efficiency_minutes": Decimal("1.00"),
+        "candidate_human_efficiency_minutes": Decimal("1.00"),
         "work_type": "Non-Operational",
         "output_quantity": Decimal("1"),
         "candidate_duration_hours": Decimal("3.00"),
@@ -578,7 +595,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -65,
         "language": "es-MX",
         "project_link": "https://example.com/projects/candidate-portal/tl-322",
-        "human_efficiency_minutes": Decimal("1.00"),
+        "customer_human_efficiency_minutes": Decimal("1.00"),
+        "candidate_human_efficiency_minutes": Decimal("1.00"),
         "work_type": "Training",
         "output_quantity": Decimal("1"),
         "candidate_duration_hours": Decimal("2.25"),
@@ -593,7 +611,8 @@ DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES = [
         "work_date_offset": -80,
         "language": "es-MX",
         "project_link": "https://example.com/projects/candidate-portal/legacy-118",
-        "human_efficiency_minutes": Decimal("2.75"),
+        "customer_human_efficiency_minutes": Decimal("2.75"),
+        "candidate_human_efficiency_minutes": Decimal("2.75"),
         "work_type": "QA",
         "output_quantity": Decimal("66"),
         "candidate_duration_hours": Decimal("3.65"),
@@ -726,9 +745,7 @@ async def ensure_talent_profile(
     job: Job,
     applied_at: datetime,
 ) -> TalentProfile:
-    result = await session.execute(
-        select(TalentProfile).where(TalentProfile.user_id == user.id)
-    )
+    result = await session.execute(select(TalentProfile).where(TalentProfile.user_id == user.id))
     profile = result.scalar_one_or_none()
     if profile is None:
         profile = TalentProfile(
@@ -805,9 +822,7 @@ async def ensure_job_progress(
     talent_profile: TalentProfile,
     entered_stage_at: datetime,
 ) -> JobProgress:
-    result = await session.execute(
-        select(JobProgress).where(JobProgress.application_id == application.id)
-    )
+    result = await session.execute(select(JobProgress).where(JobProgress.application_id == application.id))
     progress = result.scalar_one_or_none()
     if progress is None:
         progress = JobProgress(
@@ -904,8 +919,7 @@ def build_candidate_portal_job_definition(contract_definition: dict[str, Any]) -
         "country": contract_definition["country"],
         "work_mode": "Remote",
         "description": (
-            f"<h3>{job_title}</h3>"
-            "<p>This role is seeded for validating the candidate Working Hours dashboard.</p>"
+            f"<h3>{job_title}</h3><p>This role is seeded for validating the candidate Working Hours dashboard.</p>"
         ),
         "compensation_min": contract_definition["rate"],
         "compensation_max": contract_definition["rate"],
@@ -940,6 +954,29 @@ async def ensure_candidate_portal_referral_records(
     referrer_user: User,
     contracts_by_index: dict[int, ContractRecord],
 ) -> list[dict[str, Any]]:
+    profile_result = await session.execute(
+        select(ContractRecord, Job)
+        .join(Job, Job.id == ContractRecord.job_id)
+        .where(
+            ContractRecord.user_id == int(referrer_user.id),
+            ContractRecord.contract_status == "Active",
+            ContractRecord.is_deleted.is_(False),
+        )
+        .order_by(ContractRecord.id.asc())
+        .limit(1)
+    )
+    profile_row = profile_result.first()
+    if profile_row is None:
+        return []
+    referrer_contract, referrer_job = profile_row
+    referrer_profile = await ensure_user_referral_profile_from_job(
+        user_id=int(referrer_user.id),
+        job=referrer_job,
+        db=session,
+        admin_user_id=None,
+        contract_record=referrer_contract,
+    )
+    referral_snapshot = build_referral_bonus_snapshot(referrer_profile)
     referral_code = await ensure_user_referral_code(user_id=int(referrer_user.id), db=session)
     seeded_items: list[dict[str, Any]] = []
     for worker_index in DEMO_REFERRAL_WORKER_INDEXES:
@@ -964,8 +1001,12 @@ async def ensure_candidate_portal_referral_records(
                 referred_snapshot_name=referred_user.name,
                 referred_snapshot_email=referred_user.email,
                 source_referral_code=referral_code,
+                referral_bonus_model_id=referral_snapshot["referral_bonus_model_id"],
+                model_snapshot_name=referral_snapshot["model_snapshot_name"],
+                currency=referral_snapshot["currency"],
+                reward_cap=Decimal(str(referral_snapshot["reward_cap"])),
                 payout_status="tracking",
-                data={},
+                data={REFERRAL_BONUS_MILESTONES_DATA_KEY: referral_snapshot["milestones"]},
             )
             session.add(record)
         else:
@@ -976,13 +1017,17 @@ async def ensure_candidate_portal_referral_records(
             record.referred_snapshot_name = referred_user.name
             record.referred_snapshot_email = referred_user.email
             record.source_referral_code = referral_code
+            record.referral_bonus_model_id = referral_snapshot["referral_bonus_model_id"]
+            record.model_snapshot_name = referral_snapshot["model_snapshot_name"]
+            record.currency = referral_snapshot["currency"]
+            record.reward_cap = Decimal(str(referral_snapshot["reward_cap"]))
             record.paid_reward_amount = Decimal("0.00")
             record.payout_status = "tracking"
             record.last_paid_at = None
             record.last_paid_by_admin_user_id = None
             record.is_deleted = False
             record.deleted_at = None
-            record.data = record.data or {}
+            record.data = {REFERRAL_BONUS_MILESTONES_DATA_KEY: referral_snapshot["milestones"]}
         await session.flush()
         seeded_items.append(
             {
@@ -1160,7 +1205,8 @@ async def seed_timesheet_records(
             work_date=today + timedelta(days=int(batch["work_date_offset"])),
             language=batch["language"],
             project_link=batch["project_link"],
-            human_efficiency_minutes=batch["human_efficiency_minutes"],
+            customer_human_efficiency_minutes=batch["customer_human_efficiency_minutes"],
+            candidate_human_efficiency_minutes=batch["candidate_human_efficiency_minutes"],
             team_leader_user_id=int(contracts_by_index[int(batch["entries"][0]["worker_index"])].user_id),
             entries=[
                 ProjectTimesheetBatchCreateEntry(
@@ -1169,7 +1215,7 @@ async def seed_timesheet_records(
                     work_type=item["work_type"],
                     output_quantity=item["output_quantity"],
                     customer_duration_hours=(
-                        batch["human_efficiency_minutes"] * item["output_quantity"] / Decimal("60")
+                        batch["customer_human_efficiency_minutes"] * item["output_quantity"] / Decimal("60")
                     ).quantize(Decimal("0.01")),
                     candidate_duration_hours=item["candidate_duration_hours"],
                     role_name=item["role_name"],
@@ -1206,7 +1252,9 @@ async def seed_candidate_portal_timesheet_records(
     }
     for project_id in project_ids_to_clear:
         sample_contract = next(
-            contract for contract in contracts_by_key.values() if int(contract.service_customer_project_id) == project_id
+            contract
+            for contract in contracts_by_key.values()
+            if int(contract.service_customer_project_id) == project_id
         )
         deleted_count = await clear_seeded_timesheet_records(
             session,
@@ -1226,7 +1274,8 @@ async def seed_candidate_portal_timesheet_records(
             work_date=today + timedelta(days=int(batch["work_date_offset"])),
             language=batch["language"],
             project_link=batch["project_link"],
-            human_efficiency_minutes=batch["human_efficiency_minutes"],
+            customer_human_efficiency_minutes=batch["customer_human_efficiency_minutes"],
+            candidate_human_efficiency_minutes=batch["candidate_human_efficiency_minutes"],
             team_leader_user_id=int(contract.user_id),
             entries=[
                 ProjectTimesheetBatchCreateEntry(
@@ -1235,7 +1284,7 @@ async def seed_candidate_portal_timesheet_records(
                     work_type=batch["work_type"],
                     output_quantity=batch["output_quantity"],
                     customer_duration_hours=(
-                        batch["human_efficiency_minutes"] * batch["output_quantity"] / Decimal("60")
+                        batch["customer_human_efficiency_minutes"] * batch["output_quantity"] / Decimal("60")
                     ).quantize(Decimal("0.01")),
                     candidate_duration_hours=batch["candidate_duration_hours"],
                     role_name=batch["role_name"],
@@ -1453,8 +1502,7 @@ async def main() -> None:
                 "contracts": {
                     "active_count": active_contract_count,
                     "sample_agreement_refs": [
-                        contracts_by_index[index].agreement_ref_no
-                        for index in sorted(contracts_by_index)[:5]
+                        contracts_by_index[index].agreement_ref_no for index in sorted(contracts_by_index)[:5]
                     ],
                 },
                 "timesheets": {
@@ -1486,12 +1534,7 @@ async def main() -> None:
                         }
                         for key, contract in candidate_portal_contracts_by_key.items()
                     ],
-                    "languages": sorted(
-                        {
-                            str(batch["language"])
-                            for batch in DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES
-                        }
-                    ),
+                    "languages": sorted({str(batch["language"]) for batch in DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES}),
                     "referrals": {
                         "referral_count": len(referral_seed_items),
                         "items": referral_seed_items,

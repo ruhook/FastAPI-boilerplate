@@ -146,7 +146,10 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    finally:
-        asyncio.run(async_engine.dispose())
+    async def runner() -> None:
+        try:
+            await main()
+        finally:
+            await async_engine.dispose()
+
+    asyncio.run(runner())

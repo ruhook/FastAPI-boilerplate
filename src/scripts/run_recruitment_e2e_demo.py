@@ -456,7 +456,7 @@ async def main() -> None:
             f"assessment_account={mail_ids['mail_account_id']} rejection_account={rejection_mail_ids['mail_account_id']}"
         )
 
-        print_step("环节 3/11：校验判题权限账号未分配前不可见")
+        print_step("环节 3/11：校验判题权限账号可查看所有测试题回收岗位")
         reviewer_login_payload = await login_admin(
             admin_client,
             username_or_email=str(reviewer_account["username"]),
@@ -464,9 +464,9 @@ async def main() -> None:
         )
         reviewer_access_token = reviewer_login_payload["access_token"]
         reviewer_jobs_before = await admin_list_jobs(admin_client, access_token=reviewer_access_token)
-        print_detail(f"reviewer visible jobs before assignment = {len(reviewer_jobs_before)}")
+        print_detail(f"reviewer visible assessment jobs = {len(reviewer_jobs_before)}")
 
-        print_step("环节 4/11：B 端给测试题回收记录分配判题负责人")
+        print_step("环节 4/11：B 端记录测试题判题负责人")
         assessment_progress_id = int(assessment_case["progress"]["id"])
         await admin_update_assessment_review(
             admin_client,
@@ -479,7 +479,7 @@ async def main() -> None:
             },
         )
         print_detail(
-            f"assigned reviewer={args.reviewer_name} progress_id={assessment_progress_id} job_id={assessment_case['job'].id}"
+            f"recorded reviewer={args.reviewer_name} progress_id={assessment_progress_id} job_id={assessment_case['job'].id}"
         )
 
         reviewer_jobs_after = await admin_list_jobs(admin_client, access_token=reviewer_access_token)
@@ -488,8 +488,8 @@ async def main() -> None:
             access_token=reviewer_access_token,
             job_id=int(assessment_case["job"].id),
         )
-        print_detail(f"reviewer visible jobs after assignment = {len(reviewer_jobs_after)}")
-        print_detail(f"reviewer visible assessment rows after assignment = {len(reviewer_progress_after)}")
+        print_detail(f"reviewer visible assessment jobs after record update = {len(reviewer_jobs_after)}")
+        print_detail(f"reviewer visible assessment rows after record update = {len(reviewer_progress_after)}")
 
         print_step("环节 5/11：C 端上传测试题附件")
         upload_payload = await upload_assessment(

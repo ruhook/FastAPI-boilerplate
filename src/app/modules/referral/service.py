@@ -15,15 +15,19 @@ from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
 from ..payment_record.service import create_referral_reward_payment_record
 from ..project_timesheet_record.model import ProjectTimesheetRecord
+from ..referral_bonus_model.const import DEFAULT_REFERRAL_BONUS_CAP
+from ..referral_bonus_model.service import (
+    REFERRAL_BONUS_MILESTONES_DATA_KEY,
+    build_referral_bonus_snapshot,
+    calculate_referral_reward_from_record,
+    get_user_referral_profile,
+)
 from ..talent_profile.model import TalentProfile
 from ..user.model import User
 from .const import (
-    REFERRAL_REWARD_CAP,
-    REFERRAL_REWARD_MILESTONES,
     REFERRAL_STATUS_PAID,
     REFERRAL_STATUS_READY_TO_PAY,
     REFERRAL_STATUS_TRACKING,
-    calculate_referral_reward,
     quantize_decimal,
 )
 from .model import ReferralRecord
@@ -83,6 +87,10 @@ async def create_referral_from_code(
     if referrer is None or int(referrer.id) == int(referred_user_id):
         return None
 
+    referrer_profile = await get_user_referral_profile(user_id=int(referrer.id), db=db)
+    if referrer_profile is None:
+        return None
+
     existing_result = await db.execute(
         select(ReferralRecord).where(
             ReferralRecord.referred_user_id == referred_user_id,
@@ -103,6 +111,7 @@ async def create_referral_from_code(
         )
     )
     talent = talent_result.scalar_one_or_none()
+    referral_snapshot = build_referral_bonus_snapshot(referrer_profile)
     record = ReferralRecord(
         referrer_user_id=referrer.id,
         referred_user_id=referred_user.id,
@@ -112,8 +121,12 @@ async def create_referral_from_code(
         referred_snapshot_name=referred_user.name,
         referred_snapshot_email=referred_user.email,
         source_referral_code=code,
+        referral_bonus_model_id=referral_snapshot["referral_bonus_model_id"],
+        model_snapshot_name=referral_snapshot["model_snapshot_name"],
+        currency=referral_snapshot["currency"],
+        reward_cap=quantize_decimal(referral_snapshot["reward_cap"]),
         payout_status=REFERRAL_STATUS_TRACKING,
-        data={},
+        data={REFERRAL_BONUS_MILESTONES_DATA_KEY: referral_snapshot["milestones"]},
     )
     db.add(record)
     await db.flush()
@@ -132,20 +145,24 @@ async def create_referral_from_code(
     return record
 
 
-def _build_milestones(work_hours: Decimal | None = None) -> list[ReferralMilestoneRead]:
+def _build_milestones(
+    *,
+    milestones: list[dict[str, Any]],
+    work_hours: Decimal | None = None,
+) -> list[ReferralMilestoneRead]:
     hours = quantize_decimal(work_hours)
-    cumulative_reward = Decimal("0.00")
-    milestones: list[ReferralMilestoneRead] = []
-    for required_hours, reward_amount in REFERRAL_REWARD_MILESTONES:
-        cumulative_reward += reward_amount
-        milestones.append(
+    result: list[ReferralMilestoneRead] = []
+    for milestone in milestones:
+        required_hours = quantize_decimal(milestone.get("required_hours"))
+        reward_amount = quantize_decimal(milestone.get("reward_amount"))
+        result.append(
             ReferralMilestoneRead(
                 required_hours=required_hours,
-                reward_amount=quantize_decimal(cumulative_reward),
+                reward_amount=reward_amount,
                 reached=hours >= required_hours,
             )
         )
-    return milestones
+    return result
 
 
 async def _load_metrics_for_referred_users(
@@ -214,7 +231,7 @@ def _serialize_referral_record(
     metrics: dict[str, Any],
 ) -> ReferralRecordRead:
     work_hours = quantize_decimal(metrics.get("work_hours"))
-    referral_earnings = calculate_referral_reward(work_hours)
+    referral_earnings = calculate_referral_reward_from_record(record, work_hours)
     paid_reward_amount = quantize_decimal(record.paid_reward_amount)
     payable_reward_amount = max(referral_earnings - paid_reward_amount, Decimal("0.00"))
     active_contract_count = int(metrics.get("active_contract_count") or 0)
@@ -241,6 +258,13 @@ def _serialize_referral_record(
         paid_reward_amount=paid_reward_amount,
         payable_reward_amount=payable_reward_amount,
         payout_status=payout_status,
+        currency=record.currency,
+        reward_cap=quantize_decimal(record.reward_cap),
+        bonus_model_name=record.model_snapshot_name,
+        milestones=_build_milestones(
+            milestones=list((record.data or {}).get(REFERRAL_BONUS_MILESTONES_DATA_KEY) or []),
+            work_hours=work_hours,
+        ),
         last_paid_at=record.last_paid_at,
     )
 
@@ -327,15 +351,34 @@ async def _build_referral_read_for_record(
 
 
 async def get_candidate_referral_dashboard(*, user_id: int, db: AsyncSession) -> dict[str, Any]:
+    profile = await get_user_referral_profile(user_id=user_id, db=db)
+    if profile is None:
+        return {
+            "eligible": False,
+            "ineligible_reason": "Referral rewards become available after your first active contract.",
+            "referral_code": "",
+            "reward_cap": Decimal("0.00"),
+            "currency": "USD",
+            "bonus_model_name": None,
+            "total_rewards": Decimal("0.00"),
+            "active_referral_count": 0,
+            "milestones": [],
+            "items": [],
+        }
     referral_code = await ensure_user_referral_code(user_id=user_id, db=db)
+    profile_snapshot = build_referral_bonus_snapshot(profile)
     items = await _list_referral_records(db=db, referrer_user_id=user_id)
     total_rewards = sum((item.referral_earnings for item in items), Decimal("0.00"))
     return {
+        "eligible": True,
+        "ineligible_reason": None,
         "referral_code": referral_code,
-        "reward_cap": REFERRAL_REWARD_CAP,
+        "reward_cap": quantize_decimal(profile_snapshot["reward_cap"]),
+        "currency": profile_snapshot["currency"],
+        "bonus_model_name": profile_snapshot["model_snapshot_name"],
         "total_rewards": quantize_decimal(total_rewards),
         "active_referral_count": len(items),
-        "milestones": _build_milestones(),
+        "milestones": _build_milestones(milestones=profile_snapshot["milestones"]),
         "items": items,
     }
 
@@ -413,8 +456,8 @@ async def list_referrals_for_admin(
         "page": page,
         "page_size": page_size,
         "summary": summary,
-        "reward_cap": REFERRAL_REWARD_CAP,
-        "milestones": _build_milestones(),
+        "reward_cap": DEFAULT_REFERRAL_BONUS_CAP,
+        "milestones": [],
     }
 
 

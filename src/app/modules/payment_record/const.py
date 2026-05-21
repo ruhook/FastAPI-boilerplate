@@ -1,9 +1,14 @@
-from decimal import Decimal, ROUND_HALF_UP
-
+from decimal import ROUND_HALF_UP, Decimal
 
 PAYMENT_TYPE_SALARY = "salary"
 PAYMENT_TYPE_TEAM_LEADER_BONUS = "team_leader_bonus"
 PAYMENT_TYPE_REFERRAL_REWARD = "referral_reward"
+
+PAYMENT_PAYOUT_STATUS_PENDING = "pending"
+PAYMENT_PAYOUT_STATUS_PAID = "paid"
+PAYMENT_PAYOUT_STATUSES = {PAYMENT_PAYOUT_STATUS_PENDING, PAYMENT_PAYOUT_STATUS_PAID}
+
+PAYMENT_SOURCE_AUTO_PAYABLE = "auto_calculated_payable"
 
 PAYMENT_TYPE_LABELS = {
     PAYMENT_TYPE_SALARY: "薪资",
@@ -18,6 +23,13 @@ def normalize_payment_type(value: str | None) -> str:
     text = (value or "").strip()
     if text not in PAYMENT_TYPES:
         raise ValueError("Invalid payment type.")
+    return text
+
+
+def normalize_payment_payout_status(value: str | None) -> str:
+    text = (value or "").strip()
+    if text not in PAYMENT_PAYOUT_STATUSES:
+        raise ValueError("Invalid payout status.")
     return text
 
 

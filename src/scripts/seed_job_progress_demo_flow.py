@@ -54,6 +54,7 @@ from .seed_apply_demo_flow import (
     ensure_company_project,
     ensure_dictionary,
     ensure_form_template,
+    ensure_referral_bonus_model,
     ensure_role,
 )
 from .seed_candidate_base_form_template import DICTIONARY_DEFINITIONS
@@ -299,6 +300,7 @@ async def ensure_job(
             )
         )
         job = result.scalar_one_or_none()
+        referral_bonus_model = await ensure_referral_bonus_model(session)
         data = {
             JOB_DATA_FORM_FIELDS_KEY: form_fields,
             JOB_DATA_AUTOMATION_RULES_KEY: definition["automation_rules"],
@@ -324,6 +326,7 @@ async def ensure_job(
                 title=definition["title"],
                 company_id=company.id,
                 project_id=project.id,
+                referral_bonus_model_id=referral_bonus_model.id,
                 country=definition["country"],
                 status=JobStatus.OPEN.value,
                 work_mode=definition["work_mode"],
@@ -344,6 +347,7 @@ async def ensure_job(
         else:
             job.company_id = company.id
             job.project_id = project.id
+            job.referral_bonus_model_id = referral_bonus_model.id
             job.country = definition["country"]
             job.status = JobStatus.OPEN.value
             job.work_mode = definition["work_mode"]

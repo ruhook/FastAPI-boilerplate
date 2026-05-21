@@ -1,18 +1,18 @@
-from urllib.parse import quote
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user
 from .....core.db.database import async_get_db
 from .....core.exceptions.http_exceptions import NotFoundException
 from .....modules.admin.role.const import is_assessment_reviewer_only_permissions
-from .....modules.job_progress.const import JobProgressDataKey
 from .....modules.assets.schema import AssetRead, AssetUploadPayload
 from .....modules.assets.service import build_asset_pdf_export, get_asset, get_asset_content, upload_asset
+from .....modules.job_progress.const import JobProgressDataKey
+from ...dependencies import get_current_admin_user
 
 router = APIRouter(prefix="/assets", tags=["admin-assets"])
 
@@ -69,7 +69,11 @@ async def current_admin_can_access_asset(
         )
         return timesheet_asset_result.first() is not None
 
-    application_reviewer_filter = "AND jp.assessment_reviewer_admin_user_id = :admin_user_id" if reviewer_only else ""
+    application_stage_filter = (
+        "AND jp.current_stage = 'assessment_review'"
+        if reviewer_only
+        else ""
+    )
     application_asset_result = await db.execute(
         text(
             f"""
@@ -81,7 +85,7 @@ async def current_admin_can_access_asset(
             WHERE cav.asset_id = :asset_id
               AND ca.is_deleted = 0
               AND j.is_deleted = 0
-              {application_reviewer_filter}
+              {application_stage_filter}
             LIMIT 1
             """
         ),
@@ -91,10 +95,14 @@ async def current_admin_can_access_asset(
         return True
 
     process_asset_keys = (
-        JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value,
-        JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT_ASSET_ID.value,
-        JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID.value,
-        JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT_ASSET_ID.value,
+        (JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value,)
+        if reviewer_only
+        else (
+            JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value,
+            JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT_ASSET_ID.value,
+            JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID.value,
+            JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT_ASSET_ID.value,
+        )
     )
     process_conditions = " OR ".join(
         [
@@ -102,7 +110,11 @@ async def current_admin_can_access_asset(
             for key in process_asset_keys
         ]
     )
-    process_reviewer_filter = "AND jp.assessment_reviewer_admin_user_id = :admin_user_id" if reviewer_only else ""
+    process_stage_filter = (
+        "AND jp.current_stage = 'assessment_review'"
+        if reviewer_only
+        else ""
+    )
     process_asset_result = await db.execute(
         text(
             f"""
@@ -111,12 +123,18 @@ async def current_admin_can_access_asset(
             INNER JOIN job j ON j.id = jp.job_id
             WHERE jp.is_deleted = 0
               AND j.is_deleted = 0
-              {process_reviewer_filter}
-              AND ({process_conditions})
+              {process_stage_filter}
+              AND (
+                    {process_conditions}
+                 OR JSON_CONTAINS(
+                      JSON_EXTRACT(jp.data, '$.{JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value}[*].asset_id'),
+                      :asset_id_json
+                    )
+              )
             LIMIT 1
             """
         ),
-        {"asset_id": asset_id, "admin_user_id": admin_user_id},
+        {"asset_id": asset_id, "asset_id_json": str(asset_id), "admin_user_id": admin_user_id},
     )
     if process_asset_result.first() is not None:
         return True

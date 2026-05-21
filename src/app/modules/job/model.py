@@ -13,6 +13,11 @@ class Job(DataBackedSoftDeleteEntityMixin, Base):
     title: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("admin_company.id"), nullable=False, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("admin_company_project.id"), nullable=False, index=True)
+    referral_bonus_model_id: Mapped[int] = mapped_column(
+        ForeignKey("referral_bonus_model.id"),
+        nullable=False,
+        index=True,
+    )
     country: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     work_mode: Mapped[str] = mapped_column(String(20), nullable=False, index=True)

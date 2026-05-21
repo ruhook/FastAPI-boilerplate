@@ -42,6 +42,18 @@ class JobProgressAssessmentAutomationResponse(BaseModel):
     passed_count: int = 0
     rejected_count: int = 0
     untouched_count: int = 0
+    missing_attachment_count: int = 0
+    missing_result_count: int = 0
+
+
+class JobProgressNoteUpdateRequest(BaseModel):
+    progress_ids: list[int] = Field(min_length=1)
+    note: str | None = None
+
+
+class JobProgressNoteUpdateResponse(BaseModel):
+    updated_count: int
+    updated_field_keys: list[str] = Field(default_factory=list)
 
 
 class JobProgressContractRecordUpdateRequest(BaseModel):
@@ -224,6 +236,7 @@ class CandidateJobApplicationListItemRead(BaseModel):
     current_stage_cn_name: str
     screening_mode: str
     applied_at: datetime
+    assessment_enabled: bool
     application_snapshot: dict[str, Any] = Field(default_factory=dict)
     application_assets: dict[str, Any] = Field(default_factory=dict)
     process_data: dict[str, Any] = Field(default_factory=dict)

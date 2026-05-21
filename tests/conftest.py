@@ -1,8 +1,8 @@
-from collections.abc import AsyncIterator
 import asyncio
 import os
-from pathlib import Path
 import shutil
+from collections.abc import AsyncIterator
+from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
@@ -29,9 +29,14 @@ from src.app.modules.admin.role.model import Role
 from src.app.modules.assets.model import Asset
 from src.app.modules.candidate_application.model import CandidateApplication
 from src.app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from src.app.modules.contract_record.model import ContractRecord
 from src.app.modules.job.model import Job
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.operation_log.model import OperationLog
+from src.app.modules.payment_record.model import PaymentRecord
+from src.app.modules.project_timesheet_record.model import ProjectTimesheetRecord
+from src.app.modules.referral.model import ReferralRecord
+from src.app.modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
 from src.app.modules.talent_profile.model import TalentProfile
 from src.app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from src.app.modules.user.model import User
@@ -59,7 +64,9 @@ def _assert_safe_test_cleanup() -> None:
     if backend == "mysql" and settings.MYSQL_SERVER not in {"127.0.0.1", "localhost"}:
         raise RuntimeError("Refusing to run destructive tests against a non-local MySQL host.")
     if backend == "mysql" and settings.MYSQL_DB not in allowed_db_names:
-        raise RuntimeError("Refusing to run destructive tests against a MySQL database not in TEST_DATABASE_NAME_ALLOWLIST.")
+        raise RuntimeError(
+            "Refusing to run destructive tests against a MySQL database not in TEST_DATABASE_NAME_ALLOWLIST."
+        )
     if backend == "postgresql" and settings.POSTGRES_SERVER not in {"127.0.0.1", "localhost"}:
         raise RuntimeError("Refusing to run destructive tests against a non-local PostgreSQL host.")
     if backend == "postgresql" and settings.POSTGRES_DB not in allowed_db_names:
@@ -69,7 +76,9 @@ def _assert_safe_test_cleanup() -> None:
     if backend == "sqlite":
         sqlite_name = Path(settings.SQLITE_URI).name
         if sqlite_name not in allowed_db_names:
-            raise RuntimeError("Refusing to run destructive tests against a SQLite database not in TEST_DATABASE_NAME_ALLOWLIST.")
+            raise RuntimeError(
+                "Refusing to run destructive tests against a SQLite database not in TEST_DATABASE_NAME_ALLOWLIST."
+            )
 
     base_url = os.getenv("TEST_SERVER_BASE_URL")
     if base_url:
@@ -85,6 +94,11 @@ def _env_flag(name: str) -> bool:
 
 async def _clear_tables() -> None:
     async with local_session() as session:
+        await session.execute(delete(PaymentRecord))
+        await session.execute(delete(ProjectTimesheetRecord))
+        await session.execute(delete(ReferralRecord))
+        await session.execute(delete(UserReferralProfile))
+        await session.execute(delete(ContractRecord))
         await session.execute(delete(CandidateApplicationFieldValue))
         await session.execute(delete(JobProgress))
         await session.execute(delete(TalentProfileMergeLog))
@@ -101,6 +115,7 @@ async def _clear_tables() -> None:
         await session.execute(delete(Asset))
         await session.execute(delete(MailAccount))
         await session.execute(delete(AdminFormTemplate))
+        await session.execute(delete(ReferralBonusModel))
         await session.execute(delete(AdminUser))
         await session.execute(delete(User))
         await session.execute(delete(Role))

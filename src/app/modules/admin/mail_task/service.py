@@ -178,6 +178,7 @@ def build_mail_render_context(
     first_recipient = (task.to_recipients or [{}])[0] if task.to_recipients else {}
     candidate_context = raw_context.get("candidate", {}) if isinstance(raw_context.get("candidate"), dict) else {}
     job_context = raw_context.get("job", {}) if isinstance(raw_context.get("job"), dict) else {}
+    contract_context = raw_context.get("contract", {}) if isinstance(raw_context.get("contract"), dict) else {}
     sender_context = raw_context.get("sender", {}) if isinstance(raw_context.get("sender"), dict) else {}
     company_context = raw_context.get("company", {}) if isinstance(raw_context.get("company"), dict) else {}
 
@@ -200,7 +201,28 @@ def build_mail_render_context(
         ),
         "assessment_link": _as_string(
             job_context.get("assessment_link")
+            or job_context.get("assessment_external_url")
             or raw_context.get("assessment_link")
+            or raw_context.get("assessment_external_url")
+        ),
+        "assessment_external_url": _as_string(
+            job_context.get("assessment_external_url")
+            or job_context.get("assessment_link")
+            or raw_context.get("assessment_external_url")
+            or raw_context.get("assessment_link")
+        ),
+        "contract_upload_url": _as_string(
+            contract_context.get("upload_url")
+            or contract_context.get("contract_upload_url")
+            or raw_context.get("contract_upload_url")
+            or raw_context.get("contract_link")
+        ),
+        "contract_link": _as_string(
+            contract_context.get("contract_link")
+            or contract_context.get("upload_url")
+            or contract_context.get("contract_upload_url")
+            or raw_context.get("contract_link")
+            or raw_context.get("contract_upload_url")
         ),
         "due_date": _as_string(job_context.get("due_date") or raw_context.get("due_date")),
         "sender_name": _as_string(
@@ -236,6 +258,7 @@ def build_mail_render_context(
     _merge_scalar_context(context, raw_context)
     _merge_scalar_context(context, candidate_context)
     _merge_scalar_context(context, job_context)
+    _merge_scalar_context(context, contract_context)
     _merge_scalar_context(context, sender_context)
     _merge_scalar_context(context, company_context)
     return context

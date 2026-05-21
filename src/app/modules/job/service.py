@@ -7,8 +7,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.exceptions.http_exceptions import BadRequestException, ForbiddenException, NotFoundException
-from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.admin_user.model import AdminUser
+from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.form_template.model import AdminFormTemplate
 from ..admin.mail_account.model import MailAccount
 from ..admin.mail_signature.model import MailSignature
@@ -16,8 +16,11 @@ from ..admin.mail_template.model import MailTemplate
 from ..admin.role.const import is_assessment_reviewer_only_permissions
 from ..job_progress.const import RecruitmentStage
 from ..job_progress.model import JobProgress
+from ..referral_bonus_model.model import ReferralBonusModel
+from ..referral_bonus_model.service import ensure_referral_bonus_model
 from .const import (
     JOB_DATA_APPLICATION_SUMMARY_KEY,
+    JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY,
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_COLLABORATORS_KEY,
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
@@ -35,8 +38,8 @@ from .schema import (
     JobFormStrategy,
     JobListItemRead,
     JobListPage,
-    JobRejectionMailConfig,
     JobRead,
+    JobRejectionMailConfig,
     JobUpdate,
 )
 
@@ -259,7 +262,13 @@ def _merge_job_data(
     return next_data
 
 
-def serialize_job(job: Job, owner_name: str | None, company_name: str, project_name: str) -> dict[str, Any]:
+def serialize_job(
+    job: Job,
+    owner_name: str | None,
+    company_name: str,
+    project_name: str,
+    referral_bonus_model_name: str | None = None,
+) -> dict[str, Any]:
     data = job.data or {}
     assessment_config = JobAssessmentConfig(
         enabled=job.assessment_enabled,
@@ -269,6 +278,7 @@ def serialize_job(job: Job, owner_name: str | None, company_name: str, project_n
         mail_account_label=data.get("assessment_mail_account_label"),
         mail_template_name=data.get("assessment_mail_template_name"),
         mail_signature_name=data.get("assessment_mail_signature_name"),
+        assessment_external_url=data.get(JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY) or data.get("assessment_link"),
     )
     rejection_mail_config = _build_rejection_mail_config(data)
     return JobRead(
@@ -278,6 +288,8 @@ def serialize_job(job: Job, owner_name: str | None, company_name: str, project_n
         company_id=job.company_id,
         project=project_name,
         project_id=job.project_id,
+        referral_bonus_model_id=job.referral_bonus_model_id,
+        referral_bonus_model_name=referral_bonus_model_name,
         country=job.country,
         status=job.status,
         work_mode=job.work_mode,
@@ -311,8 +323,16 @@ def serialize_job(job: Job, owner_name: str | None, company_name: str, project_n
 async def _get_owner_name_map(db: AsyncSession, owner_ids: Sequence[int]) -> dict[int, str]:
     if not owner_ids:
         return {}
+    result = await db.execute(select(AdminUser.id, AdminUser.name).where(AdminUser.id.in_(sorted(set(owner_ids)))))
+    return {int(row[0]): row[1] for row in result.all()}
+
+
+async def _get_referral_bonus_model_name_map(db: AsyncSession, model_ids: Sequence[int]) -> dict[int, str]:
+    normalized_ids = sorted({int(model_id) for model_id in model_ids if model_id})
+    if not normalized_ids:
+        return {}
     result = await db.execute(
-        select(AdminUser.id, AdminUser.name).where(AdminUser.id.in_(sorted(set(owner_ids))))
+        select(ReferralBonusModel.id, ReferralBonusModel.name).where(ReferralBonusModel.id.in_(normalized_ids))
     )
     return {int(row[0]): row[1] for row in result.all()}
 
@@ -335,11 +355,13 @@ async def get_job(job_id: int, db: AsyncSession) -> dict[str, Any]:
     owner_name_map = await _get_owner_name_map(db, [job.owner_admin_user_id])
     company_name_map = await _get_company_name_map(db, [job.company_id])
     project_name_map = await _get_project_name_map(db, [job.project_id])
+    referral_bonus_model_name_map = await _get_referral_bonus_model_name_map(db, [job.referral_bonus_model_id])
     return serialize_job(
         job,
         owner_name_map.get(job.owner_admin_user_id),
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
+        referral_bonus_model_name_map.get(job.referral_bonus_model_id),
     )
 
 
@@ -352,17 +374,16 @@ def _is_assessment_reviewer_only(current_admin: dict[str, Any] | None) -> bool:
     )
 
 
-async def _has_assessment_assignment(
+async def _has_assessment_review_scope(
     *,
     job_id: int,
-    admin_user_id: int,
     db: AsyncSession,
 ) -> bool:
     result = await db.execute(
-        select(JobProgress.id).where(
+        select(JobProgress.id)
+        .where(
             JobProgress.job_id == job_id,
             JobProgress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value,
-            JobProgress.assessment_reviewer_admin_user_id == admin_user_id,
             JobProgress.is_deleted.is_(False),
         )
         .limit(1)
@@ -378,21 +399,22 @@ async def get_job_for_admin(
 ) -> dict[str, Any]:
     job = await get_job_model(job_id, db)
     if _is_assessment_reviewer_only(current_admin):
-        has_assignment = await _has_assessment_assignment(
+        has_assessment_scope = await _has_assessment_review_scope(
             job_id=job_id,
-            admin_user_id=int(current_admin["id"]),
             db=db,
         )
-        if not has_assignment:
-            raise ForbiddenException("You are not assigned to review this job.")
+        if not has_assessment_scope:
+            raise ForbiddenException("This job has no assessment review records.")
     owner_name_map = await _get_owner_name_map(db, [job.owner_admin_user_id])
     company_name_map = await _get_company_name_map(db, [job.company_id])
     project_name_map = await _get_project_name_map(db, [job.project_id])
+    referral_bonus_model_name_map = await _get_referral_bonus_model_name_map(db, [job.referral_bonus_model_id])
     return serialize_job(
         job,
         owner_name_map.get(job.owner_admin_user_id),
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
+        referral_bonus_model_name_map.get(job.referral_bonus_model_id),
     )
 
 
@@ -429,7 +451,6 @@ async def list_jobs(
             Job.id.in_(
                 select(JobProgress.job_id).where(
                     JobProgress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value,
-                    JobProgress.assessment_reviewer_admin_user_id == int(current_admin["id"]),
                     JobProgress.is_deleted.is_(False),
                 )
             )
@@ -444,8 +465,7 @@ async def list_jobs(
     total = int(total_result.scalar() or 0)
 
     result = await db.execute(
-        base_query
-        .where(*conditions)
+        base_query.where(*conditions)
         .order_by(Job.created_at.desc(), Job.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -454,6 +474,10 @@ async def list_jobs(
     owner_name_map = await _get_owner_name_map(db, [job.owner_admin_user_id for job in jobs])
     company_name_map = await _get_company_name_map(db, [job.company_id for job in jobs])
     project_name_map = await _get_project_name_map(db, [job.project_id for job in jobs])
+    referral_bonus_model_name_map = await _get_referral_bonus_model_name_map(
+        db,
+        [job.referral_bonus_model_id for job in jobs],
+    )
     items = [
         JobListItemRead(
             id=job.id,
@@ -462,6 +486,8 @@ async def list_jobs(
             company_id=job.company_id,
             project=project_name_map.get(job.project_id, "-"),
             project_id=job.project_id,
+            referral_bonus_model_id=job.referral_bonus_model_id,
+            referral_bonus_model_name=referral_bonus_model_name_map.get(job.referral_bonus_model_id),
             country=job.country,
             status=job.status,
             applicants=job.applicant_count,
@@ -493,6 +519,11 @@ async def create_job(
         project_id=payload.project_id,
         db=db,
     )
+    referral_bonus_model = await ensure_referral_bonus_model(
+        model_id=payload.referral_bonus_model_id,
+        db=db,
+        active_only=True,
+    )
     await _ensure_mail_dependencies_exist(
         enabled=payload.assessment_config.enabled,
         mail_account_id=payload.assessment_config.mail_account_id,
@@ -517,12 +548,14 @@ async def create_job(
     data["assessment_mail_account_label"] = payload.assessment_config.mail_account_label
     data["assessment_mail_template_name"] = payload.assessment_config.mail_template_name
     data["assessment_mail_signature_name"] = payload.assessment_config.mail_signature_name
+    data[JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY] = payload.assessment_config.assessment_external_url
     data[JOB_DATA_REJECTION_MAIL_CONFIG_KEY] = payload.rejection_mail_config.model_dump()
 
     job = Job(
         title=payload.title,
         company_id=company_id,
         project_id=project_id,
+        referral_bonus_model_id=referral_bonus_model.id,
         country=payload.country,
         status=payload.status,
         work_mode=payload.work_mode,
@@ -549,6 +582,7 @@ async def create_job(
         owner_name,
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
+        referral_bonus_model.name,
     )
 
 
@@ -578,9 +612,15 @@ async def update_job(
             admin_user_id=int(current_admin["id"]),
         )
         job.assessment_enabled = payload.assessment_config.enabled
-        job.assessment_mail_account_id = payload.assessment_config.mail_account_id if payload.assessment_config.enabled else None
-        job.assessment_mail_template_id = payload.assessment_config.mail_template_id if payload.assessment_config.enabled else None
-        job.assessment_mail_signature_id = payload.assessment_config.mail_signature_id if payload.assessment_config.enabled else None
+        job.assessment_mail_account_id = (
+            payload.assessment_config.mail_account_id if payload.assessment_config.enabled else None
+        )
+        job.assessment_mail_template_id = (
+            payload.assessment_config.mail_template_id if payload.assessment_config.enabled else None
+        )
+        job.assessment_mail_signature_id = (
+            payload.assessment_config.mail_signature_id if payload.assessment_config.enabled else None
+        )
 
     if payload.rejection_mail_config is not None:
         await _ensure_mail_dependencies_exist(
@@ -607,6 +647,16 @@ async def update_job(
         )
     elif payload.company_id is not None and next_company_id != job.company_id:
         raise BadRequestException("Project selection is required when company changes.")
+
+    if payload.referral_bonus_model_id is not None and int(payload.referral_bonus_model_id) != int(
+        job.referral_bonus_model_id
+    ):
+        referral_bonus_model = await ensure_referral_bonus_model(
+            model_id=payload.referral_bonus_model_id,
+            db=db,
+            active_only=True,
+        )
+        job.referral_bonus_model_id = referral_bonus_model.id
 
     if payload.title is not None:
         job.title = payload.title
@@ -640,6 +690,7 @@ async def update_job(
         next_data["assessment_mail_account_label"] = payload.assessment_config.mail_account_label
         next_data["assessment_mail_template_name"] = payload.assessment_config.mail_template_name
         next_data["assessment_mail_signature_name"] = payload.assessment_config.mail_signature_name
+        next_data[JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY] = payload.assessment_config.assessment_external_url
     if payload.rejection_mail_config is not None:
         next_data[JOB_DATA_REJECTION_MAIL_CONFIG_KEY] = payload.rejection_mail_config.model_dump()
     job.data = next_data
@@ -649,9 +700,11 @@ async def update_job(
     await db.refresh(job)
     company_name_map = await _get_company_name_map(db, [job.company_id])
     project_name_map = await _get_project_name_map(db, [job.project_id])
+    referral_bonus_model_name_map = await _get_referral_bonus_model_name_map(db, [job.referral_bonus_model_id])
     return serialize_job(
         job,
         next_owner_name,
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
+        referral_bonus_model_name_map.get(job.referral_bonus_model_id),
     )

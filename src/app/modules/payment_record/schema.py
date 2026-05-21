@@ -40,6 +40,103 @@ class PaymentRecordListPage(BaseModel):
     page_size: int
 
 
+class PaymentPayableRecordRead(BaseModel):
+    id: str
+    source_key: str
+    source_month: str
+    payout_status: str
+    payment_record_id: int | None = None
+    user_id: int
+    talent_profile_id: int | None = None
+    contract_record_id: int | None = None
+    payment_type: str
+    amount: Decimal
+    currency: str = "USD"
+    paid_at: datetime | None = None
+    external_platform: str | None = None
+    external_transaction_no: str | None = None
+    remark: str | None = None
+    user_name: str | None = None
+    user_email: str | None = None
+    company_id: int | None = None
+    project_id: int | None = None
+    company_name: str | None = None
+    project_name: str | None = None
+    contract_ref_no: str | None = None
+    work_hours: Decimal
+    rate: Decimal | None = None
+    bonus_multiplier: Decimal | None = None
+    source_record_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PaymentPayableSummaryRead(BaseModel):
+    month: str
+    pending_count: int = 0
+    paid_count: int = 0
+    pending_amount: Decimal = Decimal("0.00")
+    paid_amount: Decimal = Decimal("0.00")
+    total_amount: Decimal = Decimal("0.00")
+    currency: str = "USD"
+
+
+class PaymentPayableListPage(BaseModel):
+    items: list[PaymentPayableRecordRead] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    summary: PaymentPayableSummaryRead
+
+
+class PaymentPayableMarkPaidRequest(BaseModel):
+    source_keys: list[str] = Field(..., min_length=1)
+    paid_at: datetime | None = None
+    external_platform: str | None = Field(default=None, max_length=120)
+    external_transaction_no: str | None = Field(default=None, max_length=160)
+    remark: str | None = None
+
+    @field_validator("source_keys")
+    @classmethod
+    def normalize_source_keys(cls, value: list[str]) -> list[str]:
+        keys = [str(item).strip() for item in value if str(item).strip()]
+        if not keys:
+            raise ValueError("At least one payable record is required.")
+        return list(dict.fromkeys(keys))
+
+    @field_validator("external_platform", "external_transaction_no", "remark", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
+class PaymentPayableMarkPaidResponse(BaseModel):
+    items: list[PaymentPayableRecordRead] = Field(default_factory=list)
+    created_count: int
+
+
+class PaymentPayableUpdateRequest(BaseModel):
+    paid_at: datetime | None = None
+    external_platform: str | None = Field(default=None, max_length=120)
+    external_transaction_no: str | None = Field(default=None, max_length=160)
+    remark: str | None = None
+
+    @field_validator("external_platform", "external_transaction_no", "remark", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
+class PaymentPayableUpdateResponse(BaseModel):
+    item: PaymentPayableRecordRead
+
+
 class CandidateEarningsSummaryRead(BaseModel):
     total_paid: Decimal
     month_paid: Decimal

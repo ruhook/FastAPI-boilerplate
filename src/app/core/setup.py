@@ -29,6 +29,8 @@ from ..modules.candidate_application_field_value.model import CandidateApplicati
 from ..modules.job.model import Job
 from ..modules.job_progress.model import JobProgress
 from ..modules.operation_log.model import OperationLog
+from ..modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
+from ..modules.referral.model import ReferralRecord
 from ..modules.talent_profile.model import TalentProfile
 from ..modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from ..modules.user.model import User
@@ -66,6 +68,9 @@ REGISTERED_MODELS = (
     CandidateApplicationFieldValue,
     JobProgress,
     OperationLog,
+    ReferralBonusModel,
+    UserReferralProfile,
+    ReferralRecord,
     TalentProfile,
     TalentProfileMergeLog,
 )

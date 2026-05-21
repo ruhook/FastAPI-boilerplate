@@ -25,12 +25,20 @@ class ReferralRecordRead(BaseModel):
     paid_reward_amount: Decimal
     payable_reward_amount: Decimal
     payout_status: str
+    currency: str = "USD"
+    reward_cap: Decimal = Decimal("0.00")
+    bonus_model_name: str | None = None
+    milestones: list[ReferralMilestoneRead] = Field(default_factory=list)
     last_paid_at: datetime | None = None
 
 
 class CandidateReferralDashboardRead(BaseModel):
+    eligible: bool = True
+    ineligible_reason: str | None = None
     referral_code: str
     reward_cap: Decimal
+    currency: str = "USD"
+    bonus_model_name: str | None = None
     total_rewards: Decimal
     active_referral_count: int
     milestones: list[ReferralMilestoneRead] = Field(default_factory=list)
