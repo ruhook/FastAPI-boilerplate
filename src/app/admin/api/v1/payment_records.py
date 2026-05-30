@@ -66,6 +66,8 @@ async def read_payment_payables(
     keyword: str | None = Query(default=None),
     payment_type: str | None = Query(default=None),
     payout_status: str | None = Query(default=None),
+    sort_by: str | None = Query(default=None),
+    sort_order: str | None = Query(default=None),
 ) -> dict[str, Any]:
     return await list_auto_payment_payables_for_admin(
         db=db,
@@ -75,6 +77,8 @@ async def read_payment_payables(
         keyword=keyword,
         payment_type=payment_type,
         payout_status=payout_status,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
 

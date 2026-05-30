@@ -255,19 +255,24 @@ async def list_active_project_workers(
     company_id: int,
     project_id: int,
     db: AsyncSession,
+    contract_type: str | None = None,
 ) -> list[dict[str, Any]]:
+    conditions = [
+        ContractRecord.is_deleted.is_(False),
+        ContractRecord.is_current.is_(True),
+        ContractRecord.service_customer_company_id == company_id,
+        ContractRecord.service_customer_project_id == project_id,
+        ContractRecord.contract_status == CONTRACT_STATUS_ACTIVE,
+        User.is_deleted.is_(False),
+    ]
+    if contract_type is not None:
+        conditions.append(ContractRecord.contract_type == contract_type)
+
     result = await db.execute(
         select(ContractRecord, User, TalentProfile)
         .join(User, User.id == ContractRecord.user_id)
         .outerjoin(TalentProfile, TalentProfile.id == ContractRecord.talent_profile_id)
-        .where(
-            ContractRecord.is_deleted.is_(False),
-            ContractRecord.is_current.is_(True),
-            ContractRecord.service_customer_company_id == company_id,
-            ContractRecord.service_customer_project_id == project_id,
-            ContractRecord.contract_status == "Active",
-            User.is_deleted.is_(False),
-        )
+        .where(*conditions)
         .order_by(ContractRecord.updated_at.desc(), ContractRecord.id.desc())
     )
 
@@ -278,6 +283,7 @@ async def list_active_project_workers(
                 user_id=int(user.id),
                 talent_profile_id=int(talent.id) if talent is not None else record.talent_profile_id,
                 contract_record_id=int(record.id),
+                contract_type=record.contract_type,
                 name=(
                     (talent.full_name if talent and talent.full_name else None)
                     or record.contractor_name
@@ -292,6 +298,20 @@ async def list_active_project_workers(
     return sorted(
         workers,
         key=lambda item: (str(item["name"]).casefold(), int(item["contract_record_id"] or 0)),
+    )
+
+
+async def list_active_project_team_leaders(
+    *,
+    company_id: int,
+    project_id: int,
+    db: AsyncSession,
+) -> list[dict[str, Any]]:
+    return await list_active_project_workers(
+        company_id=company_id,
+        project_id=project_id,
+        db=db,
+        contract_type=CONTRACT_TYPE_TEAM_LEADER,
     )
 
 
@@ -632,6 +652,12 @@ async def list_project_timesheet_workspace(
     ]
 
     latest_created_at = max((record.created_at for record in filtered_records), default=None)
+    active_workers = await list_active_project_workers(company_id=company_id, project_id=project_id, db=db)
+    active_team_leader_workers = await list_active_project_team_leaders(
+        company_id=company_id,
+        project_id=project_id,
+        db=db,
+    )
 
     return ProjectTimesheetWorkspaceRead(
         company_id=company.id,
@@ -642,7 +668,8 @@ async def list_project_timesheet_workspace(
         timesheet_work_types=_get_company_timesheet_work_types(company),
         timesheet_roles=_get_company_timesheet_roles(company),
         available_team_leaders=available_team_leaders,
-        available_workers=await list_active_project_workers(company_id=company_id, project_id=project_id, db=db),
+        available_team_leader_workers=active_team_leader_workers,
+        available_workers=active_workers,
         latest_created_at=latest_created_at,
         dashboard_items=dashboard_items,
         records=[
@@ -1433,9 +1460,10 @@ async def create_project_timesheet_records(
     worker_map = {
         int(worker["contract_record_id"]): worker for worker in worker_options if worker.get("contract_record_id")
     }
-    active_worker_user_ids = {int(worker["user_id"]) for worker in worker_options}
-    if int(payload.team_leader_user_id) not in active_worker_user_ids:
-        raise BadRequestException("Selected team leader is not available for this project.")
+    team_leader_options = await list_active_project_team_leaders(company_id=company_id, project_id=project_id, db=db)
+    active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
+    if int(payload.team_leader_user_id) not in active_team_leader_user_ids:
+        raise BadRequestException("Selected team leader must have an active team leader contract for this project.")
 
     note_asset_ids = sorted(
         {int(asset_id) for entry in payload.entries for asset_id in entry.note_asset_ids if int(asset_id) > 0}
@@ -1530,10 +1558,10 @@ async def update_project_timesheet_record(
     if timesheet_roles and role_name and role_name not in timesheet_roles:
         raise BadRequestException("Selected role is not configured for this company.")
 
-    worker_options = await list_active_project_workers(company_id=company_id, project_id=project_id, db=db)
-    active_worker_user_ids = {int(worker["user_id"]) for worker in worker_options}
-    if int(payload.team_leader_user_id) not in active_worker_user_ids:
-        raise BadRequestException("Selected team leader is not available for this project.")
+    team_leader_options = await list_active_project_team_leaders(company_id=company_id, project_id=project_id, db=db)
+    active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
+    if int(payload.team_leader_user_id) not in active_team_leader_user_ids:
+        raise BadRequestException("Selected team leader must have an active team leader contract for this project.")
 
     await _validate_timesheet_note_assets(
         db=db,

@@ -22,6 +22,7 @@ class ProjectTimesheetWorkerOptionRead(BaseModel):
     user_id: int
     talent_profile_id: int | None = None
     contract_record_id: int | None = None
+    contract_type: str | None = None
     name: str
     email: str | None = None
     agreement_ref_no: str | None = None
@@ -73,6 +74,7 @@ class ProjectTimesheetWorkspaceRead(BaseModel):
     timesheet_work_types: list[str] = Field(default_factory=list)
     timesheet_roles: list[str] = Field(default_factory=list)
     available_team_leaders: list[str] = Field(default_factory=list)
+    available_team_leader_workers: list[ProjectTimesheetWorkerOptionRead] = Field(default_factory=list)
     available_workers: list[ProjectTimesheetWorkerOptionRead] = Field(default_factory=list)
     latest_created_at: datetime | None = None
     dashboard_items: list[ProjectTimesheetDashboardItemRead] = Field(default_factory=list)

@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_superuser, require_any_admin_permission
+from ...dependencies import get_current_admin_user, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.referral_bonus_model.schema import (
     ReferralBonusModelCreate,
@@ -22,6 +22,7 @@ from .....modules.referral_bonus_model.service import (
 router = APIRouter(prefix="/referral-bonus-models", tags=["admin-referral-bonus-models"])
 
 REFERRAL_BONUS_MODEL_READ_PERMISSIONS = ("岗位管理", "邀请奖励", "流水记录")
+REFERRAL_BONUS_MODEL_WRITE_PERMISSIONS = REFERRAL_BONUS_MODEL_READ_PERMISSIONS
 
 
 @router.get(
@@ -53,12 +54,12 @@ async def read_referral_bonus_model(
     "",
     response_model=ReferralBonusModelRead,
     status_code=201,
-    dependencies=[Depends(get_current_admin_superuser)],
+    dependencies=[Depends(require_any_admin_permission(*REFERRAL_BONUS_MODEL_WRITE_PERMISSIONS))],
 )
 async def create_referral_bonus_model_endpoint(
     payload: ReferralBonusModelCreate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_superuser)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
     return await create_referral_bonus_model(payload, db, admin_user_id=int(current_admin["id"]))
 
@@ -66,25 +67,24 @@ async def create_referral_bonus_model_endpoint(
 @router.patch(
     "/{model_id}",
     response_model=ReferralBonusModelRead,
-    dependencies=[Depends(get_current_admin_superuser)],
+    dependencies=[Depends(require_any_admin_permission(*REFERRAL_BONUS_MODEL_WRITE_PERMISSIONS))],
 )
 async def update_referral_bonus_model_endpoint(
     model_id: int,
     payload: ReferralBonusModelUpdate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_superuser)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
     return await update_referral_bonus_model(model_id, payload, db, admin_user_id=int(current_admin["id"]))
 
 
 @router.delete(
     "/{model_id}",
-    dependencies=[Depends(get_current_admin_superuser)],
+    dependencies=[Depends(require_any_admin_permission(*REFERRAL_BONUS_MODEL_WRITE_PERMISSIONS))],
 )
 async def delete_referral_bonus_model_endpoint(
     model_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_superuser)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, str]:
     return await delete_referral_bonus_model(model_id, db, admin_user_id=int(current_admin["id"]))
-

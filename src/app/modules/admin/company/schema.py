@@ -81,6 +81,18 @@ class CompanyProjectRead(CompanyProjectBase):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class CompanyProjectMenuProjectRead(BaseModel):
+    id: int
+    company_id: int
+    name: str
+
+
+class CompanyProjectMenuCompanyRead(BaseModel):
+    id: int
+    name: str
+    projects: list[CompanyProjectMenuProjectRead] = Field(default_factory=list)
+
+
 class CompanyProjectCreate(CompanyProjectBase):
     model_config = ConfigDict(extra="forbid")
 

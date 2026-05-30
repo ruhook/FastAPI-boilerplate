@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from starlette.middleware.gzip import GZipMiddleware
 
 from ..admin.api.dependencies import get_current_admin_superuser
 from ..middleware.logger_middleware import LoggerMiddleware
@@ -220,6 +221,7 @@ def create_application(
             allow_methods=settings.CORS_METHODS,
             allow_headers=settings.CORS_HEADERS,
         )
+    application.add_middleware(GZipMiddleware, minimum_size=1024)
     application.add_middleware(LoggerMiddleware)
     if isinstance(settings, EnvironmentSettings):
         if settings.ENVIRONMENT != EnvironmentOption.PRODUCTION:

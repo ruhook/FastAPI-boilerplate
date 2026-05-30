@@ -233,6 +233,94 @@ def _payable_sort_key(item: PaymentPayableRecordRead) -> tuple[int, str, str, st
     )
 
 
+PAYABLE_SORT_FIELDS = {
+    "sourceMonth",
+    "userName",
+    "paymentType",
+    "companyName",
+    "contractRefNo",
+    "workHours",
+    "amount",
+    "payoutStatus",
+    "paidAt",
+    "externalTransactionNo",
+    "remark",
+}
+
+
+def _safe_normalize_payable_sort_by(value: str | None) -> str | None:
+    sort_by = (value or "").strip()
+    if not sort_by:
+        return None
+    if sort_by not in PAYABLE_SORT_FIELDS:
+        raise BadRequestException("Invalid payable sort field.")
+    return sort_by
+
+
+def _safe_normalize_payable_sort_order(value: str | None) -> str:
+    sort_order = (value or "ascend").strip().casefold()
+    if sort_order in ("asc", "ascend"):
+        return "ascend"
+    if sort_order in ("desc", "descend"):
+        return "descend"
+    raise BadRequestException("Invalid payable sort order.")
+
+
+def _payable_text_sort_value(value: str | None) -> str:
+    return (value or "").casefold()
+
+
+def _payable_datetime_sort_value(value: datetime | None) -> float:
+    return value.timestamp() if value is not None else float("-inf")
+
+
+def _payable_sort_value(item: PaymentPayableRecordRead, sort_by: str) -> tuple[Any, ...]:
+    if sort_by == "sourceMonth":
+        return (item.source_month,)
+    if sort_by == "userName":
+        return (_payable_text_sort_value(item.user_name), _payable_text_sort_value(item.user_email))
+    if sort_by == "paymentType":
+        return (_payable_text_sort_value(item.payment_type),)
+    if sort_by == "companyName":
+        return (_payable_text_sort_value(item.company_name), _payable_text_sort_value(item.project_name))
+    if sort_by == "contractRefNo":
+        return (_payable_text_sort_value(item.contract_ref_no),)
+    if sort_by == "workHours":
+        return (item.work_hours,)
+    if sort_by == "amount":
+        return (item.amount,)
+    if sort_by == "payoutStatus":
+        return (_payable_text_sort_value(item.payout_status),)
+    if sort_by == "paidAt":
+        return (_payable_datetime_sort_value(item.paid_at),)
+    if sort_by == "externalTransactionNo":
+        return (
+            _payable_text_sort_value(item.external_platform),
+            _payable_text_sort_value(item.external_transaction_no),
+        )
+    if sort_by == "remark":
+        return (_payable_text_sort_value(item.remark),)
+    return _payable_sort_key(item)
+
+
+def _sort_payables(
+    items: list[PaymentPayableRecordRead],
+    *,
+    sort_by: str | None,
+    sort_order: str | None,
+) -> None:
+    normalized_sort_by = _safe_normalize_payable_sort_by(sort_by)
+    if normalized_sort_by is None:
+        items.sort(key=_payable_sort_key)
+        items.reverse()
+        return
+    normalized_sort_order = _safe_normalize_payable_sort_order(sort_order)
+    items.sort(
+        key=lambda item: (_payable_sort_value(item, normalized_sort_by), _payable_sort_key(item)),
+        reverse=normalized_sort_order == "descend",
+    )
+
+
 def _build_auto_payable_data(item: _CalculatedPayable) -> dict[str, Any]:
     calculation: dict[str, Any] = {
         "work_hours": str(_normalize_decimal(item.work_hours)),
@@ -562,7 +650,7 @@ def _serialize_paid_payable_record(record: PaymentRecord) -> PaymentPayableRecor
 async def _load_paid_auto_payables(
     *,
     db: AsyncSession,
-    payable_month: str | None = None,
+    source_month: str | None = None,
     payment_type: str | None = None,
 ) -> dict[str, PaymentPayableRecordRead]:
     conditions = [
@@ -581,7 +669,7 @@ async def _load_paid_auto_payables(
         item = _serialize_paid_payable_record(record)
         if item is None:
             continue
-        if payable_month and item.source_month >= payable_month:
+        if source_month and item.source_month != source_month:
             continue
         records_by_source_key.setdefault(item.source_key, item)
     return records_by_source_key
@@ -814,13 +902,16 @@ async def list_auto_payment_payables_for_admin(
     keyword: str | None = None,
     payment_type: str | None = None,
     payout_status: str | None = None,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
 ) -> dict[str, Any]:
-    payable_month, cutoff_start = _parse_payable_month(month)
+    payable_month, _month_start = _parse_payable_month(month)
+    cutoff_start = _next_month_start(payable_month)
     normalized_payment_type = _safe_normalize_payment_type(payment_type) if payment_type else None
     normalized_payout_status = _safe_normalize_payout_status(payout_status) if payout_status else None
     paid_by_source_key = await _load_paid_auto_payables(
         db=db,
-        payable_month=payable_month,
+        source_month=payable_month,
         payment_type=normalized_payment_type,
     )
     items: list[PaymentPayableRecordRead] = []
@@ -835,12 +926,11 @@ async def list_auto_payment_payables_for_admin(
         items.extend(
             _serialize_calculated_payable(item)
             for item in calculated
-            if item.source_month < payable_month and item.source_key not in paid_by_source_key
+            if item.source_month == payable_month and item.source_key not in paid_by_source_key
         )
 
     items = [item for item in items if _payable_matches_keyword(item, keyword)]
-    items.sort(key=_payable_sort_key)
-    items = list(reversed(items))
+    _sort_payables(items, sort_by=sort_by, sort_order=sort_order)
     total = len(items)
     offset = (page - 1) * page_size
     return PaymentPayableListPage(

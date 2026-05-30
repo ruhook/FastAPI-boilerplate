@@ -11,6 +11,7 @@ from .....core.db.database import async_get_db
 from .....modules.admin.company.schema import (
     CompanyCreate,
     CompanyProjectCreate,
+    CompanyProjectMenuCompanyRead,
     CompanyProjectRead,
     CompanyProjectUpdate,
     CompanyRead,
@@ -24,6 +25,7 @@ from .....modules.admin.company.service import (
     get_company_model,
     get_company_project_model,
     list_companies,
+    list_company_project_menu,
     list_company_projects,
     serialize_company,
     serialize_company_project,
@@ -43,6 +45,15 @@ COMPANY_PROJECT_READ_PERMISSIONS = ("公司管理", "岗位管理", "合同管�
 )
 async def read_companies(db: Annotated[AsyncSession, Depends(async_get_db)]) -> list[dict[str, Any]]:
     return await list_companies(db)
+
+
+@router.get(
+    "/project-menu",
+    response_model=list[CompanyProjectMenuCompanyRead],
+    dependencies=[Depends(require_any_admin_permission(*COMPANY_PROJECT_READ_PERMISSIONS))],
+)
+async def read_company_project_menu(db: Annotated[AsyncSession, Depends(async_get_db)]) -> list[dict[str, Any]]:
+    return await list_company_project_menu(db)
 
 
 @router.get(

@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,6 +16,8 @@ from .model import AdminCompany, AdminCompanyProject
 from .schema import (
     CompanyCreate,
     CompanyProjectCreate,
+    CompanyProjectMenuCompanyRead,
+    CompanyProjectMenuProjectRead,
     CompanyProjectRead,
     CompanyProjectUpdate,
     CompanyRead,
@@ -92,6 +95,35 @@ async def list_companies(db: AsyncSession) -> list[dict[str, Any]]:
     )
     companies = result.scalars().all()
     return [await serialize_company(company, db) for company in companies]
+
+
+async def list_company_project_menu(db: AsyncSession) -> list[dict[str, Any]]:
+    companies_result = await db.execute(
+        select(AdminCompany.id, AdminCompany.name)
+        .where(AdminCompany.is_deleted.is_(False))
+        .order_by(AdminCompany.name.asc(), AdminCompany.id.asc())
+    )
+    companies = companies_result.all()
+
+    projects_result = await db.execute(
+        select(AdminCompanyProject.id, AdminCompanyProject.company_id, AdminCompanyProject.name)
+        .where(AdminCompanyProject.is_deleted.is_(False))
+        .order_by(AdminCompanyProject.company_id.asc(), AdminCompanyProject.name.asc(), AdminCompanyProject.id.asc())
+    )
+    projects_by_company: dict[int, list[CompanyProjectMenuProjectRead]] = defaultdict(list)
+    for project_id, company_id, project_name in projects_result.all():
+        projects_by_company[int(company_id)].append(
+            CompanyProjectMenuProjectRead(id=project_id, company_id=company_id, name=project_name)
+        )
+
+    return [
+        CompanyProjectMenuCompanyRead(
+            id=company_id,
+            name=company_name,
+            projects=projects_by_company.get(int(company_id), []),
+        ).model_dump()
+        for company_id, company_name in companies
+    ]
 
 
 async def get_company_model(company_id: int, db: AsyncSession) -> AdminCompany:

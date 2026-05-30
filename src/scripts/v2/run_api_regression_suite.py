@@ -826,9 +826,14 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
         available_workers = [
             item for item in workspace_payload.get("available_workers", []) if item.get("contract_record_id")
         ]
+        available_team_leaders = [
+            item
+            for item in workspace_payload.get("available_team_leader_workers", [])
+            if item.get("contract_record_id")
+        ]
         leader_user_id = int(
             (workspace_payload.get("records", [{}])[0] or {}).get("team_leader_user_id")
-            or available_workers[0]["user_id"]
+            or available_team_leaders[0]["user_id"]
         )
         if target_record is None:
             target_record = next(
@@ -1131,9 +1136,18 @@ async def check_admin_timesheet_mutations(context: SuiteContext) -> str:
             item for item in workspace_payload.get("available_workers", []) if item.get("contract_record_id")
         ]
         assert_true(bool(available_workers), "No active workers were returned for the timesheet workspace.")
+        available_team_leaders = [
+            item
+            for item in workspace_payload.get("available_team_leader_workers", [])
+            if item.get("contract_record_id")
+        ]
+        assert_true(
+            bool(available_team_leaders),
+            "No active team leader contracts were returned for the timesheet workspace.",
+        )
         leader_user_id = int(
             (workspace_payload.get("records", [{}])[0] or {}).get("team_leader_user_id")
-            or available_workers[0]["user_id"]
+            or available_team_leaders[0]["user_id"]
         )
         language = str((workspace_payload.get("timesheet_languages") or ["en-US"])[0])
         work_type = str((workspace_payload.get("timesheet_work_types") or ["Annotation"])[0])
