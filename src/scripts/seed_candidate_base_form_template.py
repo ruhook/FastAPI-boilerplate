@@ -5,13 +5,17 @@ from typing import Any
 from sqlalchemy import select, update
 
 from ..app.core.db.database import async_engine, local_session
+from ..app.modules.admin.dictionary.model import AdminDictionary
+from ..app.modules.admin.form_template.model import AdminFormTemplate
 from ..app.modules.candidate_field.const import (
     CANDIDATE_FIELD_CATALOG_DICTIONARY_KEY,
     CandidateFieldKey,
     build_candidate_field_catalog_options,
 )
-from ..app.modules.admin.dictionary.model import AdminDictionary
-from ..app.modules.admin.form_template.model import AdminFormTemplate
+from ..app.modules.candidate_field.global_dictionary_options import (
+    GLOBAL_COUNTRY_OPTIONS,
+    GLOBAL_LANGUAGE_OPTIONS,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,6 +24,9 @@ TEMPLATE_NAME = "基础候选人报名模板"
 
 
 FIELD_CATALOG_OPTIONS = build_candidate_field_catalog_options()
+
+COUNTRY_OPTIONS = GLOBAL_COUNTRY_OPTIONS
+LANGUAGE_OPTIONS = GLOBAL_LANGUAGE_OPTIONS
 
 
 DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
@@ -31,18 +38,12 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
     {
         "key": "country",
         "label": "国家",
-        "options": [
-            {"label": "Brazil", "admin_label": "巴西", "value": "Brazil"},
-            {"label": "China", "admin_label": "中国", "value": "China"},
-            {"label": "Singapore", "admin_label": "新加坡", "value": "Singapore"},
-            {"label": "Malaysia", "admin_label": "马来西亚", "value": "Malaysia"},
-            {"label": "Indonesia", "admin_label": "印度尼西亚", "value": "Indonesia"},
-            {"label": "Philippines", "admin_label": "菲律宾", "value": "Philippines"},
-            {"label": "Thailand", "admin_label": "泰国", "value": "Thailand"},
-            {"label": "Vietnam", "admin_label": "越南", "value": "Vietnam"},
-            {"label": "India", "admin_label": "印度", "value": "India"},
-            {"label": "Canada", "admin_label": "加拿大", "value": "Canada"},
-        ],
+        "options": COUNTRY_OPTIONS,
+    },
+    {
+        "key": "candidate_language",
+        "label": "候选人语言",
+        "options": LANGUAGE_OPTIONS,
     },
     {
         "key": "candidate_city",
@@ -129,7 +130,11 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
                 "admin_label": "不需要，我现在和未来都不需要签证支持",
                 "value": "no_sponsorship_required",
             },
-            {"label": "Yes, I require sponsorship", "admin_label": "需要，我需要签证支持", "value": "sponsorship_required"},
+            {
+                "label": "Yes, I require sponsorship",
+                "admin_label": "需要，我需要签证支持",
+                "value": "sponsorship_required",
+            },
             {"label": "Other", "admin_label": "其他", "value": "other"},
         ],
     },
@@ -153,13 +158,26 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
 
 FIELD_DESCRIPTIONS = {
     CandidateFieldKey.WHATSAPP.value: "If we cannot connect you via email, we may try this way.",
-    CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: "Please enter the country name in English, such as United Kingdom, the Philippines, or Brazil.",
+    CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: (
+        "Please enter the country name in English, such as United Kingdom, "
+        "the Philippines, or Brazil."
+    ),
     CandidateFieldKey.CITY.value: "Please enter the city name in English, such as Bangkok, Sao Paulo, or Jakarta.",
-    CandidateFieldKey.NATIVE_LANGUAGES.value: "e.g. English, Malay, Korea",
-    CandidateFieldKey.AGE_RANGE.value: "Required for internal analysis only; this information will not be used for selection decisions. We welcome applicants of all age range groups who pass the test~",
+    CandidateFieldKey.NATIVE_LANGUAGES.value: "e.g. English, Malay, Korean",
+    CandidateFieldKey.AGE_RANGE.value: (
+        "Required for internal analysis only; this information will not be used for "
+        "selection decisions. We welcome applicants of all age range groups who pass the test~"
+    ),
     CandidateFieldKey.EXPECTED_SALARY_USD_PER_HOUR.value: "Please choose your expected rate in USD.",
-    CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP.value: "This is an independent contractor role. Please select whether you now or in the future require visa sponsorship to work with us.",
-    CandidateFieldKey.RESUME_ATTACHMENT.value: "Kindly ensure your resume includes a valid email address. In case the email provided in this form is incorrect, we will try to reach you via the email listed in your resume.",
+    CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP.value: (
+        "This is an independent contractor role. Please select whether you now or in the "
+        "future require visa sponsorship to work with us."
+    ),
+    CandidateFieldKey.RESUME_ATTACHMENT.value: (
+        "Kindly ensure your resume includes a valid email address. In case the email "
+        "provided in this form is incorrect, we will try to reach you via the email listed "
+        "in your resume."
+    ),
 }
 
 
@@ -212,29 +230,29 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
     {
         "key": CandidateFieldKey.NATIONALITY.value,
         "label": "Nationality/Citizenship",
-        "type": "text",
+        "type": "select",
         "required": False,
         "group": "basic",
         "canFilter": True,
-        "placeholder": "Please enter your nationality/citizenship",
+        "dictionary_key": "country",
     },
     {
         "key": CandidateFieldKey.NATIVE_LANGUAGES.value,
         "label": "Please list all your native-level languages (in English)",
-        "type": "text",
+        "type": "multiselect",
         "required": True,
         "group": "basic",
         "canFilter": True,
-        "placeholder": "e.g. English, Malay, Korean",
+        "dictionary_key": "candidate_language",
     },
     {
         "key": CandidateFieldKey.ADDITIONAL_LANGUAGES.value,
         "label": "Please list any additional languages you speak at a proficient level (in English).",
-        "type": "text",
+        "type": "multiselect",
         "required": True,
         "group": "basic",
         "canFilter": True,
-        "placeholder": "Please list additional proficient languages",
+        "dictionary_key": "candidate_language",
     },
     {
         "key": CandidateFieldKey.AGE_RANGE.value,
@@ -292,7 +310,10 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
     },
     {
         "key": CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP.value,
-        "label": "Will you now or in the future require visa sponsorship to participate in this independent contractor role?",
+        "label": (
+            "Will you now or in the future require visa sponsorship to participate "
+            "in this independent contractor role?"
+        ),
         "type": "select",
         "required": True,
         "group": "work",
@@ -318,7 +339,10 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
     },
     {
         "key": CandidateFieldKey.ADDITIONAL_INFORMATION.value,
-        "label": "Please feel free to use this space to share any additional relevant information that would support your application for this role.",
+        "label": (
+            "Please feel free to use this space to share any additional relevant information "
+            "that would support your application for this role."
+        ),
         "type": "text",
         "required": False,
         "group": "other",

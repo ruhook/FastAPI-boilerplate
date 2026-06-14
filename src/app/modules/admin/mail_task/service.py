@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,12 +22,11 @@ from ..admin_user.model import AdminUser
 from ..mail_account.model import MailAccount
 from ..mail_account.service import get_mail_account_model
 from ..mail_signature.model import MailSignature
-from ..mail_signature.service import render_mail_signature_html
-from ..mail_signature.service import get_mail_signature_model
+from ..mail_signature.service import get_mail_signature_model, render_mail_signature_html
 from ..mail_task.const import (
-    MAIL_TASK_DATA_RESEND_FROM_TASK_ID_KEY,
     MAIL_TASK_DATA_RENDER_CONTEXT_KEY,
     MAIL_TASK_DATA_RENDERED_CONTEXT_KEY,
+    MAIL_TASK_DATA_RESEND_FROM_TASK_ID_KEY,
     MAIL_TASK_STATUS_CN_NAME_MAP,
     MailTaskStatus,
 )
@@ -190,38 +190,15 @@ def build_mail_render_context(
             or first_recipient.get("email")
         ),
         "candidate_email": _as_string(
-            candidate_context.get("email")
-            or candidate_context.get("candidate_email")
-            or first_recipient.get("email")
+            candidate_context.get("email") or candidate_context.get("candidate_email") or first_recipient.get("email")
         ),
         "job_title": _as_string(
-            job_context.get("title")
-            or job_context.get("job_title")
-            or raw_context.get("job_title")
+            job_context.get("title") or job_context.get("job_title") or raw_context.get("job_title")
         ),
-        "assessment_link": _as_string(
-            job_context.get("assessment_link")
-            or job_context.get("assessment_external_url")
-            or raw_context.get("assessment_link")
-            or raw_context.get("assessment_external_url")
-        ),
-        "assessment_external_url": _as_string(
-            job_context.get("assessment_external_url")
-            or job_context.get("assessment_link")
-            or raw_context.get("assessment_external_url")
-            or raw_context.get("assessment_link")
-        ),
+        "assessment_link": _as_string(job_context.get("assessment_link") or raw_context.get("assessment_link")),
         "contract_upload_url": _as_string(
             contract_context.get("upload_url")
             or contract_context.get("contract_upload_url")
-            or raw_context.get("contract_upload_url")
-            or raw_context.get("contract_link")
-        ),
-        "contract_link": _as_string(
-            contract_context.get("contract_link")
-            or contract_context.get("upload_url")
-            or contract_context.get("contract_upload_url")
-            or raw_context.get("contract_link")
             or raw_context.get("contract_upload_url")
         ),
         "due_date": _as_string(job_context.get("due_date") or raw_context.get("due_date")),
@@ -231,11 +208,7 @@ def build_mail_render_context(
             or (signature.full_name if signature and signature.full_name else "")
             or account.email
         ),
-        "sender_email": _as_string(
-            sender_context.get("email")
-            or sender_context.get("sender_email")
-            or account.email
-        ),
+        "sender_email": _as_string(sender_context.get("email") or sender_context.get("sender_email") or account.email),
         "company_name": _as_string(
             company_context.get("name")
             or company_context.get("company_name")
@@ -269,7 +242,11 @@ def render_template_text(content: str, context: dict[str, str]) -> str:
         key = match.group(1)
         return context.get(key, match.group(0))
 
-    return TOKEN_PATTERN.sub(replace_token, content)
+    rendered = TOKEN_PATTERN.sub(replace_token, content)
+    for key, value in context.items():
+        encoded_token = quote(f"{{{{{key}}}}}", safe="")
+        rendered = rendered.replace(encoded_token, value)
+    return rendered
 
 
 def _format_recipients(recipients: list[dict[str, str | None]]) -> list[str]:
@@ -330,7 +307,9 @@ async def _build_mail_signature_html_pair(signature: MailSignature | None, db: A
     if signature is None:
         return "", ""
 
-    asset_ids = [asset_id for asset_id in [signature.avatar_asset_id, signature.banner_asset_id] if asset_id is not None]
+    asset_ids = [
+        asset_id for asset_id in [signature.avatar_asset_id, signature.banner_asset_id] if asset_id is not None
+    ]
     asset_map: dict[int, Any] = {}
     if asset_ids:
         assets = await ensure_assets_exist(db, asset_ids=asset_ids)
@@ -374,9 +353,11 @@ def _compose_final_body_html(body_html: str, signature_html: str) -> str:
         ".email-shell{padding:28px 16px;}"
         ".email-card{max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #d6e8f3;"
         "border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(19,128,175,0.08);}"
-        ".email-header{padding:24px 28px;background:linear-gradient(135deg,rgba(19,128,175,0.12) 0%,rgba(255,255,255,1) 70%);"
+        ".email-header{padding:24px 28px;background:linear-gradient("
+        "135deg,rgba(19,128,175,0.12) 0%,rgba(255,255,255,1) 70%);"
         "border-bottom:1px solid #e3eef5;}"
-        ".email-header-eyebrow{display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(19,128,175,0.10);"
+        ".email-header-eyebrow{display:inline-block;padding:8px 14px;border-radius:999px;"
+        "background:rgba(19,128,175,0.10);"
         "color:#1380af;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;}"
         ".email-header-title{margin:16px 0 10px;font-size:28px;line-height:1.2;color:#17324a;font-weight:700;}"
         ".email-header-copy{margin:0;color:#486476;font-size:14px;line-height:1.75;}"
@@ -384,8 +365,10 @@ def _compose_final_body_html(body_html: str, signature_html: str) -> str:
         ".email-richtext{color:#1f3447;font-size:15px;line-height:1.8;word-break:break-word;}"
         ".email-richtext > *:first-child{margin-top:0 !important;}"
         ".email-richtext > *:last-child{margin-bottom:0 !important;}"
-        ".email-richtext p,.email-richtext ul,.email-richtext ol,.email-richtext blockquote,.email-richtext pre{margin:0 0 16px;}"
-        ".email-richtext h1,.email-richtext h2,.email-richtext h3,.email-richtext h4,.email-richtext h5,.email-richtext h6{"
+        ".email-richtext p,.email-richtext ul,.email-richtext ol,"
+        ".email-richtext blockquote,.email-richtext pre{margin:0 0 16px;}"
+        ".email-richtext h1,.email-richtext h2,.email-richtext h3,"
+        ".email-richtext h4,.email-richtext h5,.email-richtext h6{"
         "margin:0 0 14px;color:#17324a;line-height:1.35;font-weight:700;}"
         ".email-richtext h1{font-size:28px;}.email-richtext h2{font-size:24px;}.email-richtext h3{font-size:20px;}"
         ".email-richtext h4{font-size:18px;}.email-richtext h5{font-size:16px;}.email-richtext h6{font-size:15px;}"
@@ -399,28 +382,34 @@ def _compose_final_body_html(body_html: str, signature_html: str) -> str:
         ".email-richtext hr{border:0;border-top:1px solid #d7e8f3;margin:24px 0;}"
         ".email-richtext table{width:100%;border-collapse:collapse;margin:18px 0;background:#ffffff;"
         "border:1px solid #dbeaf3;border-radius:14px;overflow:hidden;}"
-        ".email-richtext th,.email-richtext td{padding:12px 14px;border-bottom:1px solid #e6f0f6;text-align:left;vertical-align:top;}"
+        ".email-richtext th,.email-richtext td{padding:12px 14px;"
+        "border-bottom:1px solid #e6f0f6;text-align:left;vertical-align:top;}"
         ".email-richtext th{background:#f4f9fc;color:#486476;font-size:13px;font-weight:700;}"
         ".email-richtext tr:last-child td{border-bottom:none;}"
         ".email-richtext img{max-width:100%;height:auto;border-radius:14px;}"
         ".email-richtext code{padding:2px 6px;border-radius:8px;background:#f4f8fb;color:#0f3b56;font-size:13px;}"
         ".email-richtext pre{padding:16px;border-radius:14px;background:#0f2233;color:#f4f8fb;overflow:auto;}"
         ".email-signature-shell{margin-top:28px;padding-top:22px;border-top:1px solid #d7e8f3;}"
-        ".email-footer-note{margin-top:18px;padding:16px 18px;border-radius:16px;background:#f7fbfd;border:1px solid #e2eef5;"
+        ".email-footer-note{margin-top:18px;padding:16px 18px;border-radius:16px;"
+        "background:#f7fbfd;border:1px solid #e2eef5;"
         "color:#6b7f8e;font-size:13px;line-height:1.75;}"
         "</style>"
         "</head>"
         "<body>"
-        '<div class="email-shell" style="padding:28px 16px;background:linear-gradient(180deg,#eef8fd 0%,#f8fbfd 100%);">'
+        '<div class="email-shell" style="padding:28px 16px;'
+        "background:linear-gradient(180deg,#eef8fd 0%,#f8fbfd 100%);\">"
         '<div class="email-card" style="max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #d6e8f3;'
         'border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(19,128,175,0.08);">'
-        '<div class="email-header" style="padding:24px 28px;background:linear-gradient(135deg,rgba(19,128,175,0.12) 0%,rgba(255,255,255,1) 70%);'
+        '<div class="email-header" style="padding:24px 28px;background:linear-gradient('
+        "135deg,rgba(19,128,175,0.12) 0%,rgba(255,255,255,1) 70%);"
         'border-bottom:1px solid #e3eef5;">'
-        '<div class="email-header-eyebrow" style="display:inline-block;padding:8px 14px;border-radius:999px;background:rgba(19,128,175,0.10);'
+        '<div class="email-header-eyebrow" style="display:inline-block;padding:8px 14px;'
+        "border-radius:999px;background:rgba(19,128,175,0.10);"
         'color:#1380af;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">'
         "T-Maxx Message"
         "</div>"
-        '<div class="email-header-title" style="margin:16px 0 10px;font-size:28px;line-height:1.2;color:#17324a;font-weight:700;">'
+        '<div class="email-header-title" style="margin:16px 0 10px;'
+        'font-size:28px;line-height:1.2;color:#17324a;font-weight:700;">'
         "Recruitment Update"
         "</div>"
         '<p class="email-header-copy" style="margin:0;color:#486476;font-size:14px;line-height:1.75;">'
@@ -428,7 +417,8 @@ def _compose_final_body_html(body_html: str, signature_html: str) -> str:
         "</p>"
         "</div>"
         '<div class="email-content" style="padding:28px;">'
-        f'<div class="email-richtext" style="color:#1f3447;font-size:15px;line-height:1.8;word-break:break-word;">{normalized_body}</div>'
+        f'<div class="email-richtext" style="color:#1f3447;font-size:15px;'
+        f'line-height:1.8;word-break:break-word;">{normalized_body}</div>'
         f"{signature_section}"
         '<div class="email-footer-note" style="margin-top:18px;padding:16px 18px;border-radius:16px;background:#f7fbfd;'
         'border:1px solid #e2eef5;color:#6b7f8e;font-size:13px;line-height:1.75;">'
@@ -573,7 +563,9 @@ async def create_mail_task(
     account = await get_mail_account_model(payload.account_id, db, admin_user_id=admin_user_id)
     template: MailTemplate | None = None
     if payload.template_id is not None:
-        template = await get_mail_template_model(payload.template_id, db, admin_user_id=admin_user_id, include_public=True)
+        template = await get_mail_template_model(
+            payload.template_id, db, admin_user_id=admin_user_id, include_public=True
+        )
     signature: MailSignature | None = None
     if payload.signature_id is not None:
         signature = await get_mail_signature_model(payload.signature_id, db, admin_user_id=admin_user_id)

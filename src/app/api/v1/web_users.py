@@ -62,6 +62,7 @@ class RegisterVerificationCodeRequest(BaseModel):
 class RegisterVerificationCodeResponse(BaseModel):
     message: str
     cooldown_seconds: int
+    debug_verification_code: str | None = None
 
 
 class PasswordResetCodeRequest(BaseModel):
@@ -153,14 +154,19 @@ async def send_register_code(
     if not settings.CANDIDATE_REGISTER_VERIFICATION_ENABLED:
         raise BadRequestException("Candidate registration verification is disabled.")
 
-    cooldown_seconds = await send_register_verification_code(
+    send_result = await send_register_verification_code(
         email=str(payload.email),
         redis=redis,
         db=db,
     )
     return RegisterVerificationCodeResponse(
-        message="Verification code sent.",
-        cooldown_seconds=cooldown_seconds,
+        message=(
+            "Verification code sent."
+            if send_result.debug_verification_code is None
+            else "Local debug verification code generated."
+        ),
+        cooldown_seconds=send_result.cooldown_seconds,
+        debug_verification_code=send_result.debug_verification_code,
     )
 
 
@@ -170,14 +176,17 @@ async def send_password_reset_code(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     redis: Annotated[Redis, Depends(async_get_redis)],
 ) -> RegisterVerificationCodeResponse:
-    cooldown_seconds = await send_password_reset_verification_code(
+    send_result = await send_password_reset_verification_code(
         email=str(payload.email),
         redis=redis,
         db=db,
     )
     return RegisterVerificationCodeResponse(
-        message="Password reset verification code sent.",
-        cooldown_seconds=cooldown_seconds,
+        message="Password reset verification code sent."
+        if send_result.debug_verification_code is None
+        else "Local debug password reset code generated.",
+        cooldown_seconds=send_result.cooldown_seconds,
+        debug_verification_code=send_result.debug_verification_code,
     )
 
 

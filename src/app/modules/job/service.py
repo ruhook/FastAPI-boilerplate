@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.exceptions.http_exceptions import BadRequestException, ForbiddenException, NotFoundException
+from ..admin.admin_user.const import AdminAccountStatus
 from ..admin.admin_user.model import AdminUser
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.form_template.model import AdminFormTemplate
@@ -26,6 +27,7 @@ from .const import (
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
     JOB_DATA_FORM_FIELDS_KEY,
     JOB_DATA_HIGHLIGHTS_KEY,
+    JOB_DATA_LANGUAGES_KEY,
     JOB_DATA_PUBLISH_CHECKLIST_KEY,
     JOB_DATA_REJECTION_MAIL_CONFIG_KEY,
     JOB_DATA_SCREENING_RULES_KEY,
@@ -38,6 +40,7 @@ from .schema import (
     JobFormStrategy,
     JobListItemRead,
     JobListPage,
+    JobOwnerOptionRead,
     JobRead,
     JobRejectionMailConfig,
     JobUpdate,
@@ -61,6 +64,102 @@ def _build_compensation_label(job: Job) -> str:
     return f"USD {min_text} - {max_text} {job.compensation_unit}"
 
 
+def can_edit_job(job: Job, current_admin: dict[str, Any] | None) -> bool:
+    if not current_admin:
+        return False
+    admin_id = current_admin.get("id")
+    if admin_id is None:
+        return False
+    return int(job.owner_admin_user_id) == int(admin_id)
+
+
+JOB_LIST_SORT_FIELDS = {
+    "title",
+    "company",
+    "project",
+    "country",
+    "compensation",
+    "applicants",
+    "status",
+    "createdAt",
+}
+
+
+def _normalize_job_sort_by(value: str | None) -> str | None:
+    sort_by = (value or "").strip()
+    if not sort_by:
+        return None
+    if sort_by not in JOB_LIST_SORT_FIELDS:
+        raise BadRequestException("Invalid job sort field.")
+    return sort_by
+
+
+def _normalize_job_sort_order(value: str | None) -> str:
+    sort_order = (value or "ascend").strip().casefold()
+    if sort_order in {"asc", "ascend"}:
+        return "ascend"
+    if sort_order in {"desc", "descend"}:
+        return "descend"
+    raise BadRequestException("Invalid job sort order.")
+
+
+def _job_list_order_by(sort_by: str | None, sort_order: str | None) -> list[Any]:
+    normalized_sort_by = _normalize_job_sort_by(sort_by)
+    if normalized_sort_by is None:
+        return [Job.created_at.desc(), Job.id.desc()]
+
+    normalized_sort_order = _normalize_job_sort_order(sort_order)
+
+    def direction(expression: Any) -> Any:
+        return expression.desc() if normalized_sort_order == "descend" else expression.asc()
+
+    if normalized_sort_by == "title":
+        columns = [Job.title]
+    elif normalized_sort_by == "company":
+        columns = [func.coalesce(AdminCompany.name, ""), Job.title]
+    elif normalized_sort_by == "project":
+        columns = [func.coalesce(AdminCompanyProject.name, ""), Job.title]
+    elif normalized_sort_by == "country":
+        columns = [Job.country, Job.title]
+    elif normalized_sort_by == "compensation":
+        columns = [func.coalesce(Job.compensation_min, 0), func.coalesce(Job.compensation_max, 0), Job.title]
+    elif normalized_sort_by == "applicants":
+        columns = [Job.applicant_count, Job.title]
+    elif normalized_sort_by == "status":
+        columns = [Job.status, Job.title]
+    else:
+        columns = [Job.created_at]
+
+    tie_breaker = Job.id.desc() if normalized_sort_order == "descend" else Job.id.asc()
+    return [direction(column) for column in columns] + [tie_breaker]
+
+
+def ensure_job_editable(job: Job, current_admin: dict[str, Any] | None) -> None:
+    if not can_edit_job(job, current_admin):
+        raise ForbiddenException("Only the job owner can edit this job.")
+
+
+async def list_job_owner_options(db: AsyncSession) -> list[dict[str, Any]]:
+    result = await db.execute(
+        select(AdminUser)
+        .where(
+            AdminUser.is_deleted.is_(False),
+            AdminUser.status == AdminAccountStatus.ENABLED.value,
+        )
+        .order_by(AdminUser.name.asc(), AdminUser.username.asc(), AdminUser.id.asc())
+    )
+    return [
+        JobOwnerOptionRead(
+            id=admin_user.id,
+            name=admin_user.name,
+            username=admin_user.username,
+            email=admin_user.email,
+            status=admin_user.status,
+        ).model_dump()
+        for admin_user in result.scalars().all()
+    ]
+
+
 async def _ensure_form_template_exists(template_id: int, db: AsyncSession) -> None:
     result = await db.execute(
         select(AdminFormTemplate.id).where(
@@ -70,6 +169,24 @@ async def _ensure_form_template_exists(template_id: int, db: AsyncSession) -> No
     )
     if result.scalar_one_or_none() is None:
         raise NotFoundException("Form template not found.")
+
+
+def _get_admin_display_name(admin_user: AdminUser) -> str:
+    return str(admin_user.name or admin_user.username or admin_user.email or "")
+
+
+async def _get_enabled_admin_user(admin_user_id: int, db: AsyncSession) -> AdminUser:
+    result = await db.execute(
+        select(AdminUser).where(
+            AdminUser.id == admin_user_id,
+            AdminUser.is_deleted.is_(False),
+            AdminUser.status == AdminAccountStatus.ENABLED.value,
+        )
+    )
+    admin_user = result.scalar_one_or_none()
+    if admin_user is None:
+        raise NotFoundException("Owner admin account not found.")
+    return admin_user
 
 
 async def _resolve_company_snapshot(
@@ -219,6 +336,7 @@ def _job_data_from_payload(
     if owner_name is not None:
         data["owner_name"] = owner_name
     data[JOB_DATA_COLLABORATORS_KEY] = payload.collaborators
+    data[JOB_DATA_LANGUAGES_KEY] = payload.languages
     data[JOB_DATA_HIGHLIGHTS_KEY] = payload.highlights
     data[JOB_DATA_FORM_FIELDS_KEY] = [field.model_dump() for field in payload.form_fields]
     data[JOB_DATA_AUTOMATION_RULES_KEY] = payload.automation_rules.model_dump()
@@ -243,6 +361,8 @@ def _merge_job_data(
         next_data["owner_name"] = owner_name
     if payload.collaborators is not None:
         next_data[JOB_DATA_COLLABORATORS_KEY] = payload.collaborators
+    if payload.languages is not None:
+        next_data[JOB_DATA_LANGUAGES_KEY] = payload.languages
     if payload.highlights is not None:
         next_data[JOB_DATA_HIGHLIGHTS_KEY] = payload.highlights
     if payload.form_fields is not None:
@@ -268,6 +388,8 @@ def serialize_job(
     company_name: str,
     project_name: str,
     referral_bonus_model_name: str | None = None,
+    *,
+    current_admin: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     data = job.data or {}
     assessment_config = JobAssessmentConfig(
@@ -293,6 +415,7 @@ def serialize_job(
         country=job.country,
         status=job.status,
         work_mode=job.work_mode,
+        languages=list(data.get(JOB_DATA_LANGUAGES_KEY) or []),
         compensation_min=job.compensation_min,
         compensation_max=job.compensation_max,
         compensation_unit=job.compensation_unit,
@@ -314,6 +437,7 @@ def serialize_job(
         application_summary=data.get(JOB_DATA_APPLICATION_SUMMARY_KEY),
         applicant_count=job.applicant_count,
         owner_admin_user_id=job.owner_admin_user_id,
+        can_edit=can_edit_job(job, current_admin),
         created_at=job.created_at,
         updated_at=job.updated_at,
         data=data,
@@ -347,6 +471,17 @@ async def get_job_model(job_id: int, db: AsyncSession) -> Job:
     job = result.scalar_one_or_none()
     if job is None:
         raise NotFoundException("Job not found.")
+    return job
+
+
+async def ensure_job_editable_for_admin(
+    job_id: int,
+    db: AsyncSession,
+    *,
+    current_admin: dict[str, Any] | None,
+) -> Job:
+    job = await get_job_model(job_id, db)
+    ensure_job_editable(job, current_admin)
     return job
 
 
@@ -415,6 +550,7 @@ async def get_job_for_admin(
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
         referral_bonus_model_name_map.get(job.referral_bonus_model_id),
+        current_admin=current_admin,
     )
 
 
@@ -427,16 +563,23 @@ async def list_jobs(
     status: str | None = None,
     company_id: int | None = None,
     country: str | None = None,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     current_admin: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     conditions = [Job.is_deleted.is_(False)]
-    base_query = select(Job).outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+    base_query = (
+        select(Job)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .outerjoin(AdminCompanyProject, AdminCompanyProject.id == Job.project_id)
+    )
     if keyword:
         term = f"%{keyword.strip()}%"
         conditions.append(
             or_(
                 Job.title.ilike(term),
                 AdminCompany.name.ilike(term),
+                AdminCompanyProject.name.ilike(term),
                 Job.country.ilike(term),
             )
         )
@@ -460,13 +603,14 @@ async def list_jobs(
         select(func.count())
         .select_from(Job)
         .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .outerjoin(AdminCompanyProject, AdminCompanyProject.id == Job.project_id)
         .where(*conditions)
     )
     total = int(total_result.scalar() or 0)
 
     result = await db.execute(
         base_query.where(*conditions)
-        .order_by(Job.created_at.desc(), Job.id.desc())
+        .order_by(*_job_list_order_by(sort_by, sort_order))
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -493,10 +637,12 @@ async def list_jobs(
             applicants=job.applicant_count,
             created_at=job.created_at,
             work_mode=job.work_mode,
+            languages=list((job.data or {}).get(JOB_DATA_LANGUAGES_KEY) or []),
             owner_name=owner_name_map.get(job.owner_admin_user_id) or (job.data or {}).get("owner_name"),
             collaborators=list((job.data or {}).get(JOB_DATA_COLLABORATORS_KEY) or []),
             compensation=_build_compensation_label(job),
             assessment_enabled=job.assessment_enabled,
+            can_edit=can_edit_job(job, current_admin),
         ).model_dump()
         for job in jobs
     ]
@@ -509,6 +655,8 @@ async def create_job(
     *,
     current_admin: dict[str, Any],
 ) -> dict[str, Any]:
+    owner_admin_user_id = int(payload.owner_admin_user_id or current_admin["id"])
+    owner_admin_user = await _get_enabled_admin_user(owner_admin_user_id, db)
     await _ensure_form_template_exists(payload.form_strategy.template_id, db)
     company_id = await _resolve_company_snapshot(
         company_id=payload.company_id,
@@ -531,7 +679,7 @@ async def create_job(
         mail_signature_id=payload.assessment_config.mail_signature_id,
         config_label="Assessment",
         db=db,
-        admin_user_id=int(current_admin["id"]),
+        admin_user_id=owner_admin_user_id,
     )
     await _ensure_mail_dependencies_exist(
         enabled=payload.rejection_mail_config.enabled,
@@ -540,10 +688,10 @@ async def create_job(
         mail_signature_id=payload.rejection_mail_config.mail_signature_id,
         config_label="Rejection",
         db=db,
-        admin_user_id=int(current_admin["id"]),
+        admin_user_id=owner_admin_user_id,
     )
 
-    owner_name = payload.owner_name or str(current_admin.get("name") or current_admin.get("username") or "")
+    owner_name = payload.owner_name or _get_admin_display_name(owner_admin_user)
     data = _job_data_from_payload(payload, owner_name=owner_name)
     data["assessment_mail_account_label"] = payload.assessment_config.mail_account_label
     data["assessment_mail_template_name"] = payload.assessment_config.mail_template_name
@@ -563,7 +711,7 @@ async def create_job(
         compensation_max=payload.compensation_max,
         compensation_unit=payload.compensation_unit,
         description=payload.description,
-        owner_admin_user_id=int(current_admin["id"]),
+        owner_admin_user_id=owner_admin_user_id,
         form_template_id=payload.form_strategy.template_id,
         assessment_enabled=payload.assessment_config.enabled,
         assessment_mail_account_id=payload.assessment_config.mail_account_id,
@@ -583,6 +731,7 @@ async def create_job(
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
         referral_bonus_model.name,
+        current_admin=current_admin,
     )
 
 
@@ -594,8 +743,14 @@ async def update_job(
     current_admin: dict[str, Any],
 ) -> dict[str, Any]:
     job = await get_job_model(job_id, db)
+    ensure_job_editable(job, current_admin)
     next_company_id = job.company_id
     next_project_id = job.project_id
+    next_owner_admin_user_id = int(job.owner_admin_user_id)
+    next_owner_admin_user: AdminUser | None = None
+    if payload.owner_admin_user_id is not None:
+        next_owner_admin_user = await _get_enabled_admin_user(payload.owner_admin_user_id, db)
+        next_owner_admin_user_id = int(next_owner_admin_user.id)
 
     if payload.form_strategy is not None:
         await _ensure_form_template_exists(payload.form_strategy.template_id, db)
@@ -609,7 +764,7 @@ async def update_job(
             mail_signature_id=payload.assessment_config.mail_signature_id,
             config_label="Assessment",
             db=db,
-            admin_user_id=int(current_admin["id"]),
+            admin_user_id=int(job.owner_admin_user_id),
         )
         job.assessment_enabled = payload.assessment_config.enabled
         job.assessment_mail_account_id = (
@@ -630,7 +785,7 @@ async def update_job(
             mail_signature_id=payload.rejection_mail_config.mail_signature_id,
             config_label="Rejection",
             db=db,
-            admin_user_id=int(current_admin["id"]),
+            admin_user_id=int(job.owner_admin_user_id),
         )
 
     if payload.company_id is not None:
@@ -674,6 +829,8 @@ async def update_job(
         job.compensation_unit = payload.compensation_unit
     if payload.description is not None:
         job.description = payload.description
+    if payload.owner_admin_user_id is not None:
+        job.owner_admin_user_id = next_owner_admin_user_id
     if "compensation_min" in payload.model_fields_set:
         job.compensation_min = payload.compensation_min
     if "compensation_max" in payload.model_fields_set:
@@ -681,7 +838,11 @@ async def update_job(
 
     next_owner_name = payload.owner_name
     if next_owner_name is None:
-        next_owner_name = (job.data or {}).get("owner_name") or str(
+        next_owner_name = (
+            _get_admin_display_name(next_owner_admin_user)
+            if next_owner_admin_user is not None
+            else (job.data or {}).get("owner_name")
+        ) or str(
             current_admin.get("name") or current_admin.get("username") or ""
         )
 
@@ -707,4 +868,5 @@ async def update_job(
         company_name_map.get(job.company_id, "-"),
         project_name_map.get(job.project_id, "-"),
         referral_bonus_model_name_map.get(job.referral_bonus_model_id),
+        current_admin=current_admin,
     )

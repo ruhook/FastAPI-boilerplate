@@ -42,6 +42,7 @@ class ContractRecordListItemRead(BaseModel):
     draft_contract_attachment: ContractRecordAssetRead | None = None
     candidate_signed_contract_attachment: ContractRecordAssetRead | None = None
     company_sealed_contract_attachment: ContractRecordAssetRead | None = None
+    id_attachment: ContractRecordAssetRead | None = None
     contract_review: str | None = None
     signing_status: str | None = None
     created_at: datetime

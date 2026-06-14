@@ -84,8 +84,21 @@ class JobAutomationRule(BaseModel):
     fieldLabel: str
     fieldType: str
     operator: str
+    group: str | None = None
     value: str | int | float | list[str] | None = None
     secondValue: str | int | float | None = None
+
+    @field_validator("group")
+    @classmethod
+    def normalize_group(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized in {"", "required", "must", "and"}:
+            return "required"
+        if normalized in {"any", "or"}:
+            return "any"
+        raise ValueError("Unsupported automation rule group.")
 
 
 class JobAutomationRuleGroup(BaseModel):
@@ -111,6 +124,7 @@ class JobBase(BaseModel):
     country: str = Field(min_length=1, max_length=64)
     status: str = Field(default=JobStatus.OPEN.value, min_length=1, max_length=20)
     work_mode: str = Field(default=JobWorkMode.REMOTE.value, min_length=1, max_length=20)
+    languages: list[str] = Field(default_factory=list)
     compensation_min: Decimal | None = None
     compensation_max: Decimal | None = None
     compensation_unit: str = Field(default="Per Hour", min_length=1, max_length=20)
@@ -141,7 +155,7 @@ class JobBase(BaseModel):
             return value
         return value.strip() or None
 
-    @field_validator("collaborators", "screening_rules", "publish_checklist", "highlights")
+    @field_validator("languages", "collaborators", "screening_rules", "publish_checklist", "highlights")
     @classmethod
     def normalize_text_list(cls, value: list[str]) -> list[str]:
         return [item.strip() for item in value if item and item.strip()]
@@ -198,6 +212,7 @@ class JobRead(JobBase):
     referral_bonus_model_name: str | None = None
     applicant_count: int
     owner_admin_user_id: int
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime | None = None
     data: dict[str, Any] = Field(default_factory=dict)
@@ -217,10 +232,12 @@ class JobListItemRead(BaseModel):
     applicants: int
     created_at: datetime
     work_mode: str
+    languages: list[str] = Field(default_factory=list)
     owner_name: str | None = None
     collaborators: list[str] = Field(default_factory=list)
     compensation: str
     assessment_enabled: bool
+    can_edit: bool = False
 
 
 class JobListPage(BaseModel):
@@ -230,8 +247,18 @@ class JobListPage(BaseModel):
     page_size: int
 
 
+class JobOwnerOptionRead(BaseModel):
+    id: int
+    name: str
+    username: str
+    email: str
+    status: str
+
+
 class JobCreate(JobBase):
     model_config = ConfigDict(extra="forbid")
+
+    owner_admin_user_id: int | None = Field(default=None, ge=1)
 
 
 class JobCreateInternal(BaseModel):
@@ -266,12 +293,14 @@ class JobUpdate(BaseModel):
     country: str | None = Field(default=None, min_length=1, max_length=64)
     status: str | None = Field(default=None, min_length=1, max_length=20)
     work_mode: str | None = Field(default=None, min_length=1, max_length=20)
+    languages: list[str] | None = None
     compensation_min: Decimal | None = None
     compensation_max: Decimal | None = None
     compensation_unit: str | None = Field(default=None, min_length=1, max_length=20)
     show_compensation: bool | None = None
     description: str | None = Field(default=None, min_length=1)
     contract_example: str | None = None
+    owner_admin_user_id: int | None = Field(default=None, ge=1)
     owner_name: str | None = Field(default=None, max_length=100)
     collaborators: list[str] | None = None
     form_strategy: JobFormStrategy | None = None
@@ -298,7 +327,7 @@ class JobUpdate(BaseModel):
             return value
         return value.strip() or None
 
-    @field_validator("collaborators", "screening_rules", "publish_checklist", "highlights")
+    @field_validator("languages", "collaborators", "screening_rules", "publish_checklist", "highlights")
     @classmethod
     def normalize_optional_text_list(cls, value: list[str] | None) -> list[str] | None:
         if value is None:

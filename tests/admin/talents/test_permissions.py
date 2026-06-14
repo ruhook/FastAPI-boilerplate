@@ -15,11 +15,10 @@ from tests.helpers.talent import (
     login_web_user,
 )
 
-
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
-async def test_admin_without_talent_permission_cannot_access_talent_endpoints(
+async def test_assessment_reviewer_only_cannot_access_talent_endpoints(
     admin_client: AsyncClient,
     web_client: AsyncClient,
     db_session: AsyncSession,
@@ -28,15 +27,15 @@ async def test_admin_without_talent_permission_cannot_access_talent_endpoints(
     suffix = uuid4().hex[:8]
     role = await create_role(
         db_session,
-        name=f"limited-{suffix}",
-        permissions=["岗位管理"],
-        description="missing talent permission",
+        name=f"reviewer-{suffix}",
+        permissions=["测试题判题"],
+        description="assessment reviewer only",
     )
     limited_admin, limited_password = await create_admin_user(
         db_session,
         role_id=role.id,
-        name="Limited Talent Viewer",
-        username_prefix="limit",
+        name="Assessment Reviewer",
+        username_prefix="review",
     )
     limited_headers = await login_admin_user(
         admin_client,

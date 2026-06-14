@@ -5,8 +5,10 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from sqlalchemy import func, select
 
@@ -20,6 +22,8 @@ from ..app.modules.admin.company.service import (
     COMPANY_DATA_TIMESHEET_ROLES_KEY,
     COMPANY_DATA_TIMESHEET_WORK_TYPES_KEY,
 )
+from ..app.modules.assets.schema import AssetUploadPayload
+from ..app.modules.assets.service import create_asset_from_bytes
 from ..app.modules.candidate_application.const import CandidateApplicationStatus
 from ..app.modules.candidate_application.model import CandidateApplication
 from ..app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
@@ -42,6 +46,7 @@ from ..app.modules.referral_bonus_model.const import (
     default_referral_bonus_milestones_payload,
 )
 from ..app.modules.referral_bonus_model.model import ReferralBonusModel
+from ..app.modules.referral_bonus_model.service import ensure_user_referral_profile_from_job
 from ..app.modules.talent_profile.model import TalentProfile
 from ..app.modules.user.const import DEFAULT_USER_PROFILE_IMAGE_URL
 from ..app.modules.user.model import User
@@ -53,6 +58,8 @@ DEFAULT_PASSWORD = "12345678"
 COMPANY_NAME = "字节"
 PROJECT_NAME = "PH-DA"
 ACTIVE_STATUSES = {"在职", "休假"}
+PLACEHOLDER_CONTRACT_FILENAME = "haokang-import-contract-placeholder.docx"
+PLACEHOLDER_CONTRACT_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 @dataclass(slots=True)
@@ -118,6 +125,37 @@ def to_date(value: Any) -> date:
 
 def as_utc_datetime(value: date) -> datetime:
     return datetime(value.year, value.month, value.day, tzinfo=UTC)
+
+
+def build_blank_docx_bytes() -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="word/document.xml"/>'
+            "</Relationships>",
+        )
+        archive.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p/></w:body></w:document>",
+        )
+    return buffer.getvalue()
 
 
 def truncated(value: str, limit: int) -> str:
@@ -275,6 +313,23 @@ async def ensure_referral_bonus_model(session) -> ReferralBonusModel:
         session.add(model)
         await session.flush()
     return model
+
+
+async def create_import_contract_placeholder_asset(session, *, admin: AdminUser) -> int:
+    asset = await create_asset_from_bytes(
+        db=session,
+        payload=AssetUploadPayload(
+            type="contract_attachment",
+            module="contract",
+            owner_type="admin_user",
+            owner_id=int(admin.id),
+        ),
+        original_name=PLACEHOLDER_CONTRACT_FILENAME,
+        content=build_blank_docx_bytes(),
+        mime_type=PLACEHOLDER_CONTRACT_MIME_TYPE,
+        data={"placeholder": True, "import_source": "haokang_visible_payload"},
+    )
+    return int(asset.id)
 
 
 async def ensure_company_and_project(
@@ -512,6 +567,7 @@ async def import_payload(args: argparse.Namespace) -> dict[str, Any]:
             await ensure_dictionary(session, definition)
         form_template = await ensure_form_template(session)
         referral_bonus_model = await ensure_referral_bonus_model(session)
+        placeholder_contract_asset_id = await create_import_contract_placeholder_asset(session, admin=admin)
         company, project = await ensure_company_and_project(
             session,
             company_name=company_name,
@@ -571,6 +627,7 @@ async def import_payload(args: argparse.Namespace) -> dict[str, Any]:
             profiles_by_email[candidate.email] = profile
 
         normal_contract_by_email: dict[str, ContractRecord] = {}
+        active_referral_profile_targets: list[tuple[int, Job, ContractRecord]] = []
         application_count_by_job_id: dict[int, int] = {}
         for candidate in contract_candidates:
             user = users_by_email[candidate.email]
@@ -630,17 +687,32 @@ async def import_payload(args: argparse.Namespace) -> dict[str, Any]:
                 worker_type="Contractor",
                 effective_date=effective_date,
                 end_date=None if is_active else last_work_date_by_email.get(candidate.email),
+                company_sealed_contract_asset_id=placeholder_contract_asset_id if is_active else None,
+                contract_attachment_asset_id=placeholder_contract_asset_id if is_active else None,
                 parse_status="imported",
                 version=1,
                 is_current=True,
                 created_by_admin_user_id=admin.id,
                 updated_by_admin_user_id=admin.id,
-                data={"import_source": "haokang_visible_payload"},
+                data={
+                    "import_source": "haokang_visible_payload",
+                    "contract_placeholder_asset_id": placeholder_contract_asset_id if is_active else None,
+                },
             )
             session.add(contract)
             normal_contract_by_email[candidate.email] = contract
+            if is_active:
+                active_referral_profile_targets.append((int(user.id), job, contract))
             application_count_by_job_id[job.id] = application_count_by_job_id.get(job.id, 0) + 1
         await session.flush()
+        for user_id, job, contract in active_referral_profile_targets:
+            await ensure_user_referral_profile_from_job(
+                user_id=user_id,
+                job=job,
+                db=session,
+                admin_user_id=int(admin.id),
+                contract_record=contract,
+            )
 
         leader_aliases: dict[str, int] = {}
         leader_contracts = 0
@@ -695,6 +767,8 @@ async def import_payload(args: argparse.Namespace) -> dict[str, Any]:
                 worker_type="Team Leader",
                 effective_date=team_leader_effective_date,
                 end_date=None,
+                company_sealed_contract_asset_id=placeholder_contract_asset_id,
+                contract_attachment_asset_id=placeholder_contract_asset_id,
                 parse_status="imported",
                 version=1,
                 is_current=True,
@@ -704,9 +778,18 @@ async def import_payload(args: argparse.Namespace) -> dict[str, Any]:
                     "import_source": "haokang_visible_payload",
                     "contract_rule": "visible_sheet_team_leader_may_effective",
                     "base_pay": str(base_pay),
+                    "contract_placeholder_asset_id": placeholder_contract_asset_id,
                 },
             )
             session.add(contract)
+            await session.flush()
+            await ensure_user_referral_profile_from_job(
+                user_id=int(user.id),
+                job=leader_job,
+                db=session,
+                admin_user_id=int(admin.id),
+                contract_record=contract,
+            )
             leader_contracts += 1
             leader_aliases[leader_name.lower()] = user.id
             leader_aliases.setdefault(leader_name.split()[0].lower(), user.id)

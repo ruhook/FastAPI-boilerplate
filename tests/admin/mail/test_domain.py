@@ -3,7 +3,7 @@ from httpx import AsyncClient
 
 from src.app.core.db.database import local_session
 from src.app.modules.admin.admin_audit_log.const import AdminAuditLogActionType
-
+from src.app.modules.admin.mail_task.service import render_template_text
 from tests.helpers.admin import fetch_admin_audit_logs
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -15,6 +15,18 @@ PNG_BYTES = (
     b"\x00\x00\x00\x0cIDATx\x9cc```\x00\x00\x00\x04\x00\x01\xf6\x178U"
     b"\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+
+
+async def test_render_template_text_replaces_encoded_template_links() -> None:
+    rendered = render_template_text(
+        '<a href="%7B%7Bassessment_link%7D%7D" target="_blank">支持变量-测试题链接</a>',
+        {"assessment_link": "https://test.primnota.com/assessments/abc"},
+    )
+
+    assert (
+        rendered
+        == '<a href="https://test.primnota.com/assessments/abc" target="_blank">支持变量-测试题链接</a>'
+    )
 
 
 async def test_superadmin_can_manage_mail_templates_signatures_assets_and_send_tasks(

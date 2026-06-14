@@ -46,12 +46,33 @@ class JobProgressAssessmentAutomationResponse(BaseModel):
     missing_result_count: int = 0
 
 
+class JobProgressAssessmentInviteMarkRequest(BaseModel):
+    progress_ids: list[int] = Field(min_length=1)
+    mail_task_id: int | None = None
+
+
+class JobProgressAssessmentInviteMarkResponse(BaseModel):
+    updated_count: int
+    updated_field_keys: list[str] = Field(default_factory=list)
+
+
 class JobProgressNoteUpdateRequest(BaseModel):
     progress_ids: list[int] = Field(min_length=1)
     note: str | None = None
 
 
 class JobProgressNoteUpdateResponse(BaseModel):
+    updated_count: int
+    updated_field_keys: list[str] = Field(default_factory=list)
+
+
+class JobProgressOnboardingUpdateRequest(BaseModel):
+    progress_ids: list[int] = Field(min_length=1)
+    onboarding_status: str | None = None
+    onboarding_date: date | None = None
+
+
+class JobProgressOnboardingUpdateResponse(BaseModel):
     updated_count: int
     updated_field_keys: list[str] = Field(default_factory=list)
 
@@ -262,6 +283,7 @@ class CandidateContractListItemRead(BaseModel):
     current_stage_cn_name: str
     applied_at: datetime
     compensation_unit: str
+    process_data: dict[str, Any] = Field(default_factory=dict)
     contract_record_data: ContractRecordDataRead
 
 

@@ -8,15 +8,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import NotFoundException
+from ...modules.admin.dictionary.service import get_dictionary_option_label_map_by_key
 from ...modules.candidate_application.schema import (
     CandidateApplicationSubmitRequest,
     CandidateApplicationSubmitResponse,
 )
-from ...modules.admin.dictionary.service import get_dictionary_option_label_map_by_key
-from ...modules.admin.company.model import AdminCompany
 from ...modules.candidate_field.service import hydrate_candidate_field_options
 from ...modules.job.const import (
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
@@ -34,6 +32,7 @@ from ...modules.job_progress.service import (
     submit_job_progress_candidate_signed_contract,
 )
 from ...modules.talent_profile.service import create_application_and_sync_talent
+from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/jobs", tags=["web-jobs"])
 
@@ -126,13 +125,12 @@ def _resolve_country_label(country: str, country_label_map: dict[str, str]) -> s
 def _serialize_job_list_item(
     job: Job,
     *,
-    company_name: str,
     country_label_map: dict[str, str],
 ) -> dict[str, Any]:
     return WebJobListItemRead(
         id=job.id,
         title=job.title,
-        company=company_name,
+        company="",
         status=job.status,
         country=job.country,
         country_label=_resolve_country_label(job.country, country_label_map),
@@ -150,7 +148,6 @@ def _serialize_job_list_item(
 async def _serialize_job_detail(
     job: Job,
     *,
-    company_name: str,
     country_label_map: dict[str, str],
     db: AsyncSession,
 ) -> dict[str, Any]:
@@ -162,7 +159,7 @@ async def _serialize_job_detail(
     return WebJobDetailRead(
         id=job.id,
         title=job.title,
-        company=company_name,
+        company="",
         status=job.status,
         country=job.country,
         country_label=_resolve_country_label(job.country, country_label_map),
@@ -197,33 +194,29 @@ async def list_public_jobs(
 
     if keyword:
         term = f"%{keyword.strip()}%"
-        conditions.append(or_(Job.title.ilike(term), AdminCompany.name.ilike(term), Job.country.ilike(term)))
+        conditions.append(or_(Job.title.ilike(term), Job.country.ilike(term)))
     if work_mode:
         conditions.append(Job.work_mode == work_mode)
     if country:
         conditions.append(Job.country == country)
 
     total_result = await db.execute(
-        select(func.count())
-        .select_from(Job)
-        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
-        .where(*conditions)
+        select(func.count()).select_from(Job).where(*conditions)
     )
     total = int(total_result.scalar() or 0)
 
     result = await db.execute(
-        select(Job, AdminCompany.name)
-        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        select(Job)
         .where(*conditions)
         .order_by(Job.created_at.desc(), Job.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    rows = result.all()
+    rows = result.scalars().all()
     return WebJobListPage(
         items=[
-            _serialize_job_list_item(job, company_name=company_name or "-", country_label_map=country_label_map)
-            for job, company_name in rows
+            _serialize_job_list_item(job, country_label_map=country_label_map)
+            for job in rows
         ],
         total=total,
         page=page,
@@ -237,8 +230,7 @@ async def get_public_job(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, Any]:
     result = await db.execute(
-        select(Job, AdminCompany.name)
-        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        select(Job)
         .where(
             Job.id == job_id,
             Job.is_deleted.is_(False),
@@ -248,11 +240,10 @@ async def get_public_job(
     row = result.first()
     if row is None:
         raise NotFoundException("Job not found.")
-    job, company_name = row
+    job = row[0]
     country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
     return await _serialize_job_detail(
         job,
-        company_name=company_name or "-",
         country_label_map=country_label_map,
         db=db,
     )

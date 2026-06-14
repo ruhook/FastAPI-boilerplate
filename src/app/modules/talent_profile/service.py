@@ -14,38 +14,42 @@ from ...core.advanced_filter import (
     validate_advanced_filter_query,
 )
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
-from ..assets.model import Asset
-from ..assets.service import ensure_assets_belong_to_owner
 from ..admin.admin_user.model import AdminUser
 from ..admin.company.model import AdminCompany
-from ..candidate_application.model import CandidateApplication
+from ..assets.model import Asset
+from ..assets.service import ensure_assets_belong_to_owner
 from ..candidate_application.const import get_candidate_application_status_cn_name
+from ..candidate_application.model import CandidateApplication
 from ..candidate_application.schema import (
     CandidateApplicationSubmitRequest,
     CandidateApplicationSubmitResponse,
     CandidateApplicationSummaryRead,
 )
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
-from ..candidate_field.service import hydrate_candidate_field_options
 from ..candidate_field.const import CandidateFieldKey
+from ..candidate_field.service import hydrate_candidate_field_options
 from ..job.const import JOB_DATA_APPLICATION_SUMMARY_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..job.model import Job
-from ..job_progress.model import JobProgress
 from ..job_progress.const import get_recruitment_stage_cn_name
+from ..job_progress.model import JobProgress
 from ..job_progress.service import create_job_progress_for_application
 from ..operation_log.const import OperationLogType
 from ..operation_log.model import OperationLog
 from ..operation_log.schema import OperationLogRead
 from ..operation_log.service import create_operation_log
+from ..payment_record.model import PaymentRecord
+from ..project_timesheet_record.model import ProjectTimesheetRecord
 from ..talent_profile_merge_log.model import TalentProfileMergeLog
 from .const import TalentMergeStrategy
 from .model import TalentProfile
 from .schema import (
+    TalentPaymentRecordRead,
     TalentPendingMergeFieldRead,
     TalentPendingMergeRead,
     TalentProfileListItemRead,
     TalentProfileListPage,
     TalentProfileRead,
+    TalentTimesheetRecordRead,
 )
 
 TALENT_FIELD_MAPPING: dict[str, str] = {
@@ -54,6 +58,8 @@ TALENT_FIELD_MAPPING: dict[str, str] = {
     CandidateFieldKey.WHATSAPP.value: "whatsapp",
     CandidateFieldKey.NATIONALITY.value: "nationality",
     CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: "location",
+    CandidateFieldKey.NATIVE_LANGUAGES.value: "native_languages",
+    CandidateFieldKey.ADDITIONAL_LANGUAGES.value: "additional_languages",
     CandidateFieldKey.EDUCATION_STATUS.value: "education",
 }
 
@@ -86,6 +92,16 @@ TALENT_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
         name="location",
         filter_kind="text",
         sql_expression=TalentProfile.location,
+    ),
+    "native_languages": AdvancedFilterFieldDefinition(
+        name="native_languages",
+        filter_kind="text",
+        sql_expression=TalentProfile.native_languages,
+    ),
+    "additional_languages": AdvancedFilterFieldDefinition(
+        name="additional_languages",
+        filter_kind="text",
+        sql_expression=TalentProfile.additional_languages,
     ),
     "education": AdvancedFilterFieldDefinition(
         name="education",
@@ -141,7 +157,7 @@ def _normalize_display_value(value: Any) -> str | None:
     if isinstance(value, str):
         normalized = value.strip()
         return normalized or None
-    if isinstance(value, (int, float, bool)):
+    if isinstance(value, int | float | bool):
         return str(value)
     if isinstance(value, list):
         flattened = [str(item).strip() for item in value if str(item).strip()]
@@ -227,12 +243,14 @@ def _build_operation_log_summary(log: OperationLog, job_title: str | None) -> st
         return f"提交了 {resolved_job_title} 的报名表（字段数 {count or 0}）"
     if log.log_type == OperationLogType.TALENT_PROFILE_INITIAL_AUTO_MERGE.value:
         merged_fields = data.get("merged_fields") or []
-        return f"系统根据申请 #{log.application_id or data.get('application_id') or '-'} 自动创建人才快照，合并了 {len(merged_fields)} 个字段"
+        application_id = log.application_id or data.get("application_id") or "-"
+        return f"系统根据申请 #{application_id} 自动创建人才快照，合并了 {len(merged_fields)} 个字段"
     if log.log_type == OperationLogType.TALENT_PROFILE_LATEST_APPLICATION_UPDATED.value:
         return f"最近申请岗位更新为 {resolved_job_title}"
     if log.log_type == OperationLogType.TALENT_PROFILE_MANUAL_MERGE.value:
         merged_fields = data.get("merged_fields") or []
-        return f"从申请 #{log.application_id or data.get('application_id') or '-'} 手动合并了 {len(merged_fields)} 个字段"
+        application_id = log.application_id or data.get("application_id") or "-"
+        return f"从申请 #{application_id} 手动合并了 {len(merged_fields)} 个字段"
     if log.log_type == OperationLogType.JOB_PROGRESS_CREATED.value:
         stage_cn_name = data.get("current_stage_cn_name") or data.get("current_stage") or "-"
         return f"{resolved_job_title} 已创建流程记录，初始阶段为 {stage_cn_name}"
@@ -290,7 +308,7 @@ def _serialize_raw_value(value: Any) -> str | None:
     if isinstance(value, str):
         normalized = value.strip()
         return normalized or None
-    if isinstance(value, (int, float, bool)):
+    if isinstance(value, int | float | bool):
         return str(value)
     return json.dumps(value, ensure_ascii=False)
 
@@ -362,6 +380,14 @@ async def _validate_application_items(
 
     for item in payload.items:
         field_key = str(item.field_key)
+        if field_key == CandidateFieldKey.FULL_NAME.value:
+            account_name = str(current_user.get("name") or current_user.get("email") or "").strip()
+            item.value = account_name
+            item.display_value = account_name
+        elif field_key == CandidateFieldKey.EMAIL.value:
+            account_email = str(current_user.get("email") or "").strip()
+            item.value = account_email
+            item.display_value = account_email
         if field_key in submitted_keys:
             raise BadRequestException(f"Duplicate application field: {field_key}.")
         submitted_keys.add(field_key)
@@ -475,6 +501,19 @@ async def _get_talent_profile_model(talent_id: int, db: AsyncSession) -> TalentP
     return talent
 
 
+async def _get_talent_profile_model_by_user_id(user_id: int, db: AsyncSession) -> TalentProfile:
+    result = await db.execute(
+        select(TalentProfile).where(
+            TalentProfile.user_id == user_id,
+            TalentProfile.is_deleted.is_(False),
+        )
+    )
+    talent = result.scalar_one_or_none()
+    if talent is None:
+        raise NotFoundException("Talent profile not found.")
+    return talent
+
+
 async def _get_application_model(application_id: int, db: AsyncSession) -> CandidateApplication:
     result = await db.execute(
         select(CandidateApplication).where(
@@ -573,6 +612,8 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
         current_resume_asset_name=asset_name,
     )
     logs = await _list_talent_operation_logs(talent=talent, db=db)
+    timesheet_records = await _list_talent_timesheet_records(talent=talent, db=db)
+    payment_records = await _list_talent_payment_records(talent=talent, db=db)
 
     return TalentProfileRead(
         id=talent.id,
@@ -582,6 +623,8 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
         whatsapp=talent.whatsapp,
         nationality=talent.nationality,
         location=talent.location,
+        native_languages=talent.native_languages,
+        additional_languages=talent.additional_languages,
         education=talent.education,
         latest_applied_job_id=talent.latest_applied_job_id,
         latest_applied_job_title=talent.latest_applied_job_title,
@@ -594,9 +637,76 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
         created_at=talent.created_at,
         last_merged_at=talent.last_merged_at,
         applications=applications,
+        timesheet_records=timesheet_records,
+        payment_records=payment_records,
         pending_merge=pending_merge,
         logs=logs,
     ).model_dump()
+
+
+async def _list_talent_timesheet_records(
+    *,
+    talent: TalentProfile,
+    db: AsyncSession,
+) -> list[dict[str, Any]]:
+    result = await db.execute(
+        select(ProjectTimesheetRecord)
+        .where(
+            ProjectTimesheetRecord.is_deleted.is_(False),
+            or_(
+                ProjectTimesheetRecord.talent_profile_id == talent.id,
+                ProjectTimesheetRecord.user_id == talent.user_id,
+            ),
+        )
+        .order_by(ProjectTimesheetRecord.work_date.desc(), ProjectTimesheetRecord.id.desc())
+        .limit(50)
+    )
+    return [
+        TalentTimesheetRecordRead(
+            id=record.id,
+            work_date=record.work_date.isoformat(),
+            sub_project_name=record.sub_project_name,
+            language=record.language,
+            work_type=record.work_type,
+            candidate_duration_hours=record.candidate_duration_hours,
+            output_quantity=record.output_quantity,
+            role_name=record.role_name,
+        ).model_dump()
+        for record in result.scalars().all()
+    ]
+
+
+async def _list_talent_payment_records(
+    *,
+    talent: TalentProfile,
+    db: AsyncSession,
+) -> list[dict[str, Any]]:
+    result = await db.execute(
+        select(PaymentRecord)
+        .where(
+            PaymentRecord.is_deleted.is_(False),
+            or_(
+                PaymentRecord.talent_profile_id == talent.id,
+                PaymentRecord.user_id == talent.user_id,
+            ),
+        )
+        .order_by(PaymentRecord.paid_at.desc(), PaymentRecord.id.desc())
+        .limit(50)
+    )
+    return [
+        TalentPaymentRecordRead(
+            id=record.id,
+            paid_at=record.paid_at,
+            payment_type=record.payment_type,
+            amount=record.amount,
+            currency=record.currency,
+            project_name=record.project_snapshot_name,
+            contract_ref_no=record.contract_snapshot_ref_no,
+            external_transaction_no=record.external_transaction_no,
+            remark=record.remark,
+        ).model_dump()
+        for record in result.scalars().all()
+    ]
 
 
 async def _list_talent_operation_logs(
@@ -626,7 +736,10 @@ async def _list_talent_operation_logs(
                 CandidateApplication.id.in_(application_ids)
             )
         )
-        application_titles = {int(application_id): job_snapshot_title for application_id, job_snapshot_title in application_result.all()}
+        application_titles = {
+            int(application_id): job_snapshot_title
+            for application_id, job_snapshot_title in application_result.all()
+        }
 
     job_titles: dict[int, str] = {}
     if job_ids:
@@ -1001,6 +1114,11 @@ async def get_talent_profile(talent_id: int, db: AsyncSession) -> dict[str, Any]
     return await _serialize_talent_profile(talent, db)
 
 
+async def get_talent_profile_by_user_id(user_id: int, db: AsyncSession) -> dict[str, Any]:
+    talent = await _get_talent_profile_model_by_user_id(user_id, db)
+    return await _serialize_talent_profile(talent, db)
+
+
 async def list_talent_profiles(
     db: AsyncSession,
     *,
@@ -1024,6 +1142,8 @@ async def list_talent_profiles(
                 TalentProfile.whatsapp.ilike(term),
                 TalentProfile.nationality.ilike(term),
                 TalentProfile.location.ilike(term),
+                TalentProfile.native_languages.ilike(term),
+                TalentProfile.additional_languages.ilike(term),
                 TalentProfile.education.ilike(term),
                 TalentProfile.latest_applied_job_title.ilike(term),
                 TalentProfile.note.ilike(term),
@@ -1086,6 +1206,8 @@ async def list_talent_profiles(
             whatsapp=talent.whatsapp,
             nationality=talent.nationality,
             location=talent.location,
+            native_languages=talent.native_languages,
+            additional_languages=talent.additional_languages,
             education=talent.education,
             latest_applied_job_id=talent.latest_applied_job_id,
             latest_applied_job_title=talent.latest_applied_job_title,

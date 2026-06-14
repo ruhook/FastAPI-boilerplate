@@ -28,6 +28,9 @@ CANDIDATE_FIELD_CATALOG_DICTIONARY_KEY = "candidate_field_catalog"
 CANDIDATE_FIELD_DICTIONARY_KEY_MAP: dict[CandidateFieldKey, str] = {
     CandidateFieldKey.COUNTRY_OF_RESIDENCE: "country",
     CandidateFieldKey.CITY: "candidate_city",
+    CandidateFieldKey.NATIONALITY: "country",
+    CandidateFieldKey.NATIVE_LANGUAGES: "candidate_language",
+    CandidateFieldKey.ADDITIONAL_LANGUAGES: "candidate_language",
     CandidateFieldKey.AGE_RANGE: "candidate_age_range",
     CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY: "candidate_max_working_hours_per_day",
     CandidateFieldKey.ACCEPTS_HOURLY_PAYMENT: "candidate_accepts_hourly_payment",

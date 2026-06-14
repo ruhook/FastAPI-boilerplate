@@ -16,6 +16,8 @@ class TalentProfile(DataBackedSoftDeleteEntityMixin, Base):
     whatsapp: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     nationality: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     location: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    native_languages: Mapped[str | None] = mapped_column(Text, nullable=True)
+    additional_languages: Mapped[str | None] = mapped_column(Text, nullable=True)
     education: Mapped[str | None] = mapped_column(String(160), nullable=True)
     resume_asset_id: Mapped[int | None] = mapped_column(ForeignKey("asset.id"), nullable=True, index=True)
     latest_applied_job_id: Mapped[int | None] = mapped_column(ForeignKey("job.id"), nullable=True, index=True)

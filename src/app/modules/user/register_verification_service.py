@@ -7,6 +7,7 @@ import secrets
 import smtplib
 import ssl
 import time
+from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
 
@@ -25,6 +26,12 @@ from ..user.crud import crud_users
 from ..user.model import User
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class VerificationSendResult:
+    cooldown_seconds: int
+    debug_verification_code: str | None = None
 
 
 def is_register_verification_enabled() -> bool:
@@ -183,7 +190,7 @@ async def send_register_verification_code(
     email: str,
     redis: Redis,
     db: AsyncSession,
-) -> int:
+) -> VerificationSendResult:
     normalized_email = _normalize_email(email)
     if await crud_users.exists(db=db, email=normalized_email):
         raise DuplicateValueException("Email is already registered")
@@ -216,11 +223,20 @@ async def send_register_verification_code(
     try:
         await asyncio.to_thread(_send_mail_sync, normalized_email, verification_code)
     except Exception as exc:
-        await redis.delete(cache_key)
         logger.exception("Failed to send candidate registration verification email", extra={"email": normalized_email})
-        raise BadRequestException(f"Failed to send verification email: {exc}") from exc
+        if settings.ENVIRONMENT.value != "local":
+            await redis.delete(cache_key)
+            raise BadRequestException(f"Failed to send verification email: {exc}") from exc
+        logger.warning(
+            "Using local debug registration verification code because SMTP delivery failed",
+            extra={"email": normalized_email},
+        )
+        return VerificationSendResult(
+            cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS),
+            debug_verification_code=verification_code,
+        )
 
-    return int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+    return VerificationSendResult(cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS))
 
 
 async def send_password_reset_verification_code(
@@ -228,7 +244,7 @@ async def send_password_reset_verification_code(
     email: str,
     redis: Redis,
     db: AsyncSession,
-) -> int:
+) -> VerificationSendResult:
     normalized_email = _normalize_email(email)
     user_result = await db.execute(
         select(User.id).where(
@@ -270,11 +286,20 @@ async def send_password_reset_verification_code(
     try:
         await asyncio.to_thread(_send_mail_sync, normalized_email, verification_code, purpose="password_reset")
     except Exception as exc:
-        await redis.delete(cache_key)
         logger.exception("Failed to send candidate password reset email", extra={"email": normalized_email})
-        raise BadRequestException(f"Failed to send password reset email: {exc}") from exc
+        if settings.ENVIRONMENT.value != "local":
+            await redis.delete(cache_key)
+            raise BadRequestException(f"Failed to send password reset email: {exc}") from exc
+        logger.warning(
+            "Using local debug password reset verification code because SMTP delivery failed",
+            extra={"email": normalized_email},
+        )
+        return VerificationSendResult(
+            cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS),
+            debug_verification_code=verification_code,
+        )
 
-    return int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+    return VerificationSendResult(cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS))
 
 
 async def _verify_verification_code(

@@ -23,6 +23,8 @@ class RecruitmentScreeningMode(StrEnum):
 
 
 class JobProgressDataKey(StrEnum):
+    ASSESSMENT_INVITED_AT = "assessment_invited_at"
+    ASSESSMENT_INVITE_MAIL_TASK_ID = "assessment_invite_mail_task_id"
     ASSESSMENT_ATTACHMENT = "assessment_attachment"
     ASSESSMENT_ATTACHMENT_ASSET_ID = "assessment_attachment_asset_id"
     ASSESSMENT_SUBMITTED_AT = "assessment_submitted_at"
@@ -45,6 +47,7 @@ class JobProgressDataKey(StrEnum):
     CONTRACT_RETURN_ATTACHMENT = "contract_return_attachment"
     CONTRACT_RETURN_ATTACHMENT_ASSET_ID = "contract_return_attachment_asset_id"
     ONBOARDING_STATUS = "onboarding_status"
+    ONBOARDING_DATE = "onboarding_date"
     REJECTED_FROM_STAGE = "rejected_from_stage"
     REPLACEMENT_REASON = "replacement_reason"
     NOTE = "note"
@@ -83,7 +86,7 @@ RECRUITMENT_STAGE_ENTRY_RULES: dict[RecruitmentStage, tuple[str, ...]] = {
         "后续其他阶段的人选也可以被人工移回待筛选名单重新评估。",
     ),
     RecruitmentStage.ASSESSMENT_REVIEW: (
-        "候选人初始投递只会进入待筛选名单或淘汰，不会直接进入测试题回收。",
+        "候选人初始投递只会进入待筛选名单，不会直接进入测试题回收或淘汰。",
         "岗位开启测试题环节时，候选人从 C 端上传测试题后自动进入测试题回收。",
         "测试题回收阶段支持多次上传，默认展示最新提交的测试题附件。",
     ),
@@ -98,8 +101,9 @@ RECRUITMENT_STAGE_ENTRY_RULES: dict[RecruitmentStage, tuple[str, ...]] = {
         "合同库阶段完成人员签约并确认入职后，进入在职。",
     ),
     RecruitmentStage.REJECTED: (
-        "岗位开启自动筛选时，不符合条件的人选会直接进入淘汰。",
-        "测试题回收、筛选通过、合同库、在职等阶段的人选都可以被移入淘汰。",
+        "自动筛选未通过的人选会保留在待筛选名单，等待人工判断。",
+        "测试题回收阶段执行自动化时，测试结果不通过的人选会进入淘汰。",
+        "待筛选名单、测试题回收、筛选通过、合同库、在职等阶段的人选都可以被人工移入淘汰。",
     ),
     RecruitmentStage.REPLACED: (
         "仅当在职阶段的人选被标记为汰换状态时，进入汰换。",
@@ -179,6 +183,7 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "assessment_result",
         "assessment_review_comment",
         "onboarding_status",
+        "onboarding_date",
     ),
     RecruitmentStage.REJECTED: (
         CandidateFieldKey.FULL_NAME.value,
@@ -211,7 +216,6 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
 
 RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ...]] = {
     RecruitmentStage.PENDING_SCREENING: (
-        RecruitmentStage.ASSESSMENT_REVIEW,
         RecruitmentStage.SCREENING_PASSED,
         RecruitmentStage.REJECTED,
     ),
@@ -235,7 +239,6 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
     ),
     RecruitmentStage.REJECTED: (
         RecruitmentStage.PENDING_SCREENING,
-        RecruitmentStage.ASSESSMENT_REVIEW,
     ),
     RecruitmentStage.REPLACED: (
         RecruitmentStage.PENDING_SCREENING,
@@ -251,13 +254,12 @@ def get_allowed_recruitment_stage_transitions(
     try:
         current = RecruitmentStage(current_stage)
     except Exception:
-        return tuple()
+        return ()
 
-    transitions = list(RECRUITMENT_STAGE_TRANSITIONS.get(current, tuple()))
+    transitions = list(RECRUITMENT_STAGE_TRANSITIONS.get(current, ()))
     if current == RecruitmentStage.PENDING_SCREENING:
         if assessment_enabled:
             return (
-                RecruitmentStage.ASSESSMENT_REVIEW,
                 RecruitmentStage.REJECTED,
             )
         return (

@@ -5,7 +5,12 @@ from typing import Any
 from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....core.exceptions.http_exceptions import DuplicateValueException, ForbiddenException, NotFoundException, UnauthorizedException
+from ....core.exceptions.http_exceptions import (
+    DuplicateValueException,
+    ForbiddenException,
+    NotFoundException,
+    UnauthorizedException,
+)
 from ....core.security import (
     ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES,
     ADMIN_REFRESH_TOKEN_EXPIRE_DAYS,
@@ -17,17 +22,36 @@ from ....core.security import (
 )
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
 from ..admin_audit_log.service import create_admin_audit_log
+from ..role.const import (
+    normalize_effective_role_permissions,
+    resolve_effective_admin_permissions,
+    validate_permissions,
+)
 from ..role.crud import crud_roles
 from ..role.model import Role
-from ..role.const import normalize_effective_role_permissions, validate_permissions
 from ..role.schema import RoleRead
 from .const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from .crud import crud_admin_users
 from .model import AdminUser
-from .schema import AdminChangePasswordRequest, AdminLoginRequest, AdminToken, AdminUserAuth, AdminUserCreate, AdminUserCreateInternal, AdminUserCreateResponse, AdminUserDBRead, AdminUserRead, AdminUserUpdate, generate_temporary_password
+from .schema import (
+    AdminChangePasswordRequest,
+    AdminLoginRequest,
+    AdminToken,
+    AdminUserAuth,
+    AdminUserCreate,
+    AdminUserCreateInternal,
+    AdminUserDBRead,
+    AdminUserRead,
+    AdminUserUpdate,
+    generate_temporary_password,
+)
 
 
-def build_admin_user_create_values(payload: AdminUserCreate, username: str, hashed_password: str) -> AdminUserCreateInternal:
+def build_admin_user_create_values(
+    payload: AdminUserCreate,
+    username: str,
+    hashed_password: str,
+) -> AdminUserCreateInternal:
     return AdminUserCreateInternal(
         name=payload.name,
         username=username,
@@ -43,7 +67,10 @@ def build_admin_user_create_values(payload: AdminUserCreate, username: str, hash
     )
 
 
-def build_admin_user_update_values(payload: AdminUserUpdate, existing_data: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_admin_user_update_values(
+    payload: AdminUserUpdate,
+    existing_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     update_data = payload.model_dump(exclude_none=True, exclude={"password"})
     update_data["data"] = dict(existing_data or {})
     return update_data
@@ -85,7 +112,11 @@ async def get_account_with_role(db: AsyncSession, account_id: int) -> tuple[Admi
     account = result.scalar_one_or_none()
     if account is None:
         return None
-    role_name, permissions = await resolve_admin_role_assignment(db=db, admin_user_id=account.id, role_id=account.role_id)
+    role_name, permissions = await resolve_admin_role_assignment(
+        db=db,
+        admin_user_id=account.id,
+        role_id=account.role_id,
+    )
     effective_role_id = account.role_id if role_name is not None or permissions else None
     return account, role_name, effective_role_id
 
@@ -241,7 +272,11 @@ async def update_admin_account(
         update_data["hashed_password"] = get_password_hash(payload.password)
     if account.is_superuser and "status" in update_data:
         raise ForbiddenException("Superuser account status cannot be changed.")
-    if current_admin["id"] == account_id and update_data.get("status") == "disabled" and not current_admin["is_superuser"]:
+    if (
+        current_admin["id"] == account_id
+        and update_data.get("status") == "disabled"
+        and not current_admin["is_superuser"]
+    ):
         raise ForbiddenException("You cannot disable your own current admin account.")
     await crud_admin_users.update(
         db=db,
@@ -287,15 +322,24 @@ async def delete_admin_account(account_id: int, current_admin: dict[str, Any], d
     return {"message": "Admin account deleted."}
 
 
-async def build_admin_auth_user(admin_user: dict[str, Any], db: AsyncSession, all_permissions: list[str]) -> AdminUserAuth:
-    permissions: list[str] = all_permissions if admin_user["is_superuser"] else []
+async def build_admin_auth_user(
+    admin_user: dict[str, Any],
+    db: AsyncSession,
+    all_permissions: list[str],
+) -> AdminUserAuth:
+    role_permissions: list[str] = []
     role_name: str | None = "超级管理员" if admin_user["is_superuser"] else None
     if not admin_user["is_superuser"] and admin_user["role_id"] is not None:
-        role_name, permissions = await resolve_admin_role_assignment(
+        role_name, role_permissions = await resolve_admin_role_assignment(
             db=db,
             admin_user_id=admin_user["id"],
             role_id=admin_user["role_id"],
         )
+    permissions = (
+        list(all_permissions)
+        if admin_user["is_superuser"]
+        else resolve_effective_admin_permissions(role_permissions)
+    )
 
     return AdminUserAuth(
         id=admin_user["id"],

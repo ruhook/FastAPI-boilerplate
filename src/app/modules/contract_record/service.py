@@ -1,16 +1,17 @@
+from collections.abc import Mapping
 from datetime import date
 from decimal import Decimal
-from typing import Any, Mapping
+from typing import Any
 
+from fastapi import UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import UploadFile
 
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
+from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..assets.model import Asset
 from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
-from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..job.model import Job
 from ..job_progress.const import RecruitmentStage, get_recruitment_stage_cn_name
 from ..job_progress.model import JobProgress
@@ -44,6 +45,12 @@ def _normalize_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value).strip())
     except Exception:
         return None
+
+
+def get_default_contract_end_date(effective_date: date | None) -> date | None:
+    if effective_date is None:
+        return None
+    return date(effective_date.year, 12, 31)
 
 
 async def get_current_contract_record_by_progress_id(
@@ -166,9 +173,24 @@ async def upsert_contract_record_for_progress(
         if admin_user_id is not None:
             current.updated_by_admin_user_id = admin_user_id
 
+    previous_effective_date = current.effective_date
+    previous_end_date = current.end_date
+
     for key, value in (field_updates or {}).items():
         if hasattr(current, key):
             setattr(current, key, value)
+
+    if current.effective_date is not None:
+        default_end_date = get_default_contract_end_date(current.effective_date)
+        previous_default_end_date = get_default_contract_end_date(previous_effective_date)
+        if current.end_date is None:
+            current.end_date = default_end_date
+        elif (
+            "effective_date" in (field_updates or {})
+            and "end_date" not in (field_updates or {})
+            and previous_end_date == previous_default_end_date
+        ):
+            current.end_date = default_end_date
 
     if data_updates:
         current.data = {
@@ -190,6 +212,41 @@ def _serialize_contract_asset(asset_payload: dict[str, Any] | None) -> ContractR
         download_url=asset_payload.get("download_url"),
         mime_type=asset_payload.get("mime_type"),
     )
+
+
+def _extract_id_attachment_asset_id(user_data: dict[str, Any] | None) -> int | None:
+    payment_info = (user_data or {}).get("payment_info")
+    if not isinstance(payment_info, dict):
+        return None
+    raw_asset_id = payment_info.get("id_attachment_asset_id")
+    if raw_asset_id in (None, "", 0):
+        return None
+    try:
+        return int(raw_asset_id)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _list_id_attachment_asset_ids_by_user(
+    *,
+    db: AsyncSession,
+    user_ids: set[int],
+) -> dict[int, int]:
+    normalized_user_ids = sorted({user_id for user_id in user_ids if user_id > 0})
+    if not normalized_user_ids:
+        return {}
+    result = await db.execute(
+        select(User.id, User.data).where(
+            User.id.in_(normalized_user_ids),
+            User.is_deleted.is_(False),
+        )
+    )
+    id_attachment_asset_ids: dict[int, int] = {}
+    for user_id, user_data in result.all():
+        asset_id = _extract_id_attachment_asset_id(user_data)
+        if asset_id is not None:
+            id_attachment_asset_ids[int(user_id)] = asset_id
+    return id_attachment_asset_ids
 
 
 async def list_contract_records_for_admin(
@@ -255,6 +312,10 @@ async def list_contract_records_for_admin(
         for row in rows
         if row[3] is not None
     }
+    id_attachment_asset_ids_by_user = await _list_id_attachment_asset_ids_by_user(
+        db=db,
+        user_ids={int(record.user_id) for record in records},
+    )
 
     asset_ids = {
         asset_id
@@ -264,6 +325,7 @@ async def list_contract_records_for_admin(
             record.draft_contract_asset_id,
             record.candidate_signed_contract_asset_id,
             record.company_sealed_contract_asset_id,
+            id_attachment_asset_ids_by_user.get(int(record.user_id)),
         ]
         if asset_id not in (None, 0)
     }
@@ -312,13 +374,20 @@ async def list_contract_records_for_admin(
             worker_type=record.worker_type,
             effective_date=record.effective_date,
             end_date=record.end_date,
-            contract_attachment=_serialize_contract_asset(asset_map.get(int(record.contract_attachment_asset_id or 0))),
-            draft_contract_attachment=_serialize_contract_asset(asset_map.get(int(record.draft_contract_asset_id or 0))),
+            contract_attachment=_serialize_contract_asset(
+                asset_map.get(int(record.contract_attachment_asset_id or 0))
+            ),
+            draft_contract_attachment=_serialize_contract_asset(
+                asset_map.get(int(record.draft_contract_asset_id or 0))
+            ),
             candidate_signed_contract_attachment=_serialize_contract_asset(
                 asset_map.get(int(record.candidate_signed_contract_asset_id or 0))
             ),
             company_sealed_contract_attachment=_serialize_contract_asset(
                 asset_map.get(int(record.company_sealed_contract_asset_id or 0))
+            ),
+            id_attachment=_serialize_contract_asset(
+                asset_map.get(int(id_attachment_asset_ids_by_user.get(int(record.user_id)) or 0))
             ),
             contract_review=(record.data or {}).get("contract_review"),
             signing_status=(record.data or {}).get("signing_status"),
@@ -371,6 +440,8 @@ async def update_contract_record_for_admin(
         raise NotFoundException("Contract record not found.")
 
     record, job, progress, company, project = row
+    previous_effective_date = record.effective_date
+    previous_end_date = record.end_date
     updated_fields: list[str] = []
     if contract_status is not None:
         next_contract_status = _normalize_contract_status_or_400(contract_status)
@@ -412,6 +483,20 @@ async def update_contract_record_for_admin(
         record.updated_by_admin_user_id = admin_user_id
         updated_fields.append("end_date")
 
+    if record.effective_date is not None:
+        default_end_date = get_default_contract_end_date(record.effective_date)
+        previous_default_end_date = get_default_contract_end_date(previous_effective_date)
+        if record.end_date is None:
+            record.end_date = default_end_date
+            record.updated_by_admin_user_id = admin_user_id
+            if "end_date" not in updated_fields:
+                updated_fields.append("end_date")
+        elif update_effective_date and not update_end_date and previous_end_date == previous_default_end_date:
+            record.end_date = default_end_date
+            record.updated_by_admin_user_id = admin_user_id
+            if "end_date" not in updated_fields:
+                updated_fields.append("end_date")
+
     await db.flush()
 
     if updated_fields:
@@ -435,6 +520,10 @@ async def update_contract_record_for_admin(
             },
         )
 
+    id_attachment_asset_ids_by_user = await _list_id_attachment_asset_ids_by_user(
+        db=db,
+        user_ids={int(record.user_id)},
+    )
     asset_ids = [
         asset_id
         for asset_id in [
@@ -442,6 +531,7 @@ async def update_contract_record_for_admin(
             record.draft_contract_asset_id,
             record.candidate_signed_contract_asset_id,
             record.company_sealed_contract_asset_id,
+            id_attachment_asset_ids_by_user.get(int(record.user_id)),
         ]
         if asset_id not in (None, 0)
     ]
@@ -491,6 +581,9 @@ async def update_contract_record_for_admin(
         ),
         company_sealed_contract_attachment=_serialize_contract_asset(
             asset_map.get(int(record.company_sealed_contract_asset_id or 0))
+        ),
+        id_attachment=_serialize_contract_asset(
+            asset_map.get(int(id_attachment_asset_ids_by_user.get(int(record.user_id)) or 0))
         ),
         contract_review=(record.data or {}).get("contract_review"),
         signing_status=(record.data or {}).get("signing_status"),
@@ -549,6 +642,8 @@ async def resign_contract_record_for_admin(
         )
     )
     for current_record in current_result.scalars().all():
+        if current_record.end_date is None:
+            current_record.end_date = get_default_contract_end_date(current_record.effective_date or date.today())
         current_record.is_current = False
         current_record.contract_status = CONTRACT_STATUS_TERMINATED
         current_record.updated_by_admin_user_id = admin_user_id
@@ -565,10 +660,13 @@ async def resign_contract_record_for_admin(
     )
     asset_id = int(asset_payload["id"])
 
+    if old_record.end_date is None:
+        old_record.end_date = get_default_contract_end_date(old_record.effective_date or date.today())
     old_record.contract_status = CONTRACT_STATUS_TERMINATED
     old_record.is_current = False
     old_record.updated_by_admin_user_id = admin_user_id
 
+    next_effective_date = effective_date or date.today()
     new_record = ContractRecord(
         user_id=old_record.user_id,
         user_snapshot_name=old_record.user_snapshot_name,
@@ -588,8 +686,8 @@ async def resign_contract_record_for_admin(
         rate=rate if rate is not None else old_record.rate,
         legal_entity=(legal_entity or old_record.legal_entity or "").strip() or "T-Maxx International",
         worker_type=(worker_type or old_record.worker_type or "").strip() or "Contractor",
-        effective_date=effective_date or date.today(),
-        end_date=end_date,
+        effective_date=next_effective_date,
+        end_date=end_date if end_date is not None else get_default_contract_end_date(next_effective_date),
         contract_attachment_asset_id=asset_id,
         candidate_signed_contract_asset_id=asset_id,
         company_sealed_contract_asset_id=asset_id,

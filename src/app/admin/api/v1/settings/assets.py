@@ -1,13 +1,17 @@
-from typing import Annotated, Any
+from io import BytesIO
+from pathlib import Path
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .....core.db.database import async_get_db
-from .....core.exceptions.http_exceptions import NotFoundException
+from .....core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from .....modules.admin.role.const import is_assessment_reviewer_only_permissions
 from .....modules.assets.schema import AssetRead, AssetUploadPayload
 from .....modules.assets.service import build_asset_pdf_export, get_asset, get_asset_content, upload_asset
@@ -15,6 +19,12 @@ from .....modules.job_progress.const import JobProgressDataKey
 from ...dependencies import get_current_admin_user
 
 router = APIRouter(prefix="/assets", tags=["admin-assets"])
+
+
+class AssetBatchDownloadZipPayload(BaseModel):
+    asset_ids: list[int] = Field(default_factory=list)
+    format: Literal["original", "pdf"] = "original"
+    filename: str | None = None
 
 
 def _is_assessment_reviewer_only(current_admin: dict[str, Any]) -> bool:
@@ -198,6 +208,23 @@ def build_content_disposition(disposition: str, filename: str) -> str:
     return f"{disposition}; filename={ascii_fallback!r}; filename*=UTF-8''{encoded_filename}"
 
 
+def _safe_zip_member_name(filename: str, used_names: set[str]) -> str:
+    cleaned = Path(filename.replace("\\", "/")).name.strip() or "attachment"
+    if cleaned not in used_names:
+        used_names.add(cleaned)
+        return cleaned
+
+    stem = Path(cleaned).stem or "attachment"
+    suffix = Path(cleaned).suffix
+    index = 2
+    while True:
+        candidate = f"{stem}-{index}{suffix}"
+        if candidate not in used_names:
+            used_names.add(candidate)
+            return candidate
+        index += 1
+
+
 @router.post("/upload", response_model=AssetRead, status_code=201, dependencies=[Depends(get_current_admin_user)])
 async def upload_asset_endpoint(
     type: Annotated[str, Form(...)],
@@ -213,6 +240,40 @@ async def upload_asset_endpoint(
         owner_id = int(current_admin["id"])
     payload = AssetUploadPayload(type=type, module=module, owner_type=owner_type, owner_id=owner_id)
     return await upload_asset(db=db, payload=payload, upload=file)
+
+
+@router.post("/batch-download-zip", dependencies=[Depends(get_current_admin_user)])
+async def download_assets_as_zip(
+    payload: AssetBatchDownloadZipPayload,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> Response:
+    asset_ids = list(dict.fromkeys(asset_id for asset_id in payload.asset_ids if asset_id > 0))
+    if not asset_ids:
+        raise BadRequestException("No assets selected.")
+    if len(asset_ids) > 200:
+        raise BadRequestException("Too many assets selected.")
+
+    output = BytesIO()
+    used_names: set[str] = set()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        for asset_id in asset_ids:
+            asset_payload = await get_asset(asset_id, db)
+            await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
+            asset, content = await get_asset_content(asset_id, db)
+            if payload.format == "pdf":
+                content = build_asset_pdf_export(asset, content)
+                filename = f"{asset.original_name.rsplit('.', 1)[0]}.pdf"
+            else:
+                filename = asset.original_name
+            archive.writestr(_safe_zip_member_name(filename, used_names), content)
+
+    filename = (payload.filename or "attachments.zip").strip() or "attachments.zip"
+    if not filename.lower().endswith(".zip"):
+        filename = f"{filename}.zip"
+    response = Response(content=output.getvalue(), media_type="application/zip")
+    response.headers["Content-Disposition"] = build_content_disposition("attachment", filename)
+    return response
 
 
 @router.get("/{asset_id}", response_model=AssetRead, dependencies=[Depends(get_current_admin_user)])

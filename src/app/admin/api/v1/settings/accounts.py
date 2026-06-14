@@ -19,7 +19,11 @@ from .....modules.admin.admin_user.service import (
 router = APIRouter(prefix="/accounts", tags=["admin-accounts"])
 
 
-@router.get("", response_model=list[AdminUserRead], dependencies=[Depends(get_current_admin_superuser)])
+@router.get(
+    "",
+    response_model=list[AdminUserRead],
+    dependencies=[Depends(require_any_admin_permission("岗位管理", "账户管理"))],
+)
 async def read_admin_accounts(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     keyword: str | None = None,

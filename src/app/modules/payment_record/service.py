@@ -15,7 +15,12 @@ from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
 from ..project_timesheet_record.model import ProjectTimesheetRecord
 from ..project_timesheet_record.team_leader_bonus import calculate_team_leader_bonus
-from ..referral.const import quantize_decimal
+from ..referral.const import (
+    REFERRAL_STATUS_PAID,
+    REFERRAL_STATUS_READY_TO_PAY,
+    REFERRAL_STATUS_TRACKING,
+    quantize_decimal,
+)
 from ..referral.model import ReferralRecord
 from ..referral_bonus_model.service import calculate_referral_reward_from_record
 from ..talent_profile.model import TalentProfile
@@ -54,6 +59,7 @@ AUTO_PAYABLE_CALCULATION_DATA_KEY = "calculation"
 AUTO_PAYABLE_SOURCE_KEY_DATA_KEY = "source_key"
 AUTO_PAYABLE_SOURCE_MONTH_DATA_KEY = "source_month"
 AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY = "payment_source"
+AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY = "payout_status"
 
 
 @dataclass
@@ -64,6 +70,7 @@ class _CalculatedPayable:
     user_id: int
     talent_profile_id: int | None
     contract_record_id: int | None
+    referral_record_id: int | None
     amount: Decimal
     currency: str
     user_name: str | None
@@ -73,6 +80,8 @@ class _CalculatedPayable:
     company_name: str | None
     project_name: str | None
     contract_ref_no: str | None
+    country: str | None
+    language: str | None
     work_hours: Decimal
     rate: Decimal | None
     bonus_multiplier: Decimal | None
@@ -223,6 +232,27 @@ def _normalize_decimal(value: Any) -> Decimal:
     return quantize_money(value)
 
 
+def _merge_label_values(*values: str | None) -> str | None:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for item in str(value).replace("，", ",").split(","):
+            label = item.strip()
+            key = label.casefold()
+            if label and key not in seen:
+                seen.add(key)
+                normalized.append(label)
+    return ", ".join(normalized) if normalized else None
+
+
+def _talent_language_label(talent: TalentProfile | None) -> str | None:
+    if talent is None:
+        return None
+    return _merge_label_values(talent.native_languages, talent.additional_languages)
+
+
 def _payable_sort_key(item: PaymentPayableRecordRead) -> tuple[int, str, str, str, int]:
     return (
         1 if item.payout_status == PAYMENT_PAYOUT_STATUS_PENDING else 0,
@@ -321,7 +351,11 @@ def _sort_payables(
     )
 
 
-def _build_auto_payable_data(item: _CalculatedPayable) -> dict[str, Any]:
+def _build_auto_payable_data(
+    item: _CalculatedPayable,
+    *,
+    payout_status: str = PAYMENT_PAYOUT_STATUS_PAID,
+) -> dict[str, Any]:
     calculation: dict[str, Any] = {
         "work_hours": str(_normalize_decimal(item.work_hours)),
         "source_record_count": int(item.source_record_count),
@@ -330,12 +364,55 @@ def _build_auto_payable_data(item: _CalculatedPayable) -> dict[str, Any]:
         calculation["rate"] = str(_normalize_decimal(item.rate))
     if item.bonus_multiplier is not None:
         calculation["bonus_multiplier"] = str(_normalize_decimal(item.bonus_multiplier))
+    if item.country:
+        calculation["country"] = item.country
+    if item.language:
+        calculation["language"] = item.language
     return {
         AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY: PAYMENT_SOURCE_AUTO_PAYABLE,
         AUTO_PAYABLE_SOURCE_KEY_DATA_KEY: item.source_key,
         AUTO_PAYABLE_SOURCE_MONTH_DATA_KEY: item.source_month,
+        AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY: payout_status,
         AUTO_PAYABLE_CALCULATION_DATA_KEY: calculation,
     }
+
+
+async def _sync_referral_reward_status(
+    *,
+    db: AsyncSession,
+    record: PaymentRecord,
+    previous_status: str,
+    next_status: str,
+    admin_user_id: int,
+) -> None:
+    if record.payment_type != PAYMENT_TYPE_REFERRAL_REWARD or record.referral_record_id is None:
+        return
+    if previous_status == next_status:
+        return
+
+    referral = await db.get(ReferralRecord, int(record.referral_record_id))
+    if referral is None or referral.is_deleted:
+        return
+
+    amount = quantize_decimal(record.amount)
+    paid_amount = quantize_decimal(referral.paid_reward_amount)
+    if previous_status != PAYMENT_PAYOUT_STATUS_PAID and next_status == PAYMENT_PAYOUT_STATUS_PAID:
+        paid_amount = quantize_decimal(paid_amount + amount)
+    elif previous_status == PAYMENT_PAYOUT_STATUS_PAID and next_status != PAYMENT_PAYOUT_STATUS_PAID:
+        paid_amount = max(quantize_decimal(paid_amount - amount), Decimal("0.00"))
+    else:
+        return
+
+    referral.paid_reward_amount = paid_amount
+    referral.payout_status = (
+        REFERRAL_STATUS_PAID
+        if next_status == PAYMENT_PAYOUT_STATUS_PAID and paid_amount > 0
+        else (REFERRAL_STATUS_READY_TO_PAY if paid_amount > 0 else REFERRAL_STATUS_TRACKING)
+    )
+    referral.last_paid_at = record.paid_at if next_status == PAYMENT_PAYOUT_STATUS_PAID else referral.last_paid_at
+    referral.last_paid_by_admin_user_id = (
+        admin_user_id if next_status == PAYMENT_PAYOUT_STATUS_PAID else referral.last_paid_by_admin_user_id
+    )
 
 
 async def _get_user_with_talent(*, db: AsyncSession, user_id: int) -> tuple[User, TalentProfile | None]:
@@ -579,6 +656,7 @@ def _serialize_calculated_payable(item: _CalculatedPayable) -> PaymentPayableRec
         user_id=item.user_id,
         talent_profile_id=item.talent_profile_id,
         contract_record_id=item.contract_record_id,
+        referral_record_id=item.referral_record_id,
         payment_type=item.payment_type,
         amount=_normalize_decimal(item.amount),
         currency=item.currency,
@@ -593,6 +671,8 @@ def _serialize_calculated_payable(item: _CalculatedPayable) -> PaymentPayableRec
         company_name=item.company_name,
         project_name=item.project_name,
         contract_ref_no=item.contract_ref_no,
+        country=item.country,
+        language=item.language,
         work_hours=_normalize_decimal(item.work_hours),
         rate=_normalize_decimal(item.rate) if item.rate is not None else None,
         bonus_multiplier=_normalize_decimal(item.bonus_multiplier) if item.bonus_multiplier is not None else None,
@@ -604,10 +684,19 @@ def _serialize_calculated_payable(item: _CalculatedPayable) -> PaymentPayableRec
 
 def _serialize_paid_payable_record(record: PaymentRecord) -> PaymentPayableRecordRead | None:
     data = record.data or {}
-    if data.get(AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY) != PAYMENT_SOURCE_AUTO_PAYABLE:
+    has_auto_payable_data = data.get(AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY) == PAYMENT_SOURCE_AUTO_PAYABLE
+    if not has_auto_payable_data and record.payment_type != PAYMENT_TYPE_REFERRAL_REWARD:
         return None
-    source_key = str(data.get(AUTO_PAYABLE_SOURCE_KEY_DATA_KEY) or "").strip()
     source_month = str(data.get(AUTO_PAYABLE_SOURCE_MONTH_DATA_KEY) or "").strip()
+    if not source_month and record.paid_at:
+        source_month = _month_key(record.paid_at.date())
+    source_key = str(data.get(AUTO_PAYABLE_SOURCE_KEY_DATA_KEY) or "").strip()
+    if not source_key and record.payment_type == PAYMENT_TYPE_REFERRAL_REWARD and record.referral_record_id:
+        source_key = _build_referral_reward_source_key(
+            source_month,
+            int(record.referral_record_id),
+            _normalize_decimal(record.amount),
+        )
     if not source_key or not source_month:
         return None
     calculation = data.get(AUTO_PAYABLE_CALCULATION_DATA_KEY)
@@ -615,19 +704,27 @@ def _serialize_paid_payable_record(record: PaymentRecord) -> PaymentPayableRecor
         calculation = {}
     rate = calculation.get("rate")
     bonus_multiplier = calculation.get("bonus_multiplier")
+    country = str(calculation.get("country") or "").strip() or None
+    language = str(calculation.get("language") or "").strip() or None
+    payout_status = str(data.get(AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY) or PAYMENT_PAYOUT_STATUS_PAID).strip()
+    try:
+        payout_status = normalize_payment_payout_status(payout_status)
+    except ValueError:
+        payout_status = PAYMENT_PAYOUT_STATUS_PAID
     return PaymentPayableRecordRead(
         id=f"paid:{record.id}",
         source_key=source_key,
         source_month=source_month,
-        payout_status=PAYMENT_PAYOUT_STATUS_PAID,
+        payout_status=payout_status,
         payment_record_id=record.id,
         user_id=record.user_id,
         talent_profile_id=record.talent_profile_id,
         contract_record_id=record.contract_record_id,
+        referral_record_id=record.referral_record_id,
         payment_type=record.payment_type,
         amount=_normalize_decimal(record.amount),
         currency=record.currency,
-        paid_at=record.paid_at,
+        paid_at=record.paid_at if payout_status == PAYMENT_PAYOUT_STATUS_PAID else None,
         external_platform=record.external_platform,
         external_transaction_no=record.external_transaction_no,
         remark=record.remark,
@@ -638,6 +735,8 @@ def _serialize_paid_payable_record(record: PaymentRecord) -> PaymentPayableRecor
         company_name=record.company_snapshot_name,
         project_name=record.project_snapshot_name,
         contract_ref_no=record.contract_snapshot_ref_no,
+        country=country,
+        language=language,
         work_hours=_normalize_decimal(calculation.get("work_hours")),
         rate=_normalize_decimal(rate) if rate not in (None, "") else None,
         bonus_multiplier=_normalize_decimal(bonus_multiplier) if bonus_multiplier not in (None, "") else None,
@@ -655,7 +754,9 @@ async def _load_paid_auto_payables(
 ) -> dict[str, PaymentPayableRecordRead]:
     conditions = [
         PaymentRecord.is_deleted.is_(False),
-        PaymentRecord.payment_type.in_([PAYMENT_TYPE_SALARY, PAYMENT_TYPE_TEAM_LEADER_BONUS]),
+        PaymentRecord.payment_type.in_(
+            [PAYMENT_TYPE_SALARY, PAYMENT_TYPE_TEAM_LEADER_BONUS, PAYMENT_TYPE_REFERRAL_REWARD]
+        ),
     ]
     if payment_type:
         conditions.append(PaymentRecord.payment_type == _safe_normalize_payment_type(payment_type))
@@ -681,6 +782,39 @@ def _build_salary_source_key(source_month: str, contract_record_id: int) -> str:
 
 def _build_team_leader_bonus_source_key(source_month: str, leader_user_id: int) -> str:
     return f"{PAYMENT_TYPE_TEAM_LEADER_BONUS}:{source_month}:{leader_user_id}"
+
+
+def _build_referral_reward_source_key(source_month: str, referral_record_id: int, referral_earnings: Decimal) -> str:
+    return f"{PAYMENT_TYPE_REFERRAL_REWARD}:{source_month}:{referral_record_id}:{_normalize_decimal(referral_earnings)}"
+
+
+def _referral_reward_target_hours(record: ReferralRecord, work_hours: Decimal) -> Decimal:
+    milestones = list((record.data or {}).get("milestones") or [])
+    reached_hours = [
+        quantize_decimal(milestone.get("required_hours"))
+        for milestone in milestones
+        if work_hours >= quantize_decimal(milestone.get("required_hours"))
+    ]
+    if not reached_hours:
+        return work_hours
+    return max(reached_hours)
+
+
+def _referral_reward_source_month(
+    rows: list[ProjectTimesheetRecord],
+    *,
+    target_hours: Decimal,
+) -> str:
+    cumulative = Decimal("0.00")
+    fallback = rows[-1].work_date if rows else datetime.now(UTC).date()
+    for row in rows:
+        hours = _normalize_decimal(row.candidate_duration_hours)
+        if hours <= 0:
+            continue
+        cumulative = _normalize_decimal(cumulative + hours)
+        if cumulative >= target_hours:
+            return _month_key(row.work_date)
+    return _month_key(fallback)
 
 
 async def _calculate_salary_payables(*, db: AsyncSession, cutoff_start: date) -> list[_CalculatedPayable]:
@@ -725,6 +859,7 @@ async def _calculate_salary_payables(*, db: AsyncSession, cutoff_start: date) ->
                 user_id=int(user.id),
                 talent_profile_id=record.talent_profile_id or contract.talent_profile_id,
                 contract_record_id=int(contract.id),
+                referral_record_id=None,
                 amount=Decimal("0.00"),
                 currency="USD",
                 user_name=display_name,
@@ -734,6 +869,8 @@ async def _calculate_salary_payables(*, db: AsyncSession, cutoff_start: date) ->
                 company_name=company.name if company is not None else None,
                 project_name=project.name if project is not None else None,
                 contract_ref_no=contract.agreement_ref_no,
+                country=(talent.location or talent.nationality) if talent is not None else None,
+                language=record.language,
                 work_hours=Decimal("0.00"),
                 rate=rate,
                 bonus_multiplier=None,
@@ -743,6 +880,7 @@ async def _calculate_salary_payables(*, db: AsyncSession, cutoff_start: date) ->
         group.work_hours = _normalize_decimal(group.work_hours + hours)
         group.amount = _normalize_decimal(group.work_hours * (group.rate or Decimal("0.00")))
         group.source_record_count += 1
+        group.language = _merge_label_values(group.language, record.language)
     return [item for item in groups.values() if item.amount > 0]
 
 
@@ -781,16 +919,23 @@ async def _calculate_team_leader_bonus_payables(*, db: AsyncSession, cutoff_star
         .where(
             ProjectTimesheetRecord.work_date < cutoff_start,
             ProjectTimesheetRecord.team_leader_user_id.is_not(None),
+            ProjectTimesheetRecord.team_leader_user_id > 0,
             ProjectTimesheetRecord.is_deleted.is_(False),
         )
         .order_by(ProjectTimesheetRecord.work_date.asc(), ProjectTimesheetRecord.id.asc())
     )
     rows = result.scalars().all()
-    leader_user_ids = sorted({int(row.team_leader_user_id) for row in rows if row.team_leader_user_id is not None})
+    leader_user_ids = sorted(
+        {
+            int(row.team_leader_user_id)
+            for row in rows
+            if row.team_leader_user_id is not None and int(row.team_leader_user_id) > 0
+        }
+    )
     contexts = await _load_team_leader_contract_contexts(db=db, leader_user_ids=leader_user_ids)
     groups: dict[str, _CalculatedPayable] = {}
     for record in rows:
-        if record.team_leader_user_id is None:
+        if record.team_leader_user_id is None or int(record.team_leader_user_id) <= 0:
             continue
         hours = _normalize_decimal(record.candidate_duration_hours)
         if hours <= 0:
@@ -818,6 +963,7 @@ async def _calculate_team_leader_bonus_payables(*, db: AsyncSession, cutoff_star
                 user_id=leader_user_id,
                 talent_profile_id=contract.talent_profile_id,
                 contract_record_id=int(contract.id),
+                referral_record_id=None,
                 amount=Decimal("0.00"),
                 currency="USD",
                 user_name=display_name,
@@ -827,6 +973,8 @@ async def _calculate_team_leader_bonus_payables(*, db: AsyncSession, cutoff_star
                 company_name=company.name if company is not None else None,
                 project_name=project.name if project is not None else None,
                 contract_ref_no=contract.agreement_ref_no,
+                country=(talent.location or talent.nationality) if talent is not None else None,
+                language=record.language or _talent_language_label(talent),
                 work_hours=Decimal("0.00"),
                 rate=None,
                 bonus_multiplier=None,
@@ -838,7 +986,93 @@ async def _calculate_team_leader_bonus_payables(*, db: AsyncSession, cutoff_star
         group.bonus_multiplier = multiplier
         group.amount = bonus
         group.source_record_count += 1
+        group.language = _merge_label_values(group.language, record.language)
     return [item for item in groups.values() if item.amount > 0]
+
+
+async def _calculate_referral_reward_payables(*, db: AsyncSession, cutoff_start: date) -> list[_CalculatedPayable]:
+    referrer_alias = aliased(User)
+    referred_alias = aliased(User)
+    referrer_talent_alias = aliased(TalentProfile)
+    referral_result = await db.execute(
+        select(ReferralRecord, referrer_alias, referred_alias, referrer_talent_alias)
+        .outerjoin(referrer_alias, referrer_alias.id == ReferralRecord.referrer_user_id)
+        .outerjoin(referred_alias, referred_alias.id == ReferralRecord.referred_user_id)
+        .outerjoin(referrer_talent_alias, referrer_talent_alias.user_id == ReferralRecord.referrer_user_id)
+        .where(ReferralRecord.is_deleted.is_(False))
+        .order_by(ReferralRecord.id.asc())
+    )
+    referral_rows = referral_result.all()
+    referred_user_ids = [int(record.referred_user_id) for record, _, _, _ in referral_rows]
+    if not referred_user_ids:
+        return []
+
+    work_result = await db.execute(
+        select(ProjectTimesheetRecord)
+        .where(
+            ProjectTimesheetRecord.user_id.in_(referred_user_ids),
+            ProjectTimesheetRecord.work_date < cutoff_start,
+            ProjectTimesheetRecord.is_deleted.is_(False),
+        )
+        .order_by(ProjectTimesheetRecord.work_date.asc(), ProjectTimesheetRecord.id.asc())
+    )
+    work_rows_by_user_id: dict[int, list[ProjectTimesheetRecord]] = {}
+    for row in work_result.scalars().all():
+        work_rows_by_user_id.setdefault(int(row.user_id), []).append(row)
+
+    items: list[_CalculatedPayable] = []
+    for record, referrer, referred, referrer_talent in referral_rows:
+        work_rows = work_rows_by_user_id.get(int(record.referred_user_id), [])
+        work_hours = _normalize_decimal(
+            sum((_normalize_decimal(row.candidate_duration_hours) for row in work_rows), Decimal("0.00"))
+        )
+        if work_hours <= 0:
+            continue
+        referral_earnings = calculate_referral_reward_from_record(record, work_hours)
+        payable_amount = max(referral_earnings - quantize_decimal(record.paid_reward_amount), Decimal("0.00"))
+        payable_amount = _normalize_decimal(payable_amount)
+        if payable_amount <= 0:
+            continue
+        target_hours = _referral_reward_target_hours(record, work_hours)
+        source_month = _referral_reward_source_month(work_rows, target_hours=target_hours)
+        display_name = (
+            (referrer_talent.full_name if referrer_talent is not None and referrer_talent.full_name else None)
+            or (referrer.name if referrer is not None else None)
+            or record.referrer_snapshot_name
+            or (referrer.email if referrer is not None else None)
+            or record.referrer_snapshot_email
+        )
+        items.append(
+            _CalculatedPayable(
+                source_key=_build_referral_reward_source_key(source_month, int(record.id), referral_earnings),
+                source_month=source_month,
+                payment_type=PAYMENT_TYPE_REFERRAL_REWARD,
+                user_id=int(record.referrer_user_id),
+                talent_profile_id=referrer_talent.id if referrer_talent is not None else None,
+                contract_record_id=None,
+                referral_record_id=int(record.id),
+                amount=payable_amount,
+                currency=record.currency,
+                user_name=display_name,
+                user_email=(referrer.email if referrer is not None else None) or record.referrer_snapshot_email,
+                company_id=None,
+                project_id=None,
+                company_name=None,
+                project_name=None,
+                contract_ref_no=f"Referral: {referred.name or referred.email}" if referred is not None else "Referral",
+                country=(
+                    referrer_talent.location or referrer_talent.nationality
+                    if referrer_talent is not None
+                    else None
+                ),
+                language=_talent_language_label(referrer_talent),
+                work_hours=work_hours,
+                rate=None,
+                bonus_multiplier=None,
+                source_record_count=len(work_rows),
+            )
+        )
+    return items
 
 
 async def _calculate_auto_payables(
@@ -853,6 +1087,8 @@ async def _calculate_auto_payables(
         items.extend(await _calculate_salary_payables(db=db, cutoff_start=cutoff_start))
     if normalized_payment_type in (None, PAYMENT_TYPE_TEAM_LEADER_BONUS):
         items.extend(await _calculate_team_leader_bonus_payables(db=db, cutoff_start=cutoff_start))
+    if normalized_payment_type in (None, PAYMENT_TYPE_REFERRAL_REWARD):
+        items.extend(await _calculate_referral_reward_payables(db=db, cutoff_start=cutoff_start))
     return items
 
 
@@ -872,13 +1108,15 @@ def _payable_matches_keyword(item: PaymentPayableRecordRead, keyword: str | None
             item.external_platform,
             item.external_transaction_no,
             item.remark,
+            item.country,
+            item.language,
         )
     ).casefold()
     return text in haystack
 
 
 def _build_payable_summary(*, month: str, items: list[PaymentPayableRecordRead]) -> PaymentPayableSummaryRead:
-    pending_items = [item for item in items if item.payout_status == PAYMENT_PAYOUT_STATUS_PENDING]
+    pending_items = [item for item in items if item.payout_status != PAYMENT_PAYOUT_STATUS_PAID]
     paid_items = [item for item in items if item.payout_status == PAYMENT_PAYOUT_STATUS_PAID]
     pending_amount = sum((item.amount for item in pending_items), Decimal("0.00"))
     paid_amount = sum((item.amount for item in paid_items), Decimal("0.00"))
@@ -909,14 +1147,23 @@ async def list_auto_payment_payables_for_admin(
     cutoff_start = _next_month_start(payable_month)
     normalized_payment_type = _safe_normalize_payment_type(payment_type) if payment_type else None
     normalized_payout_status = _safe_normalize_payout_status(payout_status) if payout_status else None
-    paid_by_source_key = await _load_paid_auto_payables(
+    all_recorded_by_source_key = await _load_paid_auto_payables(
         db=db,
-        source_month=payable_month,
         payment_type=normalized_payment_type,
     )
     items: list[PaymentPayableRecordRead] = []
-    if normalized_payout_status in (None, PAYMENT_PAYOUT_STATUS_PAID):
-        items.extend(paid_by_source_key.values())
+    recorded_items = [
+        item
+        for item in all_recorded_by_source_key.values()
+        if (
+            item.source_month == payable_month
+            or (item.source_month <= payable_month and item.payout_status != PAYMENT_PAYOUT_STATUS_PAID)
+        )
+    ]
+    if normalized_payout_status is None:
+        items.extend(recorded_items)
+    else:
+        items.extend(item for item in recorded_items if item.payout_status == normalized_payout_status)
     if normalized_payout_status in (None, PAYMENT_PAYOUT_STATUS_PENDING):
         calculated = await _calculate_auto_payables(
             db=db,
@@ -926,7 +1173,7 @@ async def list_auto_payment_payables_for_admin(
         items.extend(
             _serialize_calculated_payable(item)
             for item in calculated
-            if item.source_month == payable_month and item.source_key not in paid_by_source_key
+            if item.source_month <= payable_month and item.source_key not in all_recorded_by_source_key
         )
 
     items = [item for item in items if _payable_matches_keyword(item, keyword)]
@@ -959,10 +1206,11 @@ async def mark_auto_payment_payables_paid(
     payload: PaymentPayableMarkPaidRequest,
 ) -> dict[str, Any]:
     source_keys = payload.source_keys
-    paid_by_source_key = await _load_paid_auto_payables(db=db)
-    duplicate_keys = [source_key for source_key in source_keys if source_key in paid_by_source_key]
+    payout_status = _safe_normalize_payout_status(payload.payout_status)
+    recorded_by_source_key = await _load_paid_auto_payables(db=db)
+    duplicate_keys = [source_key for source_key in source_keys if source_key in recorded_by_source_key]
     if duplicate_keys:
-        raise BadRequestException("Selected payable record has already been marked as paid.")
+        raise BadRequestException("Selected payable record already has a saved payout status.")
 
     cutoff_start = _cutoff_for_source_keys(source_keys)
     calculated = await _calculate_auto_payables(db=db, cutoff_start=cutoff_start)
@@ -975,22 +1223,29 @@ async def mark_auto_payment_payables_paid(
     created: list[PaymentRecord] = []
     for source_key in source_keys:
         item = calculated_by_source_key[source_key]
-        created.append(
-            await _create_payment_record(
-                db=db,
-                admin_user_id=admin_user_id,
-                user_id=item.user_id,
-                payment_type=item.payment_type,
-                amount=item.amount,
-                paid_at=paid_at,
-                currency=item.currency,
-                contract_record_id=item.contract_record_id,
-                external_platform=payload.external_platform,
-                external_transaction_no=payload.external_transaction_no,
-                remark=payload.remark,
-                data=_build_auto_payable_data(item),
-            )
+        record = await _create_payment_record(
+            db=db,
+            admin_user_id=admin_user_id,
+            user_id=item.user_id,
+            payment_type=item.payment_type,
+            amount=item.amount,
+            paid_at=paid_at,
+            currency=item.currency,
+            contract_record_id=item.contract_record_id,
+            referral_record_id=item.referral_record_id,
+            external_platform=payload.external_platform,
+            external_transaction_no=payload.external_transaction_no,
+            remark=payload.remark,
+            data=_build_auto_payable_data(item, payout_status=payout_status),
         )
+        await _sync_referral_reward_status(
+            db=db,
+            record=record,
+            previous_status=PAYMENT_PAYOUT_STATUS_PENDING,
+            next_status=payout_status,
+            admin_user_id=admin_user_id,
+        )
+        created.append(record)
 
     await create_operation_log(
         db=db,
@@ -1001,7 +1256,8 @@ async def mark_auto_payment_payables_paid(
             "payment_record_ids": [record.id for record in created],
             "source_keys": source_keys,
             "operator_admin_user_id": admin_user_id,
-            "note": "Salary/team leader payables marked as paid.",
+            "payout_status": payout_status,
+            "note": "Auto payables payout status updated.",
         },
     )
     items = [_serialize_paid_payable_record(record) for record in created]
@@ -1021,17 +1277,56 @@ async def update_auto_payment_payable_info(
     record = await db.get(PaymentRecord, payment_record_id)
     if record is None or record.is_deleted:
         raise NotFoundException("Payment record not found.")
-    if record.payment_type not in (PAYMENT_TYPE_SALARY, PAYMENT_TYPE_TEAM_LEADER_BONUS):
-        raise BadRequestException("Only salary and team leader bonus payment records can be updated here.")
-    if (record.data or {}).get(AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY) != PAYMENT_SOURCE_AUTO_PAYABLE:
+    if record.payment_type not in (PAYMENT_TYPE_SALARY, PAYMENT_TYPE_TEAM_LEADER_BONUS, PAYMENT_TYPE_REFERRAL_REWARD):
+        raise BadRequestException("Only salary, team leader bonus, and referral reward records can be updated here.")
+    data = dict(record.data or {})
+    if (
+        data.get(AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY) != PAYMENT_SOURCE_AUTO_PAYABLE
+        and record.payment_type == PAYMENT_TYPE_REFERRAL_REWARD
+    ):
+        source_month = _month_key(record.paid_at.date())
+        data = {
+            **data,
+            AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY: PAYMENT_SOURCE_AUTO_PAYABLE,
+            AUTO_PAYABLE_SOURCE_KEY_DATA_KEY: _build_referral_reward_source_key(
+                source_month,
+                int(record.referral_record_id or record.id),
+                _normalize_decimal(record.amount),
+            ),
+            AUTO_PAYABLE_SOURCE_MONTH_DATA_KEY: source_month,
+            AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY: PAYMENT_PAYOUT_STATUS_PAID,
+            AUTO_PAYABLE_CALCULATION_DATA_KEY: {
+                "work_hours": "0.00",
+                "source_record_count": 1,
+            },
+        }
+    if data.get(AUTO_PAYABLE_SOURCE_TYPE_DATA_KEY) != PAYMENT_SOURCE_AUTO_PAYABLE:
         raise BadRequestException("Only auto-calculated payable records can be updated here.")
+
+    previous_status = str(data.get(AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY) or PAYMENT_PAYOUT_STATUS_PAID)
+    try:
+        previous_status = normalize_payment_payout_status(previous_status)
+    except ValueError:
+        previous_status = PAYMENT_PAYOUT_STATUS_PAID
+    next_status = previous_status
+    if payload.payout_status is not None:
+        next_status = _safe_normalize_payout_status(payload.payout_status)
+        data[AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY] = next_status
 
     if payload.paid_at is not None:
         record.paid_at = payload.paid_at
     record.external_platform = payload.external_platform
     record.external_transaction_no = payload.external_transaction_no
     record.remark = payload.remark
+    record.data = data
     record.updated_by_admin_user_id = admin_user_id
+    await _sync_referral_reward_status(
+        db=db,
+        record=record,
+        previous_status=previous_status,
+        next_status=next_status,
+        admin_user_id=admin_user_id,
+    )
     await db.flush()
     await db.refresh(record)
 

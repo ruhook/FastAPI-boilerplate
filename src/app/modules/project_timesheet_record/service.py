@@ -29,6 +29,7 @@ from ..contract_record.const import (
     INACTIVE_CONTRACT_STATUSES,
 )
 from ..contract_record.model import ContractRecord
+from ..job.const import JOB_DATA_LANGUAGES_KEY
 from ..job.model import Job
 from ..talent_profile.model import TalentProfile
 from ..user.model import User
@@ -75,6 +76,10 @@ def _build_timesheet_team_leader_name_expression():
         .limit(1)
         .scalar_subquery()
     )
+
+
+def _get_timesheet_worker_name(user: User, talent: TalentProfile | None) -> str:
+    return str((talent.full_name if talent and talent.full_name else None) or user.name or user.email or "").strip()
 
 
 def _build_timesheet_note_images_expression():
@@ -261,7 +266,6 @@ async def list_active_project_workers(
         ContractRecord.is_deleted.is_(False),
         ContractRecord.is_current.is_(True),
         ContractRecord.service_customer_company_id == company_id,
-        ContractRecord.service_customer_project_id == project_id,
         ContractRecord.contract_status == CONTRACT_STATUS_ACTIVE,
         User.is_deleted.is_(False),
     ]
@@ -284,12 +288,7 @@ async def list_active_project_workers(
                 talent_profile_id=int(talent.id) if talent is not None else record.talent_profile_id,
                 contract_record_id=int(record.id),
                 contract_type=record.contract_type,
-                name=(
-                    (talent.full_name if talent and talent.full_name else None)
-                    or record.contractor_name
-                    or record.user_snapshot_name
-                    or user.name
-                ),
+                name=_get_timesheet_worker_name(user, talent),
                 email=record.user_snapshot_email or user.email,
                 agreement_ref_no=record.agreement_ref_no,
             ).model_dump(),
@@ -311,7 +310,6 @@ async def list_active_project_team_leaders(
         company_id=company_id,
         project_id=project_id,
         db=db,
-        contract_type=CONTRACT_TYPE_TEAM_LEADER,
     )
 
 
@@ -511,14 +509,13 @@ async def _resolve_timesheet_worker(
             ContractRecord.is_deleted.is_(False),
             ContractRecord.is_current.is_(True),
             ContractRecord.service_customer_company_id == company_id,
-            ContractRecord.service_customer_project_id == project_id,
             User.is_deleted.is_(False),
         )
         .limit(1)
     )
     row = result.first()
     if row is None:
-        raise BadRequestException("Selected worker is not available for this project.")
+        raise BadRequestException("Selected worker is not available for this company.")
     return row
 
 
@@ -568,11 +565,14 @@ async def list_project_timesheet_workspace(
         .where(
             *conditions,
             ProjectTimesheetRecord.team_leader_user_id.is_not(None),
+            ProjectTimesheetRecord.team_leader_user_id > 0,
         )
         .distinct()
     )
     available_team_leader_ids = [
-        int(user_id) for user_id in available_team_leader_ids_result.scalars().all() if user_id is not None
+        int(user_id)
+        for user_id in available_team_leader_ids_result.scalars().all()
+        if user_id is not None and int(user_id) > 0
     ]
     available_team_leader_map = await _load_team_leader_payload_map(
         db=db,
@@ -1235,7 +1235,7 @@ def _serialize_candidate_timesheet_entry(
         id=record.id,
         contract_record_id=int(record.contract_record_id or 0),
         project_id=record.project_id,
-        project_name=project_name,
+        project_name=None,
         project_code=record.sub_project_name,
         work_date=record.work_date,
         hours=_quantize_hours(_to_decimal(record.candidate_duration_hours)) or _zero_decimal(),
@@ -1403,10 +1403,12 @@ async def list_candidate_timesheet_workspace(
                 contract_status=contract_record.contract_status,
                 job_id=job.id,
                 job_title=job.title,
-                service_customer_company_id=contract_record.service_customer_company_id,
-                service_customer_company_name=company.name if company is not None else None,
-                service_customer_project_id=contract_record.service_customer_project_id,
-                service_customer_project_name=project.name if project is not None else None,
+                job_country=job.country,
+                job_languages=list((job.data or {}).get(JOB_DATA_LANGUAGES_KEY) or []),
+                service_customer_company_id=None,
+                service_customer_company_name=None,
+                service_customer_project_id=None,
+                service_customer_project_name=None,
                 rate=rate,
                 rate_unit=job.compensation_unit,
                 effective_date=contract_record.effective_date,
@@ -1462,8 +1464,8 @@ async def create_project_timesheet_records(
     }
     team_leader_options = await list_active_project_team_leaders(company_id=company_id, project_id=project_id, db=db)
     active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
-    if int(payload.team_leader_user_id) not in active_team_leader_user_ids:
-        raise BadRequestException("Selected team leader must have an active team leader contract for this project.")
+    if int(payload.team_leader_user_id) > 0 and int(payload.team_leader_user_id) not in active_team_leader_user_ids:
+        raise BadRequestException("Selected team leader must have an active contract for this company.")
 
     note_asset_ids = sorted(
         {int(asset_id) for entry in payload.entries for asset_id in entry.note_asset_ids if int(asset_id) > 0}
@@ -1478,7 +1480,7 @@ async def create_project_timesheet_records(
     for entry in payload.entries:
         worker = worker_map.get(int(entry.contract_record_id))
         if worker is None:
-            raise BadRequestException("Selected worker is not available for this project.")
+            raise BadRequestException("Selected worker is not available for this company.")
         if entry.user_id is not None and int(entry.user_id) != int(worker["user_id"]):
             raise BadRequestException("Selected worker does not match the selected contract.")
         if timesheet_work_types and entry.work_type not in timesheet_work_types:
@@ -1515,7 +1517,7 @@ async def create_project_timesheet_records(
                 "note_asset_ids": list(entry.note_asset_ids),
             },
         )
-        record.team_leader_user_id = int(payload.team_leader_user_id)
+        record.team_leader_user_id = int(payload.team_leader_user_id) or None
         db.add(record)
         created_count += 1
 
@@ -1560,8 +1562,8 @@ async def update_project_timesheet_record(
 
     team_leader_options = await list_active_project_team_leaders(company_id=company_id, project_id=project_id, db=db)
     active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
-    if int(payload.team_leader_user_id) not in active_team_leader_user_ids:
-        raise BadRequestException("Selected team leader must have an active team leader contract for this project.")
+    if int(payload.team_leader_user_id) > 0 and int(payload.team_leader_user_id) not in active_team_leader_user_ids:
+        raise BadRequestException("Selected team leader must have an active contract for this company.")
 
     await _validate_timesheet_note_assets(
         db=db,
@@ -1579,7 +1581,7 @@ async def update_project_timesheet_record(
         int(payload.contract_record_id) != int(record.contract_record_id or 0)
         and contract_record.contract_status != "Active"
     ):
-        raise BadRequestException("Selected worker is not available for this project.")
+        raise BadRequestException("Selected worker is not available for this company.")
     if payload.user_id is not None and int(payload.user_id) != int(user.id):
         raise BadRequestException("Selected worker does not match the selected contract.")
 
@@ -1588,14 +1590,9 @@ async def update_project_timesheet_record(
     record.user_id = int(user.id)
     record.talent_profile_id = int(talent.id) if talent is not None else contract_record.talent_profile_id
     record.contract_record_id = int(contract_record.id)
-    record.user_name_snapshot = (
-        (talent.full_name if talent and talent.full_name else None)
-        or contract_record.contractor_name
-        or contract_record.user_snapshot_name
-        or user.name
-    )
+    record.user_name_snapshot = _get_timesheet_worker_name(user, talent)
     record.user_email_snapshot = contract_record.user_snapshot_email or user.email
-    record.team_leader_user_id = int(payload.team_leader_user_id)
+    record.team_leader_user_id = int(payload.team_leader_user_id) or None
     record.language = payload.language
     record.work_type = payload.work_type
     record.output_quantity = _quantize_hours(payload.output_quantity)

@@ -10,13 +10,9 @@ from ...modules.admin.admin_user.crud import crud_admin_users
 from ...modules.admin.admin_user.schema import AdminUserDBRead
 from ...modules.admin.admin_user.service import resolve_admin_role_assignment
 from ...modules.admin.role.const import (
-    ALL_ADMIN_PERMISSIONS,
-    BUSINESS_ADMIN_PERMISSIONS,
     is_assessment_reviewer_only_permissions,
+    resolve_effective_admin_permissions,
 )
-
-
-BUSINESS_ADMIN_PERMISSION_SET = set(BUSINESS_ADMIN_PERMISSIONS)
 
 
 def _is_assessment_reviewer_only(current_admin: dict[str, Any]) -> bool:
@@ -54,14 +50,18 @@ async def get_current_admin_user(
     if user["status"] != "enabled":
         raise ForbiddenException("Admin account is disabled.")
 
-    permissions: list[str] = ALL_ADMIN_PERMISSIONS if user["is_superuser"] else []
+    role_permissions: list[str] = []
     role_name: str | None = None
     if not user["is_superuser"] and user["role_id"] is not None:
-        role_name, permissions = await resolve_admin_role_assignment(
+        role_name, role_permissions = await resolve_admin_role_assignment(
             db=db,
             admin_user_id=user["id"],
             role_id=user["role_id"],
         )
+    permissions = resolve_effective_admin_permissions(
+        role_permissions,
+        is_superuser=bool(user["is_superuser"]),
+    )
 
     return {
         **user,
@@ -82,7 +82,9 @@ def require_admin_permission(permission: str):
     async def permission_dependency(current_admin: Annotated[dict, Depends(get_current_admin_user)]) -> dict[str, Any]:
         if current_admin["is_superuser"]:
             return current_admin
-        if permission in BUSINESS_ADMIN_PERMISSION_SET and not _is_assessment_reviewer_only(current_admin):
+        if not _is_assessment_reviewer_only(current_admin):
+            return current_admin
+        if permission == "测试题判题":
             return current_admin
         if permission not in current_admin["permissions"]:
             raise ForbiddenException(f"Missing admin permission: {permission}")
@@ -97,10 +99,7 @@ def require_any_admin_permission(*permissions: str):
     ) -> dict[str, Any]:
         if current_admin["is_superuser"]:
             return current_admin
-        if (
-            any(permission in BUSINESS_ADMIN_PERMISSION_SET for permission in permissions)
-            and not _is_assessment_reviewer_only(current_admin)
-        ):
+        if not _is_assessment_reviewer_only(current_admin):
             return current_admin
         current_permissions = set(current_admin.get("permissions") or [])
         if not any(permission in current_permissions for permission in permissions):

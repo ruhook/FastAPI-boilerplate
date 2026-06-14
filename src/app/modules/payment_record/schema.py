@@ -49,6 +49,7 @@ class PaymentPayableRecordRead(BaseModel):
     user_id: int
     talent_profile_id: int | None = None
     contract_record_id: int | None = None
+    referral_record_id: int | None = None
     payment_type: str
     amount: Decimal
     currency: str = "USD"
@@ -63,6 +64,8 @@ class PaymentPayableRecordRead(BaseModel):
     company_name: str | None = None
     project_name: str | None = None
     contract_ref_no: str | None = None
+    country: str | None = None
+    language: str | None = None
     work_hours: Decimal
     rate: Decimal | None = None
     bonus_multiplier: Decimal | None = None
@@ -91,6 +94,7 @@ class PaymentPayableListPage(BaseModel):
 
 class PaymentPayableMarkPaidRequest(BaseModel):
     source_keys: list[str] = Field(..., min_length=1)
+    payout_status: str = "paid"
     paid_at: datetime | None = None
     external_platform: str | None = Field(default=None, max_length=120)
     external_transaction_no: str | None = Field(default=None, max_length=160)
@@ -119,6 +123,7 @@ class PaymentPayableMarkPaidResponse(BaseModel):
 
 
 class PaymentPayableUpdateRequest(BaseModel):
+    payout_status: str | None = None
     paid_at: datetime | None = None
     external_platform: str | None = Field(default=None, max_length=120)
     external_transaction_no: str | None = Field(default=None, max_length=160)

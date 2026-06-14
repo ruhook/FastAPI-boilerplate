@@ -3,10 +3,8 @@ from httpx import AsyncClient
 
 from src.app.core.db.database import local_session
 from src.app.modules.admin.admin_audit_log.const import AdminAuditLogActionType
-from src.app.modules.admin.role.const import ALL_ADMIN_PERMISSIONS
-
+from src.app.modules.admin.role.const import ALL_ADMIN_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS
 from tests.helpers.admin import create_admin_user, fetch_admin_audit_logs
-
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -42,11 +40,33 @@ async def test_admin_login_me_and_permissions_catalog(
     permissions_response = await client.get("/api/v1/settings/permissions/catalog", headers=headers)
     assert permissions_response.status_code == 200, permissions_response.text
     permissions_data = permissions_response.json()
-    assert any(group["group"] == "设置页面" for group in permissions_data)
+    assert permissions_data == [{"group": "特殊权限", "items": ["测试题判题"]}]
 
     async with local_session() as session:
         audit_logs = await fetch_admin_audit_logs(session, admin_user_id=int(superadmin_credentials["id"]))
         assert [log.action_type for log in audit_logs] == [AdminAuditLogActionType.ADMIN_LOGIN.value]
+
+
+async def test_non_superadmin_without_special_role_gets_default_permissions(
+    client: AsyncClient,
+    db_session,
+) -> None:
+    admin, password = await create_admin_user(
+        db_session,
+        role_id=None,
+        username_prefix="defaultperm",
+    )
+
+    login_response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username_or_email": admin.email,
+            "password": password,
+        },
+    )
+    assert login_response.status_code == 200, login_response.text
+    permissions = login_response.json()["user"]["permissions"]
+    assert sorted(permissions) == sorted(DEFAULT_ADMIN_PERMISSIONS)
 
 
 async def test_admin_refresh_and_logout_blacklists_refresh_token(

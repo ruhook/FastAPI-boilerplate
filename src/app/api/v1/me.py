@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..dependencies import get_current_user
-from ...core.exceptions.http_exceptions import NotFoundException
+from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ...core.db.database import async_get_db
 from ...modules.assets.schema import AssetRead
 from ...modules.assets.service import ensure_assets_belong_to_owner, get_asset
@@ -41,12 +41,14 @@ class CandidatePaymentSettingsRead(BaseModel):
 class CandidatePaymentSettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    bank_card_number: str = Field(default="", max_length=64)
+    bank_card_number: str | None = Field(default=None, max_length=64)
     id_attachment_asset_id: int | None = Field(default=None, ge=1)
 
     @field_validator("bank_card_number")
     @classmethod
-    def normalize_bank_card_number(cls, value: str) -> str:
+    def normalize_bank_card_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if normalized and not all(char.isdigit() or char in {" ", "-"} for char in normalized):
             raise ValueError("Bank card number can only contain digits, spaces, and hyphens.")
@@ -202,10 +204,18 @@ async def update_my_payment_settings(
             raise NotFoundException("Asset not found.")
 
     next_data = dict(user.data or {})
-    next_data["payment_info"] = {
-        "bank_card_number": payload.bank_card_number,
-        "id_attachment_asset_id": payload.id_attachment_asset_id,
-    }
+    next_payment_info = dict(_get_payment_info(user.data))
+    if "bank_card_number" in payload.model_fields_set:
+        next_payment_info["bank_card_number"] = payload.bank_card_number or ""
+    if "id_attachment_asset_id" in payload.model_fields_set:
+        current_id_attachment_asset_id = next_payment_info.get("id_attachment_asset_id")
+        if (
+            current_id_attachment_asset_id not in (None, "", 0)
+            and str(current_id_attachment_asset_id) != str(payload.id_attachment_asset_id)
+        ):
+            raise BadRequestException("ID document has already been submitted and cannot be changed.")
+        next_payment_info["id_attachment_asset_id"] = payload.id_attachment_asset_id
+    next_data["payment_info"] = next_payment_info
     user.data = next_data
     await db.flush()
     return await _serialize_payment_settings(user, db)

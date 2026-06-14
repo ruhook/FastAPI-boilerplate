@@ -12,6 +12,7 @@ from ....modules.talent_profile.schema import (
 )
 from ....modules.talent_profile.service import (
     get_talent_profile,
+    get_talent_profile_by_user_id,
     list_talent_profiles,
     merge_application_into_talent,
 )
@@ -38,6 +39,18 @@ async def read_talents(
         project_id=project_id,
         advanced_filter=advanced_filter,
     )
+
+
+@router.get(
+    "/by-user/{user_id}",
+    response_model=TalentProfileRead,
+    dependencies=[Depends(require_admin_permission("总人才库"))],
+)
+async def read_talent_by_user(
+    user_id: int,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+) -> dict[str, Any]:
+    return await get_talent_profile_by_user_id(user_id, db)
 
 
 @router.get("/{talent_id}", response_model=TalentProfileRead, dependencies=[Depends(require_admin_permission("总人才库"))])

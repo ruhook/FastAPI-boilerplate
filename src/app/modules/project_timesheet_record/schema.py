@@ -211,7 +211,7 @@ class ProjectTimesheetBatchCreateRequest(BaseModel):
     project_link: str = Field(..., min_length=1, max_length=2048)
     customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
     candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
-    team_leader_user_id: int = Field(..., ge=1)
+    team_leader_user_id: int = Field(..., ge=0)
     entries: list[ProjectTimesheetBatchCreateEntry] = Field(..., min_length=1)
 
     @field_validator("sub_project_name", "language")
@@ -240,7 +240,7 @@ class ProjectTimesheetUpdateRequest(BaseModel):
     project_link: str = Field(..., min_length=1, max_length=2048)
     customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
     candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
-    team_leader_user_id: int = Field(..., ge=1)
+    team_leader_user_id: int = Field(..., ge=0)
     contract_record_id: int = Field(..., ge=1)
     user_id: int | None = Field(default=None, ge=1)
     work_type: str = Field(..., min_length=1, max_length=64)
@@ -359,6 +359,8 @@ class CandidateTimesheetContractRead(BaseModel):
     contract_status: str
     job_id: int
     job_title: str | None = None
+    job_country: str | None = None
+    job_languages: list[str] = Field(default_factory=list)
     service_customer_company_id: int | None = None
     service_customer_company_name: str | None = None
     service_customer_project_id: int | None = None
