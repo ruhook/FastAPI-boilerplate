@@ -159,6 +159,12 @@ def build_progress_candidate_definition(*, run_tag: str, index: int) -> dict[str
         "master_completed",
         "high_school_completed",
     ]
+    english_proficiencies = [
+        "native_speaker",
+        "fully_professional_proficiency",
+        "intermediate_level",
+        "basic_level",
+    ]
     expected_salaries = ["2_5", "6_10", "10_15"]
     experience_levels = ["0_3_months", "1_2_years", "2_5_years"]
     job_sources = ["linkedin_job_post", "indeed_job_post", "internal_referral"]
@@ -172,6 +178,7 @@ def build_progress_candidate_definition(*, run_tag: str, index: int) -> dict[str
         "nationality": cycle(nationalities, index),
         "native_languages": cycle(native_languages, index),
         "additional_languages": cycle(additional_languages, index),
+        "english_proficiency": cycle(english_proficiencies, index),
         "education_status": cycle(education_statuses, index),
         "expected_salary": cycle(expected_salaries, index),
         "experience": cycle(experience_levels, index),
@@ -199,6 +206,11 @@ def build_progress_application_items(
         {"field_key": CandidateFieldKey.NATIONALITY.value, "value": definition["nationality"]},
         {"field_key": CandidateFieldKey.NATIVE_LANGUAGES.value, "value": definition["native_languages"]},
         {"field_key": CandidateFieldKey.ADDITIONAL_LANGUAGES.value, "value": definition["additional_languages"]},
+        {
+            "field_key": CandidateFieldKey.ENGLISH_PROFICIENCY.value,
+            "value": definition["english_proficiency"],
+            "display_value": definition["english_proficiency"],
+        },
         {
             "field_key": CandidateFieldKey.AGE_RANGE.value,
             "value": definition["age_range"],

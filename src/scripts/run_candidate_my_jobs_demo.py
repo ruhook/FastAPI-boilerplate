@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from ..app.core.db.database import local_session
 from ..app.main_admin import app as admin_app
 from ..app.main_web import app as web_app
+from ..app.modules.admin.mail_task.model import MailTask
 from ..app.modules.assets.schema import AssetUploadPayload
 from ..app.modules.assets.service import create_asset_from_bytes
 from ..app.modules.candidate_application.model import CandidateApplication
@@ -24,8 +25,6 @@ from ..app.modules.job.const import (
 )
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.model import JobProgress
-from ..app.modules.admin.mail_task.model import MailTask
-from ..app.modules.user.model import User
 from .run_client_apply_demo import (
     ensure_resume_asset,
     fetch_current_user,
@@ -318,6 +317,11 @@ def build_application_items(
         {"field_key": CandidateFieldKey.NATIONALITY.value, "value": "Brazilian"},
         {"field_key": CandidateFieldKey.NATIVE_LANGUAGES.value, "value": "Portuguese"},
         {"field_key": CandidateFieldKey.ADDITIONAL_LANGUAGES.value, "value": "English"},
+        {
+            "field_key": CandidateFieldKey.ENGLISH_PROFICIENCY.value,
+            "value": "fully_professional_proficiency",
+            "display_value": "fully_professional_proficiency",
+        },
         {"field_key": CandidateFieldKey.AGE_RANGE.value, "value": "26_30", "display_value": "26_30"},
         {
             "field_key": CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY.value,

@@ -8,7 +8,11 @@ from ...core.exceptions.http_exceptions import ForbiddenException, UnauthorizedE
 from ...core.security import TokenType, admin_oauth2_scheme, verify_token
 from ...modules.admin.admin_user.crud import crud_admin_users
 from ...modules.admin.admin_user.schema import AdminUserDBRead
-from ...modules.admin.admin_user.service import resolve_admin_role_assignment
+from ...modules.admin.admin_user.service import (
+    build_local_dev_auto_login_admin,
+    is_local_dev_auto_login_admin,
+    resolve_admin_role_assignment,
+)
 from ...modules.admin.role.const import (
     is_assessment_reviewer_only_permissions,
     resolve_effective_admin_permissions,
@@ -42,6 +46,14 @@ async def get_current_admin_user(
     token_data = await verify_token(token, TokenType.ACCESS)
     if token_data is None or token_data.portal != "admin":
         raise UnauthorizedException("Admin not authenticated.")
+
+    if is_local_dev_auto_login_admin(token_data.username_or_email):
+        user = build_local_dev_auto_login_admin()
+        return {
+            **user,
+            "permissions": resolve_effective_admin_permissions([], is_superuser=True),
+            "role_name": "超级管理员",
+        }
 
     user = await _get_admin_from_subject(token_data.username_or_email, db=db)
     if user is None:

@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from sqlalchemy import Date, Numeric, String, and_, cast, func, or_
+from sqlalchemy import Numeric, String, and_, cast, func, or_
 from sqlalchemy.sql.elements import ColumnElement
 
 from .exceptions.http_exceptions import BadRequestException
@@ -309,7 +309,8 @@ def _build_sql_number_expression(expression: ColumnElement[Any]) -> ColumnElemen
 
 
 def _build_sql_date_expression(expression: ColumnElement[Any]) -> ColumnElement[Any]:
-    return cast(func.nullif(_build_sql_string_expression(expression), ""), Date())
+    normalized = func.nullif(_build_sql_string_expression(expression), "")
+    return func.substr(normalized, 1, 10)
 
 
 def _build_sql_multiselect_expression(expression: ColumnElement[Any]) -> ColumnElement[Any]:
@@ -321,7 +322,7 @@ def _build_sql_multiselect_expression(expression: ColumnElement[Any]) -> ColumnE
     return func.concat(",", normalized, ",")
 
 
-def build_advanced_filter_rule_sql_condition(
+def build_advanced_filter_rule_sql_condition(  # noqa: C901
     rule: dict[str, Any],
     *,
     field_map: dict[str, AdvancedFilterFieldDefinition],
@@ -370,19 +371,20 @@ def build_advanced_filter_rule_sql_condition(
             raise BadRequestException(
                 f"Advanced filter value for '{field_name}' must be a valid date."
             ) from exc
+        right_value_text = right_value.isoformat()
         left_value = _build_sql_date_expression(expression)
         if operator == ">":
-            return left_value > right_value
+            return left_value > right_value_text
         if operator == ">=":
-            return left_value >= right_value
+            return left_value >= right_value_text
         if operator == "<":
-            return left_value < right_value
+            return left_value < right_value_text
         if operator == "<=":
-            return left_value <= right_value
+            return left_value <= right_value_text
         if operator == "=":
-            return left_value == right_value
+            return left_value == right_value_text
         if operator == "!=":
-            return left_value != right_value
+            return left_value != right_value_text
 
     if field_definition.filter_kind == "multiselect":
         normalized_expression = _build_sql_multiselect_expression(expression)

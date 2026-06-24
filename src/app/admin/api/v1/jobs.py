@@ -222,6 +222,7 @@ async def mark_job_progress_assessment_invited_endpoint(
         job_id=job_id,
         progress_ids=payload.progress_ids,
         mail_task_id=payload.mail_task_id,
+        sent_at=payload.sent_at,
         admin_user_id=int(current_admin["id"]),
         db=db,
     )
@@ -239,6 +240,7 @@ async def update_job_progress_contract_record_endpoint(
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
     await _ensure_job_write_allowed(job_id, db, current_admin)
+    update_fields = payload.model_fields_set
     return await update_job_progress_contract_record(
         job_id=job_id,
         progress_ids=payload.progress_ids,
@@ -248,6 +250,11 @@ async def update_job_progress_contract_record_endpoint(
         contract_review=payload.contract_review,
         rate=payload.rate,
         end_date=payload.end_date,
+        update_agreement_ref_no="agreement_ref_no" in update_fields,
+        update_signing_status="signing_status" in update_fields,
+        update_contract_review="contract_review" in update_fields,
+        update_rate="rate" in update_fields,
+        update_end_date="end_date" in update_fields,
         admin_user_id=int(current_admin["id"]),
         db=db,
     )
@@ -342,11 +349,14 @@ async def update_job_progress_onboarding_endpoint(
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
 ) -> dict[str, Any]:
     await _ensure_job_write_allowed(job_id, db, current_admin)
+    update_fields = payload.model_fields_set
     return await update_job_progress_onboarding(
         job_id=job_id,
         progress_ids=payload.progress_ids,
         onboarding_status=payload.onboarding_status,
         onboarding_date=payload.onboarding_date,
+        update_onboarding_status="onboarding_status" in update_fields,
+        update_onboarding_date="onboarding_date" in update_fields,
         admin_user_id=int(current_admin["id"]),
         db=db,
     )

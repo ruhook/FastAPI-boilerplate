@@ -10,6 +10,7 @@ class CandidateFieldKey(StrEnum):
     NATIONALITY = "nationality"
     NATIVE_LANGUAGES = "native_languages"
     ADDITIONAL_LANGUAGES = "additional_languages"
+    ENGLISH_PROFICIENCY = "english_proficiency"
     AGE_RANGE = "age_range"
     MAX_WORKING_HOURS_PER_DAY = "max_working_hours_per_day"
     ACCEPTS_HOURLY_PAYMENT = "accepts_hourly_payment"
@@ -31,6 +32,7 @@ CANDIDATE_FIELD_DICTIONARY_KEY_MAP: dict[CandidateFieldKey, str] = {
     CandidateFieldKey.NATIONALITY: "country",
     CandidateFieldKey.NATIVE_LANGUAGES: "candidate_language",
     CandidateFieldKey.ADDITIONAL_LANGUAGES: "candidate_language",
+    CandidateFieldKey.ENGLISH_PROFICIENCY: "candidate_english_proficiency",
     CandidateFieldKey.AGE_RANGE: "candidate_age_range",
     CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY: "candidate_max_working_hours_per_day",
     CandidateFieldKey.ACCEPTS_HOURLY_PAYMENT: "candidate_accepts_hourly_payment",
@@ -51,6 +53,7 @@ CANDIDATE_FIELD_CN_NAME_MAP: dict[CandidateFieldKey, str] = {
     CandidateFieldKey.NATIONALITY: "国籍/公民身份",
     CandidateFieldKey.NATIVE_LANGUAGES: "母语级语言",
     CandidateFieldKey.ADDITIONAL_LANGUAGES: "其他熟练语言",
+    CandidateFieldKey.ENGLISH_PROFICIENCY: "英语水平",
     CandidateFieldKey.AGE_RANGE: "年龄区间",
     CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY: "每日最大工作时长",
     CandidateFieldKey.ACCEPTS_HOURLY_PAYMENT: "是否接受时薪结算",
@@ -101,6 +104,19 @@ CANDIDATE_FIELD_SELECT_OPTIONS_EN_MAP: dict[str, list[dict[str, str]]] = {
         {"label": "USD 11-15 / hour", "value": "11_15"},
         {"label": "USD 16-20 / hour", "value": "16_20"},
         {"label": "Above USD 20 / hour", "value": "over_20"},
+    ],
+    CandidateFieldKey.ENGLISH_PROFICIENCY.value: [
+        {"label": "Native Speaker", "value": "native_speaker"},
+        {
+            "label": "Fully professional proficiency (can work independently in English)",
+            "value": "fully_professional_proficiency",
+        },
+        {
+            "label": "Intermediate level (comfortable in daily writing and communication only)",
+            "value": "intermediate_level",
+        },
+        {"label": "Basic level", "value": "basic_level"},
+        {"label": "No English", "value": "no_english"},
     ],
     CandidateFieldKey.EDUCATION_STATUS.value: [
         {"label": "High school in progress", "value": "high_school_in_progress"},

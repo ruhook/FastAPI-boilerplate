@@ -127,7 +127,11 @@ async def _clear_tables() -> None:
 
 
 @pytest_asyncio.fixture(autouse=True, loop_scope="session")
-async def clean_database() -> AsyncIterator[None]:
+async def clean_database(request: pytest.FixtureRequest) -> AsyncIterator[None]:
+    if request.node.get_closest_marker("no_database_cleanup"):
+        yield
+        return
+
     _assert_safe_test_cleanup()
     skip_initial_cleanup = _env_flag("TEST_SKIP_INITIAL_CLEANUP")
     skip_final_cleanup = _env_flag("TEST_SKIP_FINAL_CLEANUP")

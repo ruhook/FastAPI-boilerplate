@@ -3,7 +3,7 @@ from typing import Any
 
 from ...core.exceptions.http_exceptions import NotFoundException
 from ...modules.admin.mail_task.service import process_mail_task
-
+from ...modules.job_progress.service import sync_assessment_sent_at_from_mail_task
 
 logger = logging.getLogger(__name__)
 
@@ -17,5 +17,9 @@ async def handle_mail_task_created(msg: dict[str, Any]) -> None:
     logger.info("Processing MAIL_TASK_CREATED", extra={"mail_task_id": mail_task_id})
     try:
         await process_mail_task(mail_task_id)
+        await sync_assessment_sent_at_from_mail_task(mail_task_id)
     except NotFoundException:
-        logger.warning("MAIL_TASK_CREATED target task not found, skipping stale event", extra={"mail_task_id": mail_task_id})
+        logger.warning(
+            "MAIL_TASK_CREATED target task not found, skipping stale event",
+            extra={"mail_task_id": mail_task_id},
+        )

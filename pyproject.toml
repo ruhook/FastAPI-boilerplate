@@ -103,6 +103,9 @@ convention = "numpy"
 filterwarnings = [
     "ignore::PendingDeprecationWarning:starlette.formparsers",
 ]
+markers = [
+    "no_database_cleanup: mark tests that do not need the global database cleanup fixture",
+]
 
 [dependency-groups]
 dev = [

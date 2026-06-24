@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.config import EnvironmentOption, settings
 from ....core.exceptions.http_exceptions import (
     DuplicateValueException,
     ForbiddenException,
@@ -30,7 +31,7 @@ from ..role.const import (
 from ..role.crud import crud_roles
 from ..role.model import Role
 from ..role.schema import RoleRead
-from .const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
+from .const import DEFAULT_ADMIN_PROFILE_IMAGE_URL, AdminAccountStatus
 from .crud import crud_admin_users
 from .model import AdminUser
 from .schema import (
@@ -45,6 +46,49 @@ from .schema import (
     AdminUserUpdate,
     generate_temporary_password,
 )
+
+LOCAL_DEV_AUTO_LOGIN_ADMIN_ID = 0
+LOCAL_DEV_AUTO_LOGIN_ADMIN_NAME = "Haokang Import"
+LOCAL_DEV_AUTO_LOGIN_ADMIN_USERNAME = "HaokangImport"
+LOCAL_DEV_AUTO_LOGIN_ADMIN_EMAIL = "haokang-import-admin@example.com"
+
+
+def is_local_dev_auto_login_admin(username_or_email: str) -> bool:
+    if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
+        return False
+    normalized = username_or_email.strip().lower()
+    return normalized in {
+        LOCAL_DEV_AUTO_LOGIN_ADMIN_USERNAME.lower(),
+        LOCAL_DEV_AUTO_LOGIN_ADMIN_EMAIL.lower(),
+    }
+
+
+def build_local_dev_auto_login_admin() -> dict[str, Any]:
+    now = datetime.now(UTC)
+    return {
+        "id": LOCAL_DEV_AUTO_LOGIN_ADMIN_ID,
+        "name": LOCAL_DEV_AUTO_LOGIN_ADMIN_NAME,
+        "username": LOCAL_DEV_AUTO_LOGIN_ADMIN_USERNAME,
+        "email": LOCAL_DEV_AUTO_LOGIN_ADMIN_EMAIL,
+        "phone": None,
+        "note": "Local development virtual superuser.",
+        "status": AdminAccountStatus.ENABLED.value,
+        "profile_image_url": DEFAULT_ADMIN_PROFILE_IMAGE_URL,
+        "role_id": None,
+        "role_name": "超级管理员",
+        "is_superuser": True,
+        "last_login_at": now,
+        "created_at": now,
+        "updated_at": now,
+        "data": {},
+    }
+
+
+async def issue_local_dev_auto_login_admin_tokens(
+    db: AsyncSession,
+    all_permissions: list[str],
+) -> AdminToken:
+    return await issue_admin_tokens(build_local_dev_auto_login_admin(), db, all_permissions)
 
 
 def build_admin_user_create_values(
@@ -381,6 +425,9 @@ async def login_admin_user(
     db: AsyncSession,
     all_permissions: list[str],
 ) -> AdminToken:
+    if is_local_dev_auto_login_admin(payload.username_or_email):
+        return await issue_local_dev_auto_login_admin_tokens(db, all_permissions)
+
     admin_user = await authenticate_admin_user(payload.username_or_email, payload.password, db)
     if not admin_user:
         raise UnauthorizedException("Wrong username, email or password.")

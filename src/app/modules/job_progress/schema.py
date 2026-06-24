@@ -49,6 +49,7 @@ class JobProgressAssessmentAutomationResponse(BaseModel):
 class JobProgressAssessmentInviteMarkRequest(BaseModel):
     progress_ids: list[int] = Field(min_length=1)
     mail_task_id: int | None = None
+    sent_at: datetime | None = None
 
 
 class JobProgressAssessmentInviteMarkResponse(BaseModel):
@@ -255,6 +256,8 @@ class CandidateJobApplicationListItemRead(BaseModel):
     job_status: str
     current_stage: str
     current_stage_cn_name: str
+    candidate_visible_stage: str
+    candidate_visible_stage_label: str
     screening_mode: str
     applied_at: datetime
     assessment_enabled: bool
@@ -303,6 +306,8 @@ class CandidateJobApplicationDetailRead(BaseModel):
     job_status: str
     current_stage: str
     current_stage_cn_name: str
+    candidate_visible_stage: str
+    candidate_visible_stage_label: str
     screening_mode: str
     applied_at: datetime
     description_html: str

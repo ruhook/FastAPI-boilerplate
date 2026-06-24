@@ -25,6 +25,7 @@ class RecruitmentScreeningMode(StrEnum):
 class JobProgressDataKey(StrEnum):
     ASSESSMENT_INVITED_AT = "assessment_invited_at"
     ASSESSMENT_INVITE_MAIL_TASK_ID = "assessment_invite_mail_task_id"
+    ASSESSMENT_SENT_AT = "assessment_sent_at"
     ASSESSMENT_ATTACHMENT = "assessment_attachment"
     ASSESSMENT_ATTACHMENT_ASSET_ID = "assessment_attachment_asset_id"
     ASSESSMENT_SUBMITTED_AT = "assessment_submitted_at"
@@ -48,6 +49,7 @@ class JobProgressDataKey(StrEnum):
     CONTRACT_RETURN_ATTACHMENT_ASSET_ID = "contract_return_attachment_asset_id"
     ONBOARDING_STATUS = "onboarding_status"
     ONBOARDING_DATE = "onboarding_date"
+    GIFT_PACKAGE_SENT_AT = "gift_package_sent_at"
     REJECTED_FROM_STAGE = "rejected_from_stage"
     REPLACEMENT_REASON = "replacement_reason"
     NOTE = "note"
@@ -184,6 +186,7 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "assessment_review_comment",
         "onboarding_status",
         "onboarding_date",
+        "gift_package_sent_at",
     ),
     RecruitmentStage.REJECTED: (
         CandidateFieldKey.FULL_NAME.value,

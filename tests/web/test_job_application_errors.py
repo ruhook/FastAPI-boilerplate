@@ -14,8 +14,15 @@ from tests.helpers.talent import (
     login_web_user,
 )
 
-
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+
+def _build_web_application_fields() -> list[dict[str, object]]:
+    fields = build_form_fields()
+    for field in fields:
+        if field.get("key") == "resume_attachment":
+            field["type"] = "file"
+    return fields
 
 
 async def test_web_apply_requires_authenticated_user(
@@ -24,7 +31,7 @@ async def test_web_apply_requires_authenticated_user(
     superadmin_credentials: dict[str, str | int],
 ) -> None:
     suffix = uuid4().hex[:8]
-    fields = build_form_fields()
+    fields = _build_web_application_fields()
     template = await create_form_template(db_session, suffix=f"anon-{suffix}", fields=fields)
     job = await create_open_job(
         db_session,
@@ -59,7 +66,7 @@ async def test_web_apply_rejects_non_open_job(
     superadmin_credentials: dict[str, str | int],
 ) -> None:
     suffix = uuid4().hex[:8]
-    fields = build_form_fields()
+    fields = _build_web_application_fields()
     template = await create_form_template(db_session, suffix=f"closed-{suffix}", fields=fields)
     job = await create_open_job(
         db_session,
@@ -101,7 +108,7 @@ async def test_web_apply_rejects_duplicate_application_for_same_job(
     superadmin_credentials: dict[str, str | int],
 ) -> None:
     suffix = uuid4().hex[:8]
-    fields = build_form_fields()
+    fields = _build_web_application_fields()
     template = await create_form_template(db_session, suffix=f"dup-{suffix}", fields=fields)
     job = await create_open_job(
         db_session,
@@ -115,6 +122,9 @@ async def test_web_apply_rejects_duplicate_application_for_same_job(
     user, password = await create_candidate_user(db_session, suffix=f"dup{suffix}", name="Duplicate Candidate")
     auth_headers = await login_web_user(web_client, username=user.email, password=password)
     resume = await create_resume_asset(db_session, suffix=f"dup-{suffix}", original_name="duplicate.pdf")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
     payload = {
         "items": build_application_items(
             full_name="Duplicate Candidate",

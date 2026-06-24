@@ -1,12 +1,76 @@
 import pytest
 from httpx import AsyncClient
 
+from src.app.core.config import EnvironmentOption, settings
 from src.app.core.db.database import local_session
 from src.app.modules.admin.admin_audit_log.const import AdminAuditLogActionType
 from src.app.modules.admin.role.const import ALL_ADMIN_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS
 from tests.helpers.admin import create_admin_user, fetch_admin_audit_logs
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+
+@pytest.mark.no_database_cleanup
+async def test_local_dev_auto_login_returns_virtual_superadmin(
+    client: AsyncClient,
+) -> None:
+    login_response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username_or_email": "HaokangImport",
+            "password": "anything-can-login-locally",
+        },
+    )
+
+    assert login_response.status_code == 200, login_response.text
+    login_data = login_response.json()
+    assert login_data["token_type"] == "bearer"
+    assert login_data["access_token"]
+    assert login_data["refresh_token"]
+    assert login_data["user"]["id"] == 0
+    assert login_data["user"]["username"] == "HaokangImport"
+    assert login_data["user"]["email"] == "haokang-import-admin@example.com"
+    assert login_data["user"]["is_superuser"] is True
+    assert sorted(login_data["user"]["permissions"]) == sorted(ALL_ADMIN_PERMISSIONS)
+
+    me_response = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {login_data['access_token']}"},
+    )
+    assert me_response.status_code == 200, me_response.text
+    me_data = me_response.json()
+    assert me_data["id"] == 0
+    assert me_data["username"] == "HaokangImport"
+    assert me_data["is_superuser"] is True
+    assert sorted(me_data["permissions"]) == sorted(ALL_ADMIN_PERMISSIONS)
+
+    refresh_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": login_data["refresh_token"]},
+    )
+    assert refresh_response.status_code == 200, refresh_response.text
+    refresh_data = refresh_response.json()
+    assert refresh_data["access_token"]
+    assert refresh_data["user"]["id"] == 0
+    assert refresh_data["user"]["is_superuser"] is True
+
+
+@pytest.mark.no_database_cleanup
+async def test_dev_auto_login_account_does_not_bypass_auth_outside_local(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.STAGING)
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username_or_email": "HaokangImport",
+            "password": "anything-can-login-locally",
+        },
+    )
+
+    assert response.status_code == 401, response.text
 
 
 async def test_admin_login_me_and_permissions_catalog(

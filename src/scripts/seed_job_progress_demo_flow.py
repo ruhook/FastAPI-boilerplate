@@ -12,6 +12,7 @@ from sqlalchemy import or_, select
 from ..app.core.config import settings
 from ..app.core.db.database import async_engine, local_session
 from ..app.core.security import get_password_hash
+from ..app.main_web import app as web_app
 from ..app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from ..app.modules.admin.admin_user.model import AdminUser
 from ..app.modules.admin.mail_account.const import (
@@ -36,7 +37,6 @@ from ..app.modules.job.const import (
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.model import JobProgress
 from ..app.modules.job_progress.service import get_job_progress_by_application_id, serialize_job_progress
-from ..app.main_web import app as web_app
 from .run_client_apply_demo import (
     ensure_resume_asset,
     fetch_current_user,
@@ -58,7 +58,6 @@ from .seed_apply_demo_flow import (
     ensure_role,
 )
 from .seed_candidate_base_form_template import DICTIONARY_DEFINITIONS
-
 
 DEFAULT_BASE_URL = "http://testserver/api/v1"
 DEFAULT_CANDIDATE_NAME = "Progress Demo Candidate"
@@ -134,6 +133,10 @@ def build_application_items(
         CandidateFieldKey.CITY.value: "Sao Paulo",
         CandidateFieldKey.NATIVE_LANGUAGES.value: "Portuguese",
         CandidateFieldKey.ADDITIONAL_LANGUAGES.value: "English",
+        CandidateFieldKey.ENGLISH_PROFICIENCY.value: (
+            "fully_professional_proficiency",
+            "fully_professional_proficiency",
+        ),
         CandidateFieldKey.AGE_RANGE.value: ("26_30", "26_30"),
         CandidateFieldKey.MAX_WORKING_HOURS_PER_DAY.value: ("4_8_hours", "4_8_hours"),
         CandidateFieldKey.ACCEPTS_HOURLY_PAYMENT.value: ("yes", "yes"),

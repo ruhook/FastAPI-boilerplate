@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_admin_user
 from ....core.db.database import async_get_db
 from ....core.exceptions.http_exceptions import UnauthorizedException
 from ....core.security import TokenType, admin_oauth2_scheme, verify_token
@@ -16,8 +15,15 @@ from ....modules.admin.admin_user.schema import (
     AdminToken,
     AdminUserAuth,
 )
-from ....modules.admin.admin_user.service import change_current_admin_password, login_admin_user, refresh_admin_user_tokens
+from ....modules.admin.admin_user.service import (
+    change_current_admin_password,
+    is_local_dev_auto_login_admin,
+    issue_local_dev_auto_login_admin_tokens,
+    login_admin_user,
+    refresh_admin_user_tokens,
+)
 from ....modules.admin.role.const import ALL_ADMIN_PERMISSIONS
+from ..dependencies import get_current_admin_user
 
 router = APIRouter(prefix="/auth", tags=["admin-auth"])
 
@@ -38,6 +44,8 @@ async def admin_refresh(
     token_data = await verify_token(payload.refresh_token, TokenType.REFRESH)
     if token_data is None or token_data.portal != "admin":
         raise UnauthorizedException("Invalid refresh token.")
+    if is_local_dev_auto_login_admin(token_data.username_or_email):
+        return await issue_local_dev_auto_login_admin_tokens(db, ALL_ADMIN_PERMISSIONS)
     admin_user = await crud_admin_users.get(db=db, username=token_data.username_or_email, is_deleted=False)
     return await refresh_admin_user_tokens(
         admin_user=admin_user,

@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.db.database import local_session
 from src.app.modules.candidate_application.model import CandidateApplication
+from src.app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.talent_profile.model import TalentProfile
 from src.app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
-
 from tests.helpers.talent import (
     build_application_items,
     build_form_fields,
@@ -22,8 +22,15 @@ from tests.helpers.talent import (
     login_web_user,
 )
 
-
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+
+def _build_web_application_fields() -> list[dict[str, object]]:
+    fields = build_form_fields()
+    for field in fields:
+        if field.get("key") == "resume_attachment":
+            field["type"] = "file"
+    return fields
 
 
 async def _seed_application_flow(
@@ -32,7 +39,7 @@ async def _seed_application_flow(
     superadmin_credentials: dict[str, str | int],
 ) -> dict[str, object]:
     suffix = uuid4().hex[:8]
-    fields = build_form_fields()
+    fields = _build_web_application_fields()
     template = await create_form_template(db_session, suffix=suffix, fields=fields)
     first_job = await create_open_job(
         db_session,
@@ -54,6 +61,11 @@ async def _seed_application_flow(
     auth_headers = await login_web_user(web_client, username=user.email, password=password)
     first_resume = await create_resume_asset(db_session, suffix=f"{suffix}-resume-1", original_name="alice-first.pdf")
     second_resume = await create_resume_asset(db_session, suffix=f"{suffix}-resume-2", original_name="alice-second.pdf")
+    first_resume.owner_id = user.id
+    first_resume.module = "candidate_application"
+    second_resume.owner_id = user.id
+    second_resume.module = "candidate_application"
+    await db_session.commit()
 
     print(f"[talent-web] seeded jobs: first={first_job.id}, second={second_job.id}, user={user.id}")
 
@@ -152,6 +164,70 @@ async def test_web_first_application_creates_initial_talent_snapshot(
             "talent_profile_initial_auto_merge",
             "job_progress_created",
         ]
+
+
+async def test_web_application_identity_fields_use_registered_account_values(
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    suffix = uuid4().hex[:8]
+    fields = _build_web_application_fields()
+    template = await create_form_template(db_session, suffix=f"identity-{suffix}", fields=fields)
+    job = await create_open_job(
+        db_session,
+        suffix=f"identity-{suffix}",
+        title=f"Identity Locked Role {suffix}",
+        owner_admin_user_id=int(superadmin_credentials["id"]),
+        form_template_id=template.id,
+        form_fields=fields,
+    )
+    user, password = await create_candidate_user(
+        db_session,
+        suffix=f"identity{suffix}",
+        name="Registered Candidate",
+    )
+    auth_headers = await login_web_user(web_client, username=user.email, password=password)
+    resume = await create_resume_asset(db_session, suffix=f"identity-{suffix}", original_name="identity.pdf")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
+
+    response = await web_client.post(
+        f"/api/v1/jobs/{job.id}/apply",
+        headers=auth_headers,
+        json={
+            "items": build_application_items(
+                full_name="Edited Candidate",
+                email=f"edited.{suffix}@example.com",
+                whatsapp="+55-3333-3333",
+                nationality="Brazilian",
+                country_of_residence="Brazil",
+                education_status="Bachelor’s degree (completed)",
+                resume_asset_id=resume.id,
+            )
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    application_id = response.json()["application_id"]
+
+    async with local_session() as assertion_session:
+        field_values_result = await assertion_session.execute(
+            select(CandidateApplicationFieldValue).where(
+                CandidateApplicationFieldValue.application_id == application_id
+            )
+        )
+        field_values = {row.field_key: row for row in field_values_result.scalars().all()}
+        assert field_values["full_name"].raw_value == "Registered Candidate"
+        assert field_values["full_name"].display_value == "Registered Candidate"
+        assert field_values["email"].raw_value == user.email
+        assert field_values["email"].display_value == user.email
+
+        talent_result = await assertion_session.execute(select(TalentProfile).where(TalentProfile.user_id == user.id))
+        talent = talent_result.scalar_one()
+        assert talent.full_name == "Registered Candidate"
+        assert talent.email == user.email
 
 
 async def test_web_second_application_updates_latest_job_without_overwriting_initial_snapshot(

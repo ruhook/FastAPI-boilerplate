@@ -7,6 +7,7 @@ import ssl
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
+from html import escape
 from typing import Any
 from urllib.parse import quote
 
@@ -329,8 +330,20 @@ async def _build_mail_signature_html_pair(signature: MailSignature | None, db: A
     )
 
 
-def _compose_final_body_html(body_html: str, signature_html: str) -> str:
+def _build_mail_header_title(render_context: dict[str, str] | None) -> str:
+    job_title = (render_context or {}).get("job_title", "").strip()
+    if not job_title:
+        return "T-Maxx | Application Update for Your Position"
+    return f"T-Maxx | Application Update for the {escape(job_title)} Position"
+
+
+def _compose_final_body_html(
+    body_html: str,
+    signature_html: str,
+    render_context: dict[str, str] | None = None,
+) -> str:
     normalized_body = body_html.strip() or "<p><br></p>"
+    header_title = _build_mail_header_title(render_context)
     signature_section = (
         (
             '<div class="email-signature-shell" '
@@ -410,10 +423,10 @@ def _compose_final_body_html(body_html: str, signature_html: str) -> str:
         "</div>"
         '<div class="email-header-title" style="margin:16px 0 10px;'
         'font-size:28px;line-height:1.2;color:#17324a;font-weight:700;">'
-        "Recruitment Update"
+        f"{header_title}"
         "</div>"
         '<p class="email-header-copy" style="margin:0;color:#486476;font-size:14px;line-height:1.75;">'
-        "We kept your original template content intact and wrapped it in a cleaner T-Maxx email layout."
+        "Your application has moved to the next stage. Please complete the action below to continue."
         "</p>"
         "</div>"
         '<div class="email-content" style="padding:28px;">'
@@ -747,8 +760,8 @@ async def process_mail_task(task_id: int) -> None:
             final_subject = render_template_text(task.subject, render_context)
             rendered_body_html = render_template_text(task.body_html, render_context)
             stored_signature_html, outbound_signature_html = await _build_mail_signature_html_pair(signature, db)
-            final_body_html = _compose_final_body_html(rendered_body_html, stored_signature_html)
-            outbound_body_html = _compose_final_body_html(rendered_body_html, outbound_signature_html)
+            final_body_html = _compose_final_body_html(rendered_body_html, stored_signature_html, render_context)
+            outbound_body_html = _compose_final_body_html(rendered_body_html, outbound_signature_html, render_context)
 
             task.final_subject = final_subject
             task.final_body_html = final_body_html

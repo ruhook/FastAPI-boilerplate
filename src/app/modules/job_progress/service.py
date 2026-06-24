@@ -17,11 +17,14 @@ from ...core.advanced_filter import (
     validate_advanced_filter_query,
 )
 from ...core.config import settings
+from ...core.db.database import local_session
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..admin.admin_user.model import AdminUser
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
 from ..admin.internal_notification.service import create_admin_internal_notification
+from ..admin.mail_task.const import MAIL_TASK_DATA_RENDER_CONTEXT_KEY, MailTaskStatus
+from ..admin.mail_task.model import MailTask
 from ..admin.mail_task.schema import MailRecipient, MailTaskCreate
 from ..admin.mail_task.service import create_mail_task, dispatch_mail_task_created_event
 from ..admin.mail_template.service import get_mail_template_model
@@ -192,6 +195,50 @@ def _map_backend_stage_to_progress_stage(stage: str) -> str:
     return "eliminated"
 
 
+def _build_rejected_from_stage_progress_stage_sql_expression():
+    rejected_from_stage_expr = _build_progress_json_text_expression(JobProgressDataKey.REJECTED_FROM_STAGE.value)
+    is_rejected = JobProgress.current_stage == RecruitmentStage.REJECTED.value
+    return case(
+        (
+            and_(is_rejected, rejected_from_stage_expr.in_([RecruitmentStage.PENDING_SCREENING.value, "screening"])),
+            "screening",
+        ),
+        (
+            and_(is_rejected, rejected_from_stage_expr.in_([RecruitmentStage.ASSESSMENT_REVIEW.value, "assessment"])),
+            "assessment",
+        ),
+        (
+            and_(is_rejected, rejected_from_stage_expr.in_([RecruitmentStage.SCREENING_PASSED.value, "passed"])),
+            "passed",
+        ),
+        (
+            and_(is_rejected, rejected_from_stage_expr.in_([RecruitmentStage.CONTRACT_POOL.value, "contract"])),
+            "contract",
+        ),
+        (
+            and_(is_rejected, rejected_from_stage_expr.in_([RecruitmentStage.ACTIVE.value, "employed"])),
+            "employed",
+        ),
+        (
+            and_(is_rejected, rejected_from_stage_expr.in_([RecruitmentStage.REPLACED.value, "replaced"])),
+            "replaced",
+        ),
+        else_="",
+    )
+
+
+def _serialize_rejected_from_stage_for_filter(item: JobProgressListItemRead) -> str:
+    if item.current_stage != RecruitmentStage.REJECTED.value:
+        return ""
+    raw_stage = _normalize_text(item.process_data.get(JobProgressDataKey.REJECTED_FROM_STAGE.value))
+    if raw_stage in {"screening", "assessment", "passed", "contract", "employed", "replaced"}:
+        return raw_stage
+    if not raw_stage:
+        return ""
+    mapped_stage = _map_backend_stage_to_progress_stage(raw_stage)
+    return "" if mapped_stage == "eliminated" else mapped_stage
+
+
 def _normalize_progress_filter_field_kind(field_type: str | None) -> str:
     normalized = _normalize_text(field_type).lower()
     if normalized in {"boolean", "select"}:
@@ -337,6 +384,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         "current_stage": "select",
         "applied_at": "date",
         "assessment_attachment": "file",
+        "assessment_sent_at": "date",
         "assessment_submitted_at": "date",
         "assessment_result": "select",
         "assessment_review_comment": "text",
@@ -356,6 +404,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         "contract_return_attachment": "file",
         "onboarding_status": "select",
         "onboarding_date": "date",
+        "gift_package_sent_at": "date",
         "rejected_from_stage": "select",
         "replacement_reason": "text",
         "note": "text",
@@ -368,6 +417,16 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
             sql_expression = CandidateApplication.submitted_at
         elif name == "assessment_attachment":
             sql_expression = _build_progress_assessment_attachment_filter_expression()
+        elif name == "assessment_sent_at":
+            assessment_sent_at_expr = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_SENT_AT.value)
+            assessment_invited_at_expr = _build_progress_json_text_expression(
+                JobProgressDataKey.ASSESSMENT_INVITED_AT.value
+            )
+            sql_expression = func.substr(
+                func.coalesce(func.nullif(assessment_sent_at_expr, ""), assessment_invited_at_expr),
+                1,
+                10,
+            )
         elif name == "assessment_submitted_at":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value)
         elif name == "assessment_result":
@@ -414,11 +473,10 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ONBOARDING_STATUS.value)
         elif name == "onboarding_date":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ONBOARDING_DATE.value)
+        elif name == "gift_package_sent_at":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
         elif name == "rejected_from_stage":
-            sql_expression = case(
-                (JobProgress.current_stage == RecruitmentStage.REJECTED.value, "assessment"),
-                else_="",
-            )
+            sql_expression = _build_rejected_from_stage_progress_stage_sql_expression()
         elif name == "replacement_reason":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.REPLACEMENT_REASON.value)
         elif name == "note":
@@ -626,22 +684,18 @@ def _evaluate_automation_rules(
     combinator = _normalize_text(rule_group.get("combinator") or "and").lower()
     field_values = _build_field_value_map(field_rows)
     normalized_rules = [rule for rule in rules if isinstance(rule, dict)]
-    grouped_rules = [
-        rule
-        for rule in normalized_rules
-        if _normalize_text(rule.get("group")).lower() in {"required", "must", "and", "any", "or"}
-    ]
-    if grouped_rules:
+
+    def is_any_group(rule: dict[str, Any]) -> bool:
+        return _normalize_text(rule.get("group")).lower() in {"any", "or"}
+
+    any_group_rules = [rule for rule in normalized_rules if is_any_group(rule)]
+    if any_group_rules:
         required_results = [
             _evaluate_automation_rule(rule, field_values)
             for rule in normalized_rules
-            if _normalize_text(rule.get("group")).lower() not in {"any", "or"}
+            if not is_any_group(rule)
         ]
-        any_results = [
-            _evaluate_automation_rule(rule, field_values)
-            for rule in normalized_rules
-            if _normalize_text(rule.get("group")).lower() in {"any", "or"}
-        ]
+        any_results = [_evaluate_automation_rule(rule, field_values) for rule in any_group_rules]
         matched = all(required_results) and (not any_results or any(any_results))
         return True, matched
 
@@ -797,17 +851,57 @@ def _has_assessment_invitation(progress: JobProgress) -> bool:
     )
 
 
+CANDIDATE_VISIBLE_STAGE_LABELS = {
+    "review": "Review",
+    "assessment_file": "Assessment File",
+    RecruitmentStage.ASSESSMENT_REVIEW.value: "Assessment Review",
+    RecruitmentStage.SCREENING_PASSED.value: "Screening Passed",
+    RecruitmentStage.CONTRACT_POOL.value: "Contract Pool",
+    RecruitmentStage.ACTIVE.value: "Active",
+    RecruitmentStage.REJECTED.value: "Rejected",
+    RecruitmentStage.REPLACED.value: "Replaced",
+}
+
+
+def _get_candidate_visible_stage(progress: JobProgress, job: Job) -> str:
+    if progress.current_stage == RecruitmentStage.PENDING_SCREENING.value:
+        if job.assessment_enabled and _has_assessment_invitation(progress):
+            return "assessment_file"
+        return "review"
+    return progress.current_stage
+
+
+def _get_candidate_visible_stage_label(progress: JobProgress, visible_stage: str) -> str:
+    if visible_stage == RecruitmentStage.ACTIVE.value and (progress.data or {}).get(
+        JobProgressDataKey.ONBOARDING_DATE.value
+    ):
+        return "Successfully Onboarded"
+    return CANDIDATE_VISIBLE_STAGE_LABELS.get(visible_stage, visible_stage)
+
+
+def _serialize_progress_datetime(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
+
+
 def _mark_assessment_invited(
     progress: JobProgress,
     *,
     invited_at: datetime | None = None,
     mail_task_id: int | None = None,
+    sent_at: datetime | None = None,
 ) -> list[str]:
     next_data = dict(progress.data or {})
     changed_fields: list[str] = []
+    marker_time = sent_at or invited_at or datetime.now(UTC)
+    marker_value = _serialize_progress_datetime(marker_time)
     if not _normalize_text(next_data.get(JobProgressDataKey.ASSESSMENT_INVITED_AT.value)):
-        next_data[JobProgressDataKey.ASSESSMENT_INVITED_AT.value] = (invited_at or datetime.now(UTC)).isoformat()
+        next_data[JobProgressDataKey.ASSESSMENT_INVITED_AT.value] = marker_value
         changed_fields.append(JobProgressDataKey.ASSESSMENT_INVITED_AT.value)
+    if sent_at is not None and next_data.get(JobProgressDataKey.ASSESSMENT_SENT_AT.value) != marker_value:
+        next_data[JobProgressDataKey.ASSESSMENT_SENT_AT.value] = marker_value
+        changed_fields.append(JobProgressDataKey.ASSESSMENT_SENT_AT.value)
     if (
         mail_task_id is not None
         and next_data.get(JobProgressDataKey.ASSESSMENT_INVITE_MAIL_TASK_ID.value) != mail_task_id
@@ -879,6 +973,11 @@ async def _trigger_stage_mail_task(
         )
         company_name_map = await _get_company_name_map_by_job_ids(job_ids=[job.id], db=db)
         render_context = _get_job_mail_context(job, company_name_map.get(job.id), application_id=application.id)
+        if target_stage == RecruitmentStage.ASSESSMENT_REVIEW and progress is not None:
+            render_context["job_progress"] = {
+                "id": progress.id,
+                "purpose": "assessment_invite",
+            }
         render_context["candidate"] = {
             "name": candidate_name,
             "candidate_name": candidate_name,
@@ -1434,6 +1533,10 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
             (latest_assessment_submission or {}).get("name")
             or item.process_data.get(JobProgressDataKey.ASSESSMENT_ATTACHMENT.value)
         ),
+        "assessment_sent_at": _normalize_text(
+            item.process_data.get(JobProgressDataKey.ASSESSMENT_SENT_AT.value)
+            or item.process_data.get(JobProgressDataKey.ASSESSMENT_INVITED_AT.value)
+        ),
         "assessment_submitted_at": _normalize_text(
             (latest_assessment_submission or {}).get("submitted_at")
             or item.process_data.get(JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value)
@@ -1466,7 +1569,11 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
             _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_STATUS.value))
             or (_normalize_text(contract_record.signing_status) if contract_record is not None else "")
         ),
-        "rejected_from_stage": "assessment" if item.current_stage == RecruitmentStage.REJECTED.value else "",
+        "onboarding_date": _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_DATE.value)),
+        "gift_package_sent_at": _normalize_text(
+            item.process_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
+        ),
+        "rejected_from_stage": _serialize_rejected_from_stage_for_filter(item),
         "replacement_reason": _normalize_text(item.process_data.get(JobProgressDataKey.REPLACEMENT_REASON.value)),
         "note": _normalize_text(item.process_data.get(JobProgressDataKey.NOTE.value)),
     }
@@ -1815,6 +1922,8 @@ async def list_candidate_job_applications(
             job_status=job.status,
             current_stage=progress.current_stage,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
+            candidate_visible_stage=(visible_stage := _get_candidate_visible_stage(progress, job)),
+            candidate_visible_stage_label=_get_candidate_visible_stage_label(progress, visible_stage),
             screening_mode=progress.screening_mode,
             applied_at=_ensure_utc_datetime(application.submitted_at),
             assessment_enabled=job.assessment_enabled,
@@ -1993,6 +2102,7 @@ async def get_candidate_job_application_detail(
         )
         asset_map = {int(asset.id): serialize_asset(asset) for asset in asset_result.scalars().all()}
 
+    visible_stage = _get_candidate_visible_stage(progress, job)
     return CandidateJobApplicationDetailRead(
         application_id=application.id,
         job_progress_id=progress.id,
@@ -2002,6 +2112,8 @@ async def get_candidate_job_application_detail(
         job_status=job.status,
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
+        candidate_visible_stage=visible_stage,
+        candidate_visible_stage_label=_get_candidate_visible_stage_label(progress, visible_stage),
         screening_mode=progress.screening_mode,
         applied_at=_ensure_utc_datetime(application.submitted_at),
         description_html=job.description,
@@ -2136,9 +2248,6 @@ async def move_job_progress_stage(  # noqa: C901
             next_data[JobProgressDataKey.REJECTED_FROM_STAGE.value] = from_stage
         elif JobProgressDataKey.REJECTED_FROM_STAGE.value in next_data:
             next_data.pop(JobProgressDataKey.REJECTED_FROM_STAGE.value, None)
-        if normalized_target_stage == RecruitmentStage.PENDING_SCREENING:
-            next_data.pop(JobProgressDataKey.ASSESSMENT_INVITED_AT.value, None)
-            next_data.pop(JobProgressDataKey.ASSESSMENT_INVITE_MAIL_TASK_ID.value, None)
         if normalized_target_stage == RecruitmentStage.SCREENING_PASSED:
             next_data.pop(JobProgressDataKey.QA_STATUS.value, None)
         if normalized_target_stage == RecruitmentStage.CONTRACT_POOL:
@@ -2286,6 +2395,7 @@ async def mark_job_progress_assessment_invited(
     admin_user_id: int,
     db: AsyncSession,
     mail_task_id: int | None = None,
+    sent_at: datetime | None = None,
 ) -> dict[str, Any]:
     progress_items = await get_job_progress_models(job_id=job_id, progress_ids=progress_ids, db=db)
     allowed_stages = {
@@ -2303,7 +2413,12 @@ async def mark_job_progress_assessment_invited(
     updated_field_keys: set[str] = set()
     now = datetime.now(UTC)
     for progress in progress_items:
-        changed_fields = _mark_assessment_invited(progress, invited_at=now, mail_task_id=mail_task_id)
+        changed_fields = _mark_assessment_invited(
+            progress,
+            invited_at=now,
+            mail_task_id=mail_task_id,
+            sent_at=sent_at,
+        )
         if not changed_fields:
             continue
         changed_count += 1
@@ -2331,6 +2446,49 @@ async def mark_job_progress_assessment_invited(
         updated_count=changed_count,
         updated_field_keys=sorted(updated_field_keys),
     ).model_dump()
+
+
+async def sync_assessment_sent_at_from_mail_task(mail_task_id: int) -> bool:
+    async with local_session() as db:
+        task = await db.get(MailTask, mail_task_id)
+        if task is None or task.status != MailTaskStatus.SENT.value or task.sent_at is None:
+            return False
+
+        task_data = task.data or {}
+        render_context = task_data.get(MAIL_TASK_DATA_RENDER_CONTEXT_KEY, {}) if isinstance(task_data, dict) else {}
+        job_progress_context = render_context.get("job_progress", {}) if isinstance(render_context, dict) else {}
+        progress: JobProgress | None = None
+        if isinstance(job_progress_context, dict) and job_progress_context.get("purpose") == "assessment_invite":
+            raw_progress_id = job_progress_context.get("id")
+            try:
+                progress_id = int(raw_progress_id)
+            except (TypeError, ValueError):
+                progress_id = 0
+            if progress_id:
+                progress = await db.get(JobProgress, progress_id)
+
+        if progress is None:
+            mail_task_id_expr = _build_progress_json_text_expression(
+                JobProgressDataKey.ASSESSMENT_INVITE_MAIL_TASK_ID.value
+            )
+            progress_result = await db.execute(
+                select(JobProgress)
+                .where(
+                    JobProgress.is_deleted.is_(False),
+                    mail_task_id_expr == str(mail_task_id),
+                )
+                .limit(1)
+            )
+            progress = progress_result.scalar_one_or_none()
+
+        if progress is None or progress.is_deleted:
+            return False
+
+        changed_fields = _mark_assessment_invited(progress, sent_at=task.sent_at, mail_task_id=mail_task_id)
+        if not changed_fields:
+            return False
+        await db.commit()
+        return True
 
 
 async def update_job_progress_assessment_review(
@@ -2595,6 +2753,10 @@ async def update_job_progress_note(
     }
 
 
+def _format_current_process_datetime() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 async def update_job_progress_onboarding(
     *,
     job_id: int,
@@ -2603,8 +2765,12 @@ async def update_job_progress_onboarding(
     db: AsyncSession,
     onboarding_status: str | None = None,
     onboarding_date: date | None = None,
+    update_onboarding_status: bool = False,
+    update_onboarding_date: bool = False,
 ) -> dict[str, Any]:
-    if onboarding_status is None and onboarding_date is None:
+    has_onboarding_status_update = update_onboarding_status or onboarding_status is not None
+    has_onboarding_date_update = update_onboarding_date or onboarding_date is not None
+    if not has_onboarding_status_update and not has_onboarding_date_update:
         raise BadRequestException("At least one onboarding field is required.")
 
     job_result = await db.execute(
@@ -2634,26 +2800,53 @@ async def update_job_progress_onboarding(
 
     changed_count = 0
     updated_field_keys: set[str] = set()
+    normalized_onboarding_status = onboarding_status.strip() or None if onboarding_status is not None else None
+    milestone_timestamp = (
+        _format_current_process_datetime()
+        if normalized_onboarding_status in {"已进群", "已发大礼包"}
+        else None
+    )
     for progress in progress_items:
         next_data = dict(progress.data or {})
         changed_fields: dict[str, dict[str, Any]] = {}
-        if onboarding_status is not None:
-            normalized_status = onboarding_status.strip() or None
+        if has_onboarding_status_update:
             previous_value = next_data.get(JobProgressDataKey.ONBOARDING_STATUS.value)
-            if previous_value != normalized_status:
-                next_data[JobProgressDataKey.ONBOARDING_STATUS.value] = normalized_status
+            if previous_value != normalized_onboarding_status:
+                if normalized_onboarding_status is None:
+                    next_data.pop(JobProgressDataKey.ONBOARDING_STATUS.value, None)
+                else:
+                    next_data[JobProgressDataKey.ONBOARDING_STATUS.value] = normalized_onboarding_status
                 changed_fields[JobProgressDataKey.ONBOARDING_STATUS.value] = {
                     "from": previous_value,
-                    "to": normalized_status,
+                    "to": normalized_onboarding_status,
                 }
-        if onboarding_date is not None:
-            next_date = onboarding_date.isoformat()
+        if has_onboarding_date_update:
+            next_date = onboarding_date.isoformat() if onboarding_date is not None else None
             previous_value = next_data.get(JobProgressDataKey.ONBOARDING_DATE.value)
             if previous_value != next_date:
-                next_data[JobProgressDataKey.ONBOARDING_DATE.value] = next_date
+                if next_date is None:
+                    next_data.pop(JobProgressDataKey.ONBOARDING_DATE.value, None)
+                else:
+                    next_data[JobProgressDataKey.ONBOARDING_DATE.value] = next_date
                 changed_fields[JobProgressDataKey.ONBOARDING_DATE.value] = {
                     "from": previous_value,
                     "to": next_date,
+                }
+        if milestone_timestamp and normalized_onboarding_status == "已进群":
+            previous_value = next_data.get(JobProgressDataKey.ONBOARDING_DATE.value)
+            if previous_value != milestone_timestamp:
+                next_data[JobProgressDataKey.ONBOARDING_DATE.value] = milestone_timestamp
+                changed_fields[JobProgressDataKey.ONBOARDING_DATE.value] = {
+                    "from": previous_value,
+                    "to": milestone_timestamp,
+                }
+        if milestone_timestamp and normalized_onboarding_status == "已发大礼包":
+            previous_value = next_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
+            if previous_value != milestone_timestamp:
+                next_data[JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value] = milestone_timestamp
+                changed_fields[JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value] = {
+                    "from": previous_value,
+                    "to": milestone_timestamp,
                 }
         if not changed_fields:
             continue
@@ -2697,24 +2890,34 @@ async def update_job_progress_contract_record(
     contract_review: str | None = None,
     rate: str | None = None,
     end_date: date | None = None,
+    update_agreement_ref_no: bool = False,
+    update_signing_status: bool = False,
+    update_contract_review: bool = False,
+    update_rate: bool = False,
+    update_end_date: bool = False,
 ) -> dict[str, Any]:
     changed_fields: list[str] = []
     field_updates: dict[str, Any] = {}
     data_updates: dict[str, Any] = {}
+    has_agreement_ref_no_update = update_agreement_ref_no or agreement_ref_no is not None
+    has_rate_update = update_rate or rate is not None
+    has_signing_status_update = update_signing_status or signing_status is not None
+    has_contract_review_update = update_contract_review or contract_review is not None
+    has_end_date_update = update_end_date or end_date is not None
 
-    if agreement_ref_no is not None:
-        field_updates["agreement_ref_no"] = agreement_ref_no.strip() or None
+    if has_agreement_ref_no_update:
+        field_updates["agreement_ref_no"] = (agreement_ref_no or "").strip() or None
         changed_fields.append("agreement_ref_no")
-    if rate is not None:
+    if has_rate_update:
         field_updates["rate"] = _normalize_decimal(rate)
         changed_fields.append("rate")
-    if signing_status is not None:
-        data_updates["signing_status"] = signing_status.strip() or None
+    if has_signing_status_update:
+        data_updates["signing_status"] = (signing_status or "").strip() or None
         changed_fields.append("signing_status")
-    if contract_review is not None:
-        data_updates["contract_review"] = contract_review.strip() or None
+    if has_contract_review_update:
+        data_updates["contract_review"] = (contract_review or "").strip() or None
         changed_fields.append("contract_review")
-    if end_date is not None:
+    if has_end_date_update:
         field_updates["end_date"] = end_date
         changed_fields.append("end_date")
 

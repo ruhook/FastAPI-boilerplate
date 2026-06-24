@@ -3,7 +3,7 @@ from httpx import AsyncClient
 
 from src.app.core.db.database import local_session
 from src.app.modules.admin.admin_audit_log.const import AdminAuditLogActionType
-from src.app.modules.admin.mail_task.service import render_template_text
+from src.app.modules.admin.mail_task.service import _compose_final_body_html, render_template_text
 from tests.helpers.admin import fetch_admin_audit_logs
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -27,6 +27,20 @@ async def test_render_template_text_replaces_encoded_template_links() -> None:
         rendered
         == '<a href="https://test.primnota.com/assessments/abc" target="_blank">支持变量-测试题链接</a>'
     )
+
+
+@pytest.mark.no_database_cleanup
+async def test_compose_final_body_html_uses_application_update_header_with_job_title() -> None:
+    rendered = _compose_final_body_html(
+        "<p>Please continue.</p>",
+        "",
+        {"job_title": "Data Annotator"},
+    )
+
+    assert "T-Maxx | Application Update for the Data Annotator Position" in rendered
+    assert "Your application has moved to the next stage. Please complete the action below to continue." in rendered
+    assert "Recruitment Update" not in rendered
+    assert "We kept your original template content intact" not in rendered
 
 
 async def test_superadmin_can_manage_mail_templates_signatures_assets_and_send_tasks(
