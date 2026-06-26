@@ -58,6 +58,7 @@ class ContractRecord(DataBackedSoftDeleteEntityMixin, Base):
     )
     contractor_name: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    base_pay: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     legal_entity: Mapped[str] = mapped_column(
         String(120),
         nullable=False,

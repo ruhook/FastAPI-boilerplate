@@ -33,6 +33,7 @@ class ContractRecordListItemRead(BaseModel):
     contractor_name: str | None = None
     contractor_email: str | None = None
     rate: Decimal | None = None
+    base_pay: Decimal | None = None
     rate_unit: str | None = None
     legal_entity: str
     worker_type: str
@@ -62,6 +63,7 @@ class ContractRecordUpdateRequest(BaseModel):
     agreement_ref_no: str | None = None
     contractor_name: str | None = None
     rate: Decimal | None = None
+    base_pay: Decimal | None = None
     legal_entity: str | None = None
     worker_type: str | None = None
     effective_date: date | None = None

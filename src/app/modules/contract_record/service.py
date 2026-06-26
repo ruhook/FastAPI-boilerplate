@@ -7,6 +7,13 @@ from fastapi import UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.advanced_filter import (
+    AdvancedFilterFieldDefinition,
+    build_advanced_filter_query_sql_condition,
+    has_advanced_filter_rules,
+    parse_advanced_filter_query,
+    validate_advanced_filter_query,
+)
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..assets.model import Asset
@@ -227,6 +234,70 @@ def _extract_id_attachment_asset_id(user_data: dict[str, Any] | None) -> int | N
         return None
 
 
+def _build_contract_json_text_expression(key: str):
+    return func.json_unquote(func.json_extract(ContractRecord.data, f"$.{key}"))
+
+
+def _build_contract_id_attachment_sql_expression():
+    return (
+        select(func.json_unquote(func.json_extract(User.data, "$.payment_info.id_attachment_asset_id")))
+        .where(
+            User.id == ContractRecord.user_id,
+            User.is_deleted.is_(False),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _build_contract_advanced_filter_field_map() -> dict[str, AdvancedFilterFieldDefinition]:
+    field_map: dict[str, AdvancedFilterFieldDefinition] = {}
+
+    def add_field(
+        names: list[str],
+        filter_kind: str,
+        sql_expression: Any,
+    ) -> None:
+        definition = AdvancedFilterFieldDefinition(
+            name=names[0],
+            filter_kind=filter_kind,  # type: ignore[arg-type]
+            sql_expression=sql_expression,
+        )
+        for name in names:
+            field_map[name] = definition
+
+    add_field(["contractSummary", "contract_summary"], "text", ContractRecord.job_snapshot_title)
+    add_field(["agreementRefNo", "agreement_ref_no"], "text", ContractRecord.agreement_ref_no)
+    add_field(["contractStatus", "contract_status"], "select", ContractRecord.contract_status)
+    add_field(["contractType", "contract_type"], "select", ContractRecord.contract_type)
+    add_field(["contractorName", "contractor_name"], "text", ContractRecord.contractor_name)
+    add_field(["contractorEmail", "contractor_email"], "email", ContractRecord.user_snapshot_email)
+    add_field(["serviceCustomer", "service_customer"], "select", AdminCompany.name)
+    add_field(["rate"], "number", ContractRecord.rate)
+    add_field(["basePay", "base_pay"], "number", ContractRecord.base_pay)
+    add_field(["legalEntity", "legal_entity"], "select", ContractRecord.legal_entity)
+    add_field(["workerType", "worker_type"], "select", ContractRecord.worker_type)
+    add_field(["effectiveDate", "effective_date"], "date", ContractRecord.effective_date)
+    add_field(["endDate", "end_date"], "date", ContractRecord.end_date)
+    add_field(["contractAttachment", "contract_attachment"], "file", ContractRecord.contract_attachment_asset_id)
+    add_field(["draftContractAttachment", "draft_contract_attachment"], "file", ContractRecord.draft_contract_asset_id)
+    add_field(
+        ["candidateSignedContractAttachment", "candidate_signed_contract_attachment"],
+        "file",
+        ContractRecord.candidate_signed_contract_asset_id,
+    )
+    add_field(
+        ["companySealedContractAttachment", "company_sealed_contract_attachment"],
+        "file",
+        ContractRecord.company_sealed_contract_asset_id,
+    )
+    add_field(["idAttachment", "id_attachment"], "file", _build_contract_id_attachment_sql_expression())
+    add_field(["contractReview", "contract_review"], "select", _build_contract_json_text_expression("contract_review"))
+    add_field(["signingStatus", "signing_status"], "select", _build_contract_json_text_expression("signing_status"))
+
+    return field_map
+
+
 async def _list_id_attachment_asset_ids_by_user(
     *,
     db: AsyncSession,
@@ -258,7 +329,9 @@ async def list_contract_records_for_admin(
     keyword: str | None = None,
     contract_status: str | None = None,
     company_id: int | None = None,
+    advanced_filter: str | None = None,
 ) -> dict[str, Any]:
+    advanced_filter_query = parse_advanced_filter_query(advanced_filter)
     conditions = [
         ContractRecord.is_deleted.is_(False),
         Job.is_deleted.is_(False),
@@ -279,6 +352,15 @@ async def list_contract_records_for_admin(
         conditions.append(ContractRecord.contract_status == contract_status)
     if company_id is not None:
         conditions.append(ContractRecord.service_customer_company_id == company_id)
+    if has_advanced_filter_rules(advanced_filter_query):
+        field_map = _build_contract_advanced_filter_field_map()
+        validate_advanced_filter_query(advanced_filter_query, field_map=field_map)
+        advanced_filter_condition = build_advanced_filter_query_sql_condition(
+            advanced_filter_query,
+            field_map=field_map,
+        )
+        if advanced_filter_condition is not None:
+            conditions.append(advanced_filter_condition)
 
     total_result = await db.execute(
         select(func.count())
@@ -369,6 +451,7 @@ async def list_contract_records_for_admin(
             contractor_name=record.contractor_name,
             contractor_email=record.user_snapshot_email,
             rate=record.rate,
+            base_pay=record.base_pay,
             rate_unit=job_map[int(record.job_id)].compensation_unit if int(record.job_id) in job_map else None,
             legal_entity=record.legal_entity,
             worker_type=record.worker_type,
@@ -410,14 +493,17 @@ async def update_contract_record_for_admin(
     agreement_ref_no: str | None = None,
     contractor_name: str | None = None,
     rate: Decimal | None = None,
+    base_pay: Decimal | None = None,
     legal_entity: str | None = None,
     worker_type: str | None = None,
     effective_date: date | None = None,
     end_date: date | None = None,
+    latest_contract_upload: UploadFile | None = None,
     update_contract_type: bool = False,
     update_agreement_ref_no: bool = False,
     update_contractor_name: bool = False,
     update_rate: bool = False,
+    update_base_pay: bool = False,
     update_legal_entity: bool = False,
     update_worker_type: bool = False,
     update_effective_date: bool = False,
@@ -466,6 +552,10 @@ async def update_contract_record_for_admin(
         record.rate = rate
         record.updated_by_admin_user_id = admin_user_id
         updated_fields.append("rate")
+    if update_base_pay:
+        record.base_pay = base_pay
+        record.updated_by_admin_user_id = admin_user_id
+        updated_fields.append("base_pay")
     if update_legal_entity:
         record.legal_entity = (legal_entity or "").strip() or "T-Maxx International"
         record.updated_by_admin_user_id = admin_user_id
@@ -496,6 +586,28 @@ async def update_contract_record_for_admin(
             record.updated_by_admin_user_id = admin_user_id
             if "end_date" not in updated_fields:
                 updated_fields.append("end_date")
+
+    if latest_contract_upload is not None:
+        asset_payload = await upload_asset(
+            db=db,
+            payload=AssetUploadPayload(
+                type="contract_attachment",
+                module="contract",
+                owner_type="admin_user",
+                owner_id=admin_user_id,
+            ),
+            upload=latest_contract_upload,
+        )
+        asset_id = int(asset_payload["id"])
+        record.contract_attachment_asset_id = asset_id
+        record.company_sealed_contract_asset_id = asset_id
+        record.updated_by_admin_user_id = admin_user_id
+        record.data = {
+            **(record.data or {}),
+            "contract_attachment_name": asset_payload["original_name"],
+            "company_sealed_contract_attachment_name": asset_payload["original_name"],
+        }
+        updated_fields.append("contract_attachment")
 
     await db.flush()
 
@@ -569,6 +681,7 @@ async def update_contract_record_for_admin(
         contractor_name=record.contractor_name,
         contractor_email=record.user_snapshot_email,
         rate=record.rate,
+        base_pay=record.base_pay,
         rate_unit=job.compensation_unit,
         legal_entity=record.legal_entity,
         worker_type=record.worker_type,
@@ -603,6 +716,7 @@ async def resign_contract_record_for_admin(
     agreement_ref_no: str | None = None,
     contractor_name: str | None = None,
     rate: Decimal | None = None,
+    base_pay: Decimal | None = None,
     legal_entity: str | None = None,
     worker_type: str | None = None,
     effective_date: date | None = None,
@@ -684,6 +798,7 @@ async def resign_contract_record_for_admin(
         contract_type=normalize_contract_type(contract_type or old_record.contract_type),
         contractor_name=(contractor_name or old_record.contractor_name or "").strip() or None,
         rate=rate if rate is not None else old_record.rate,
+        base_pay=base_pay if base_pay is not None else old_record.base_pay,
         legal_entity=(legal_entity or old_record.legal_entity or "").strip() or "T-Maxx International",
         worker_type=(worker_type or old_record.worker_type or "").strip() or "Contractor",
         effective_date=next_effective_date,

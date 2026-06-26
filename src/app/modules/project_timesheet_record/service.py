@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 from datetime import UTC, date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import case, func, or_, select
@@ -196,6 +196,16 @@ def _quantize_hours(value: Decimal | None) -> Decimal | None:
     return value.quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP)
 
 
+def _quantize_customer_duration_hours(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    return value.quantize(TWO_DECIMALS, rounding=ROUND_CEILING)
+
+
+def _quantize_candidate_duration_hours(value: Decimal | None) -> Decimal | None:
+    return _quantize_hours(value)
+
+
 def _zero_decimal() -> Decimal:
     return Decimal("0.00")
 
@@ -265,7 +275,6 @@ async def list_active_project_workers(
     conditions = [
         ContractRecord.is_deleted.is_(False),
         ContractRecord.is_current.is_(True),
-        ContractRecord.service_customer_company_id == company_id,
         ContractRecord.contract_status == CONTRACT_STATUS_ACTIVE,
         User.is_deleted.is_(False),
     ]
@@ -508,14 +517,14 @@ async def _resolve_timesheet_worker(
             ContractRecord.id == contract_record_id,
             ContractRecord.is_deleted.is_(False),
             ContractRecord.is_current.is_(True),
-            ContractRecord.service_customer_company_id == company_id,
+            ContractRecord.contract_status == CONTRACT_STATUS_ACTIVE,
             User.is_deleted.is_(False),
         )
         .limit(1)
     )
     row = result.first()
     if row is None:
-        raise BadRequestException("Selected worker is not available for this company.")
+        raise BadRequestException("Selected worker must have an active contract.")
     return row
 
 
@@ -634,16 +643,18 @@ async def list_project_timesheet_workspace(
         if not language:
             continue
         dashboard_totals_by_language[language]["customer_duration_hours"] += (
-            _quantize_hours(_to_decimal(record.customer_duration_hours)) or _zero_decimal()
+            _quantize_customer_duration_hours(_to_decimal(record.customer_duration_hours)) or _zero_decimal()
         )
         dashboard_totals_by_language[language]["candidate_duration_hours"] += (
-            _quantize_hours(_to_decimal(record.candidate_duration_hours)) or _zero_decimal()
+            _quantize_candidate_duration_hours(_to_decimal(record.candidate_duration_hours)) or _zero_decimal()
         )
     dashboard_items = [
         ProjectTimesheetDashboardItemRead(
             language=language,
-            customer_duration_hours=payload["customer_duration_hours"].quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
-            candidate_duration_hours=payload["candidate_duration_hours"].quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP),
+            customer_duration_hours=_quantize_customer_duration_hours(payload["customer_duration_hours"])
+            or _zero_decimal(),
+            candidate_duration_hours=_quantize_candidate_duration_hours(payload["candidate_duration_hours"])
+            or _zero_decimal(),
             total_duration_hours=(payload["customer_duration_hours"] + payload["candidate_duration_hours"]).quantize(
                 TWO_DECIMALS, rounding=ROUND_HALF_UP
             ),
@@ -723,8 +734,10 @@ async def list_project_timesheet_overview(
             project_id=int(raw_project_id),
             project_name=str(project_name),
             record_count=int(record_count or 0),
-            customer_duration_hours=_quantize_hours(_to_decimal(customer_hours)) or _zero_decimal(),
-            candidate_duration_hours=_quantize_hours(_to_decimal(candidate_hours)) or _zero_decimal(),
+            customer_duration_hours=_quantize_customer_duration_hours(_to_decimal(customer_hours)) or _zero_decimal(),
+            candidate_duration_hours=(
+                _quantize_candidate_duration_hours(_to_decimal(candidate_hours)) or _zero_decimal()
+            ),
             latest_created_at=latest_created_at,
         ).model_dump()
         for (
@@ -831,8 +844,12 @@ def _build_timesheet_metric_item(
         user_email=user_email,
         record_count=int(record_count or 0),
         output_quantity=_quantize_hours(_to_decimal(output_quantity)) or _zero_decimal(),
-        customer_duration_hours=_quantize_hours(_to_decimal(customer_duration_hours)) or _zero_decimal(),
-        candidate_duration_hours=_quantize_hours(_to_decimal(candidate_duration_hours)) or _zero_decimal(),
+        customer_duration_hours=(
+            _quantize_customer_duration_hours(_to_decimal(customer_duration_hours)) or _zero_decimal()
+        ),
+        candidate_duration_hours=(
+            _quantize_candidate_duration_hours(_to_decimal(candidate_duration_hours)) or _zero_decimal()
+        ),
         non_operational_duration_hours=_quantize_hours(_to_decimal(non_operational_duration_hours)) or _zero_decimal(),
     )
 
@@ -944,8 +961,8 @@ async def list_project_timesheet_analytics(
         sub_project_count=int(sub_project_count or 0),
         record_count=int(record_count or 0),
         output_quantity=_quantize_hours(_to_decimal(output_quantity)) or _zero_decimal(),
-        customer_duration_hours=_quantize_hours(_to_decimal(customer_hours)) or _zero_decimal(),
-        candidate_duration_hours=_quantize_hours(_to_decimal(candidate_hours)) or _zero_decimal(),
+        customer_duration_hours=_quantize_customer_duration_hours(_to_decimal(customer_hours)) or _zero_decimal(),
+        candidate_duration_hours=_quantize_candidate_duration_hours(_to_decimal(candidate_hours)) or _zero_decimal(),
         non_operational_duration_hours=_quantize_hours(_to_decimal(non_operational_hours)) or _zero_decimal(),
         latest_created_at=latest_created_at,
     )
@@ -970,8 +987,8 @@ async def list_project_timesheet_analytics(
             date=raw_date,
             record_count=int(raw_count or 0),
             output_quantity=_quantize_hours(_to_decimal(raw_output)) or _zero_decimal(),
-            customer_duration_hours=_quantize_hours(_to_decimal(raw_customer)) or _zero_decimal(),
-            candidate_duration_hours=_quantize_hours(_to_decimal(raw_candidate)) or _zero_decimal(),
+            customer_duration_hours=_quantize_customer_duration_hours(_to_decimal(raw_customer)) or _zero_decimal(),
+            candidate_duration_hours=_quantize_candidate_duration_hours(_to_decimal(raw_candidate)) or _zero_decimal(),
             non_operational_duration_hours=_quantize_hours(_to_decimal(raw_non_operational)) or _zero_decimal(),
         )
         for raw_date, raw_count, raw_output, raw_customer, raw_candidate, raw_non_operational in trend_result.all()
@@ -1465,7 +1482,7 @@ async def create_project_timesheet_records(
     team_leader_options = await list_active_project_team_leaders(company_id=company_id, project_id=project_id, db=db)
     active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
     if int(payload.team_leader_user_id) > 0 and int(payload.team_leader_user_id) not in active_team_leader_user_ids:
-        raise BadRequestException("Selected team leader must have an active contract for this company.")
+        raise BadRequestException("Selected team leader must have an active contract.")
 
     note_asset_ids = sorted(
         {int(asset_id) for entry in payload.entries for asset_id in entry.note_asset_ids if int(asset_id) > 0}
@@ -1480,7 +1497,7 @@ async def create_project_timesheet_records(
     for entry in payload.entries:
         worker = worker_map.get(int(entry.contract_record_id))
         if worker is None:
-            raise BadRequestException("Selected worker is not available for this company.")
+            raise BadRequestException("Selected worker must have an active contract.")
         if entry.user_id is not None and int(entry.user_id) != int(worker["user_id"]):
             raise BadRequestException("Selected worker does not match the selected contract.")
         if timesheet_work_types and entry.work_type not in timesheet_work_types:
@@ -1504,8 +1521,8 @@ async def create_project_timesheet_records(
             output_quantity=_quantize_hours(entry.output_quantity),
             customer_human_efficiency_minutes=_quantize_hours(payload.customer_human_efficiency_minutes),
             candidate_human_efficiency_minutes=_quantize_hours(payload.candidate_human_efficiency_minutes),
-            customer_duration_hours=_quantize_hours(entry.customer_duration_hours),
-            candidate_duration_hours=_quantize_hours(entry.candidate_duration_hours),
+            customer_duration_hours=_quantize_customer_duration_hours(entry.customer_duration_hours),
+            candidate_duration_hours=_quantize_candidate_duration_hours(entry.candidate_duration_hours),
             role_name=role_name,
             non_operational_duration_hours=_quantize_hours(entry.non_operational_duration_hours),
             project_link=payload.project_link,
@@ -1563,7 +1580,7 @@ async def update_project_timesheet_record(
     team_leader_options = await list_active_project_team_leaders(company_id=company_id, project_id=project_id, db=db)
     active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
     if int(payload.team_leader_user_id) > 0 and int(payload.team_leader_user_id) not in active_team_leader_user_ids:
-        raise BadRequestException("Selected team leader must have an active contract for this company.")
+        raise BadRequestException("Selected team leader must have an active contract.")
 
     await _validate_timesheet_note_assets(
         db=db,
@@ -1581,7 +1598,7 @@ async def update_project_timesheet_record(
         int(payload.contract_record_id) != int(record.contract_record_id or 0)
         and contract_record.contract_status != "Active"
     ):
-        raise BadRequestException("Selected worker is not available for this company.")
+        raise BadRequestException("Selected worker must have an active contract.")
     if payload.user_id is not None and int(payload.user_id) != int(user.id):
         raise BadRequestException("Selected worker does not match the selected contract.")
 
@@ -1598,8 +1615,8 @@ async def update_project_timesheet_record(
     record.output_quantity = _quantize_hours(payload.output_quantity)
     record.customer_human_efficiency_minutes = _quantize_hours(payload.customer_human_efficiency_minutes)
     record.candidate_human_efficiency_minutes = _quantize_hours(payload.candidate_human_efficiency_minutes)
-    record.customer_duration_hours = _quantize_hours(payload.customer_duration_hours)
-    record.candidate_duration_hours = _quantize_hours(payload.candidate_duration_hours)
+    record.customer_duration_hours = _quantize_customer_duration_hours(payload.customer_duration_hours)
+    record.candidate_duration_hours = _quantize_candidate_duration_hours(payload.candidate_duration_hours)
     record.role_name = role_name
     record.non_operational_duration_hours = _quantize_hours(payload.non_operational_duration_hours)
     record.project_link = payload.project_link

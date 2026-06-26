@@ -8,9 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.db.database import local_session
+from src.app.core.security import get_password_hash
+from src.app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
+from src.app.modules.admin.admin_user.model import AdminUser
 from src.app.modules.admin.mail_account.model import MailAccount
 from src.app.modules.admin.mail_task.const import MAIL_TASK_DATA_RENDER_CONTEXT_KEY, MailTaskStatus
 from src.app.modules.admin.mail_task.model import MailTask
+from src.app.modules.job.const import JOB_DATA_LANGUAGES_KEY
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.job_progress.service import sync_assessment_sent_at_from_mail_task
 from tests.helpers.talent import (
@@ -34,6 +38,42 @@ def _build_web_application_fields() -> list[dict[str, object]]:
         if field.get("key") == "resume_attachment":
             field["type"] = "file"
     return fields
+
+
+async def _create_progress_test_admin(
+    admin_client: AsyncClient,
+    db_session: AsyncSession,
+    *,
+    suffix: str,
+) -> tuple[int, dict[str, str]]:
+    password = "AdminPass123!"
+    username = f"adm{suffix.lower()}"[:20]
+    admin = AdminUser(
+        name="Progress Admin",
+        username=username,
+        email=f"admin.{suffix}@example.com",
+        hashed_password=get_password_hash(password),
+        phone=None,
+        note="job progress language test admin",
+        status="enabled",
+        profile_image_url=DEFAULT_ADMIN_PROFILE_IMAGE_URL,
+        is_superuser=True,
+        role_id=None,
+        data={},
+    )
+    db_session.add(admin)
+    await db_session.commit()
+    await db_session.refresh(admin)
+
+    response = await admin_client.post(
+        "/api/v1/auth/login",
+        json={
+            "username_or_email": username,
+            "password": password,
+        },
+    )
+    assert response.status_code == 200, response.text
+    return int(admin.id), {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 async def _submit_application_for_progress(
@@ -116,6 +156,229 @@ async def test_job_progress_auto_screening_pass_with_assessment_stays_pending_sc
     assert progress.screening_mode == "auto"
     assert "job_progress_created" in log_types
     assert "job_progress_stage_changed" not in log_types
+
+
+async def test_job_progress_snapshots_job_languages_when_candidate_applies(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    suffix = uuid4().hex[:8]
+    owner_admin_user_id, admin_auth_headers = await _create_progress_test_admin(
+        admin_client,
+        db_session,
+        suffix=suffix,
+    )
+    fields = _build_web_application_fields()
+    template = await create_form_template(db_session, suffix=suffix, fields=fields)
+    job = await create_open_job(
+        db_session,
+        suffix=suffix,
+        title=f"Language Snapshot Role {suffix}",
+        owner_admin_user_id=owner_admin_user_id,
+        form_template_id=template.id,
+        form_fields=fields,
+        assessment_enabled=False,
+        automation_rules={"combinator": "and", "rules": []},
+    )
+    job.data = {**(job.data or {}), JOB_DATA_LANGUAGES_KEY: ["泰语", "英语"]}
+    await db_session.commit()
+
+    user, password = await create_candidate_user(db_session, suffix=suffix, name="Language Candidate")
+    auth_headers = await login_web_user(web_client, username=user.email, password=password)
+    resume = await create_resume_asset(db_session, suffix=f"{suffix}-resume")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
+
+    apply_response = await web_client.post(
+        f"/api/v1/jobs/{job.id}/apply",
+        headers=auth_headers,
+        json={
+            "items": build_application_items(
+                full_name="Language Candidate",
+                email=user.email,
+                whatsapp="+66-3000-0000",
+                nationality="Thai",
+                country_of_residence="Thailand",
+                education_status="Bachelor's degree",
+                resume_asset_id=resume.id,
+            )
+        },
+    )
+    assert apply_response.status_code == 200, apply_response.text
+
+    async with local_session() as assertion_session:
+        progress_result = await assertion_session.execute(
+            select(JobProgress).where(JobProgress.application_id == apply_response.json()["application_id"])
+        )
+        progress = progress_result.scalar_one()
+        assert progress.data["job_languages"] == ["泰语", "英语"]
+
+    list_response = await admin_client.get(
+        f"/api/v1/jobs/{job.id}/progress",
+        headers=admin_auth_headers,
+    )
+    assert list_response.status_code == 200, list_response.text
+    item = next(
+        row
+        for row in list_response.json()["items"]
+        if row["application_id"] == apply_response.json()["application_id"]
+    )
+    assert item["process_data"]["job_languages"] == ["泰语", "英语"]
+
+
+async def test_job_progress_language_snapshot_does_not_follow_later_job_updates(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    suffix = uuid4().hex[:8]
+    owner_admin_user_id, admin_auth_headers = await _create_progress_test_admin(
+        admin_client,
+        db_session,
+        suffix=suffix,
+    )
+    fields = _build_web_application_fields()
+    template = await create_form_template(db_session, suffix=suffix, fields=fields)
+    job = await create_open_job(
+        db_session,
+        suffix=suffix,
+        title=f"Language Immutable Role {suffix}",
+        owner_admin_user_id=owner_admin_user_id,
+        form_template_id=template.id,
+        form_fields=fields,
+        assessment_enabled=False,
+        automation_rules={"combinator": "and", "rules": []},
+    )
+    job.data = {**(job.data or {}), JOB_DATA_LANGUAGES_KEY: ["泰语"]}
+    await db_session.commit()
+
+    user, password = await create_candidate_user(db_session, suffix=suffix, name="Immutable Language Candidate")
+    auth_headers = await login_web_user(web_client, username=user.email, password=password)
+    resume = await create_resume_asset(db_session, suffix=f"{suffix}-resume")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
+
+    apply_response = await web_client.post(
+        f"/api/v1/jobs/{job.id}/apply",
+        headers=auth_headers,
+        json={
+            "items": build_application_items(
+                full_name="Immutable Language Candidate",
+                email=user.email,
+                whatsapp="+66-3000-0001",
+                nationality="Thai",
+                country_of_residence="Thailand",
+                education_status="Bachelor's degree",
+                resume_asset_id=resume.id,
+            )
+        },
+    )
+    assert apply_response.status_code == 200, apply_response.text
+
+    async with local_session() as update_session:
+        saved_job = await update_session.get(type(job), job.id)
+        assert saved_job is not None
+        saved_job.data = {**(saved_job.data or {}), JOB_DATA_LANGUAGES_KEY: ["英语"]}
+        await update_session.commit()
+
+    list_response = await admin_client.get(
+        f"/api/v1/jobs/{job.id}/progress",
+        headers=admin_auth_headers,
+    )
+    assert list_response.status_code == 200, list_response.text
+    item = next(
+        row
+        for row in list_response.json()["items"]
+        if row["application_id"] == apply_response.json()["application_id"]
+    )
+    assert item["process_data"]["job_languages"] == ["泰语"]
+
+
+async def test_job_progress_language_filter_uses_snapshot_and_current_job_fallback(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    suffix = uuid4().hex[:8]
+    owner_admin_user_id, admin_auth_headers = await _create_progress_test_admin(
+        admin_client,
+        db_session,
+        suffix=suffix,
+    )
+    fields = _build_web_application_fields()
+    template = await create_form_template(db_session, suffix=suffix, fields=fields)
+    job = await create_open_job(
+        db_session,
+        suffix=suffix,
+        title=f"Language Filter Role {suffix}",
+        owner_admin_user_id=owner_admin_user_id,
+        form_template_id=template.id,
+        form_fields=fields,
+        assessment_enabled=False,
+        automation_rules={"combinator": "and", "rules": []},
+    )
+    job.data = {**(job.data or {}), JOB_DATA_LANGUAGES_KEY: ["泰语", "英语"]}
+    await db_session.commit()
+
+    user, password = await create_candidate_user(db_session, suffix=suffix, name="Legacy Language Candidate")
+    auth_headers = await login_web_user(web_client, username=user.email, password=password)
+    resume = await create_resume_asset(db_session, suffix=f"{suffix}-resume")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
+
+    apply_response = await web_client.post(
+        f"/api/v1/jobs/{job.id}/apply",
+        headers=auth_headers,
+        json={
+            "items": build_application_items(
+                full_name="Legacy Language Candidate",
+                email=user.email,
+                whatsapp="+66-3000-0002",
+                nationality="Thai",
+                country_of_residence="Thailand",
+                education_status="Bachelor's degree",
+                resume_asset_id=resume.id,
+            )
+        },
+    )
+    assert apply_response.status_code == 200, apply_response.text
+
+    async with local_session() as update_session:
+        progress_result = await update_session.execute(
+            select(JobProgress).where(JobProgress.application_id == apply_response.json()["application_id"])
+        )
+        progress = progress_result.scalar_one()
+        next_data = dict(progress.data or {})
+        next_data.pop("job_languages", None)
+        progress.data = next_data
+        await update_session.commit()
+
+    list_response = await admin_client.get(
+        f"/api/v1/jobs/{job.id}/progress",
+        headers=admin_auth_headers,
+        params={
+            "active_stage": "screening",
+            "advanced_filter": json.dumps(
+                {
+                    "combinator": "and",
+                    "rules": [
+                        {
+                            "field": "job_languages",
+                            "operator": "contains",
+                            "value": "泰语",
+                        }
+                    ],
+                }
+            ),
+        },
+    )
+    assert list_response.status_code == 200, list_response.text
+    assert list_response.json()["items"][0]["process_data"]["job_languages"] == ["泰语", "英语"]
+    assert progress.id in list_response.json()["matched_progress_ids"]
 
 
 async def test_job_progress_auto_screening_pass_without_assessment_stays_pending_screening(

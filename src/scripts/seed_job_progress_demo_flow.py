@@ -613,13 +613,23 @@ async def ensure_superadmin_user() -> AdminUser:
         result = await session.execute(
             select(AdminUser).where(
                 or_(
-                    AdminUser.is_superuser.is_(True),
                     AdminUser.email == DEFAULT_SUPERADMIN_EMAIL,
                     AdminUser.username == DEFAULT_SUPERADMIN_USERNAME,
                 )
             )
         )
         admin = result.scalar_one_or_none()
+        if admin is None:
+            result = await session.execute(
+                select(AdminUser)
+                .where(
+                    AdminUser.is_superuser.is_(True),
+                    AdminUser.is_deleted.is_(False),
+                )
+                .order_by(AdminUser.id)
+                .limit(1)
+            )
+            admin = result.scalar_one_or_none()
         hashed_password = get_password_hash(DEFAULT_SUPERADMIN_PASSWORD)
         if admin is None:
             admin = AdminUser(

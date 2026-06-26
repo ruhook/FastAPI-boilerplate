@@ -58,6 +58,8 @@ class TalentTimesheetRecordRead(BaseModel):
     candidate_duration_hours: Decimal | None = None
     output_quantity: Decimal | None = None
     role_name: str | None = None
+    poc_evaluation: str | None = None
+    extra_notes: str | None = None
 
 
 class TalentPaymentRecordRead(BaseModel):

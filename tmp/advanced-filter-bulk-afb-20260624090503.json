@@ -1,0 +1,61 @@
+{
+  "run_tag": "AFB-20260624090503",
+  "admin": {
+    "username": "admin",
+    "email": "admin@admin.com"
+  },
+  "progress_job": {
+    "id": 156,
+    "title": "AFB-20260624090503 Progress Advanced Filter Job",
+    "company_id": 19,
+    "project_id": 19,
+    "seeded_rows": 24
+  },
+  "timesheet_workspace": {
+    "company_id": 20,
+    "project_id": 20,
+    "seeded_rows": 2
+  },
+  "checks": [
+    {
+      "module": "progress",
+      "name": "screening_complex",
+      "expected": 2,
+      "actual": 2
+    },
+    {
+      "module": "progress",
+      "name": "contract_complex",
+      "expected": 0,
+      "actual": 0
+    },
+    {
+      "module": "candidate_pool",
+      "name": "talent_complex",
+      "expected": 2,
+      "actual": 2
+    },
+    {
+      "module": "timesheet_workspace",
+      "name": "timesheet_complex",
+      "expected": 2,
+      "actual": 2
+    }
+  ],
+  "timesheet_dashboard": {
+    "expected": {
+      "ja-JP": {
+        "customer_duration_hours": "6.30",
+        "candidate_duration_hours": "5.40",
+        "total_duration_hours": "11.70"
+      }
+    },
+    "actual": {
+      "ja-JP": {
+        "customer_duration_hours": "6.30",
+        "candidate_duration_hours": "5.40",
+        "total_duration_hours": "11.70"
+      }
+    }
+  }
+}

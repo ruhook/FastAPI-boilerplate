@@ -50,6 +50,7 @@ class JobProgressDataKey(StrEnum):
     ONBOARDING_STATUS = "onboarding_status"
     ONBOARDING_DATE = "onboarding_date"
     GIFT_PACKAGE_SENT_AT = "gift_package_sent_at"
+    JOB_LANGUAGES = "job_languages"
     REJECTED_FROM_STAGE = "rejected_from_stage"
     REPLACEMENT_REASON = "replacement_reason"
     NOTE = "note"

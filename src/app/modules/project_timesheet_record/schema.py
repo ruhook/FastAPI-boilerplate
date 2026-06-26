@@ -208,7 +208,7 @@ class ProjectTimesheetBatchCreateRequest(BaseModel):
     sub_project_name: str = Field(..., min_length=1, max_length=160)
     work_date: date
     language: str = Field(..., min_length=1, max_length=64)
-    project_link: str = Field(..., min_length=1, max_length=2048)
+    project_link: str | None = Field(default=None, max_length=2048)
     customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
     candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
     team_leader_user_id: int = Field(..., ge=0)
@@ -224,10 +224,10 @@ class ProjectTimesheetBatchCreateRequest(BaseModel):
 
     @field_validator("project_link")
     @classmethod
-    def validate_project_link(cls, value: str) -> str:
-        text = value.strip()
+    def validate_project_link(cls, value: str | None) -> str | None:
+        text = (value or "").strip()
         if not text:
-            raise ValueError("Project link is required.")
+            return None
         if not (text.startswith("http://") or text.startswith("https://")):
             raise ValueError("Project link must start with http:// or https://")
         return text
@@ -237,7 +237,7 @@ class ProjectTimesheetUpdateRequest(BaseModel):
     sub_project_name: str = Field(..., min_length=1, max_length=160)
     work_date: date
     language: str = Field(..., min_length=1, max_length=64)
-    project_link: str = Field(..., min_length=1, max_length=2048)
+    project_link: str | None = Field(default=None, max_length=2048)
     customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
     candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
     team_leader_user_id: int = Field(..., ge=0)
@@ -268,10 +268,10 @@ class ProjectTimesheetUpdateRequest(BaseModel):
 
     @field_validator("project_link")
     @classmethod
-    def validate_project_link(cls, value: str) -> str:
-        text = value.strip()
+    def validate_project_link(cls, value: str | None) -> str | None:
+        text = (value or "").strip()
         if not text:
-            raise ValueError("Project link is required.")
+            return None
         if not (text.startswith("http://") or text.startswith("https://")):
             raise ValueError("Project link must start with http:// or https://")
         return text

@@ -671,6 +671,8 @@ async def _list_talent_timesheet_records(
             candidate_duration_hours=record.candidate_duration_hours,
             output_quantity=record.output_quantity,
             role_name=record.role_name,
+            poc_evaluation=record.poc_evaluation,
+            extra_notes=record.extra_notes,
         ).model_dump()
         for record in result.scalars().all()
     ]

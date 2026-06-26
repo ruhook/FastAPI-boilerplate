@@ -139,8 +139,10 @@ class ContractRecordDataRead(BaseModel):
     service_customer_project_name: str | None = None
     agreement_ref_no: str | None = None
     contract_status: str | None = None
+    contract_type: str | None = None
     contractor_name: str | None = None
     rate: str | None = None
+    base_pay: str | None = None
     legal_entity: str | None = None
     worker_type: str | None = None
     effective_date: date | None = None

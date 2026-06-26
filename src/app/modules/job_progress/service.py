@@ -51,6 +51,7 @@ from ..job.const import (
     JOB_DATA_AUTOMATION_RULES_KEY,
     JOB_DATA_CONTRACT_EXAMPLE_KEY,
     JOB_DATA_FORM_FIELDS_KEY,
+    JOB_DATA_LANGUAGES_KEY,
     JOB_DATA_SHOW_COMPENSATION_KEY,
 )
 from ..job.model import Job
@@ -144,6 +145,13 @@ CONTRACT_RECORD_FIELD_STAGE_MAP: dict[str, set[str]] = {
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _normalize_language_values(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [item for item in (_normalize_text(item) for item in value) if item]
+    normalized = _normalize_text(value)
+    return [normalized] if normalized else []
 
 
 def _has_asset_id(value: Any) -> bool:
@@ -303,6 +311,14 @@ def _build_progress_json_text_expression(key: str):
     return func.json_unquote(func.json_extract(JobProgress.data, f"$.{key}"))
 
 
+def _build_job_languages_sql_expression(job: Job | None):
+    snapshot_expr = _build_progress_json_text_expression(JobProgressDataKey.JOB_LANGUAGES.value)
+    snapshot_text = func.replace(func.replace(func.replace(snapshot_expr, '"', ""), "[", ""), "]", "")
+    fallback_languages = _normalize_language_values((job.data or {}).get(JOB_DATA_LANGUAGES_KEY)) if job else []
+    fallback_text = " / ".join(fallback_languages)
+    return func.coalesce(func.nullif(snapshot_text, ""), fallback_text)
+
+
 def _build_progress_assessment_attachment_filter_expression():
     legacy_asset_id = func.lower(
         func.trim(
@@ -405,6 +421,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         "onboarding_status": "select",
         "onboarding_date": "date",
         "gift_package_sent_at": "date",
+        "job_languages": "multiselect",
         "rejected_from_stage": "select",
         "replacement_reason": "text",
         "note": "text",
@@ -475,6 +492,8 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ONBOARDING_DATE.value)
         elif name == "gift_package_sent_at":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
+        elif name == "job_languages":
+            sql_expression = _build_job_languages_sql_expression(job)
         elif name == "rejected_from_stage":
             sql_expression = _build_rejected_from_stage_progress_stage_sql_expression()
         elif name == "replacement_reason":
@@ -1039,6 +1058,7 @@ async def create_job_progress_for_application(
         job=job,
         field_rows=field_rows,
     )
+    job_languages = _normalize_language_values((job.data or {}).get(JOB_DATA_LANGUAGES_KEY))
 
     progress = JobProgress(
         job_id=job.id,
@@ -1048,7 +1068,7 @@ async def create_job_progress_for_application(
         current_stage=final_stage.value,
         screening_mode=screening_mode.value,
         entered_stage_at=application.submitted_at,
-        data={},
+        data={JobProgressDataKey.JOB_LANGUAGES.value: job_languages},
     )
     db.add(progress)
     await db.flush()
@@ -1188,6 +1208,26 @@ def _serialize_application_snapshot(
         key = row.catalog_key or row.field_key
         snapshot[key] = row.display_value if row.display_value is not None else row.raw_value
     return snapshot
+
+
+def _serialize_progress_process_data(
+    progress_data: dict[str, Any],
+    asset_map: dict[int, dict[str, Any]],
+    *,
+    fallback_job_languages: list[str],
+) -> dict[str, Any]:
+    payload = _serialize_process_data(
+        progress_data,
+        asset_map,
+        exclude_contract_fields=True,
+    )
+    if JobProgressDataKey.JOB_LANGUAGES.value not in payload:
+        payload[JobProgressDataKey.JOB_LANGUAGES.value] = list(fallback_job_languages)
+    else:
+        payload[JobProgressDataKey.JOB_LANGUAGES.value] = _normalize_language_values(
+            payload.get(JobProgressDataKey.JOB_LANGUAGES.value)
+        )
+    return payload
 
 
 def _serialize_application_assets(
@@ -1445,6 +1485,10 @@ def _serialize_contract_record_data(
         rate = format(contract_record.rate, "f").rstrip("0").rstrip(".")
     else:
         rate = None
+    if getattr(contract_record, "base_pay", None) is not None:
+        base_pay = format(contract_record.base_pay, "f")
+    else:
+        base_pay = None
 
     return ContractRecordDataRead(
         id=contract_record.id,
@@ -1459,8 +1503,10 @@ def _serialize_contract_record_data(
         service_customer_project_name=current_project_name,
         agreement_ref_no=contract_record.agreement_ref_no,
         contract_status=contract_record.contract_status,
+        contract_type=contract_record.contract_type,
         contractor_name=contract_record.contractor_name,
         rate=rate,
+        base_pay=base_pay,
         legal_entity=contract_record.legal_entity,
         worker_type=contract_record.worker_type,
         effective_date=contract_record.effective_date,
@@ -1573,6 +1619,9 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
         "gift_package_sent_at": _normalize_text(
             item.process_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
         ),
+        "job_languages": " / ".join(
+            _normalize_language_values(item.process_data.get(JobProgressDataKey.JOB_LANGUAGES.value))
+        ),
         "rejected_from_stage": _serialize_rejected_from_stage_for_filter(item),
         "replacement_reason": _normalize_text(item.process_data.get(JobProgressDataKey.REPLACEMENT_REASON.value)),
         "note": _normalize_text(item.process_data.get(JobProgressDataKey.NOTE.value)),
@@ -1611,6 +1660,7 @@ async def list_job_progress(
     job = job_result.scalar_one_or_none()
     company_name_map = await _get_company_name_map_by_job_ids(job_ids=[job_id], db=db)
     current_company_name = company_name_map.get(job_id)
+    fallback_job_languages = _normalize_language_values((job.data or {}).get(JOB_DATA_LANGUAGES_KEY)) if job else []
     result = await db.execute(
         select(JobProgress, CandidateApplication)
         .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
@@ -1700,10 +1750,10 @@ async def list_job_progress(
             job_company_name=current_company_name,
             application_snapshot=_serialize_application_snapshot(grouped_field_rows.get(application.id, [])),
             application_assets=_serialize_application_assets(grouped_field_rows.get(application.id, []), asset_map),
-            process_data=_serialize_process_data(
+            process_data=_serialize_progress_process_data(
                 progress.data or {},
                 asset_map,
-                exclude_contract_fields=True,
+                fallback_job_languages=fallback_job_languages,
             ),
             process_assets=_serialize_process_assets(
                 progress.data or {},

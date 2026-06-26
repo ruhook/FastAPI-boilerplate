@@ -1,3 +1,5 @@
+from datetime import date
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -6,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.db.database import local_session
+from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
+from src.app.modules.project_timesheet_record.model import ProjectTimesheetRecord
 from src.app.modules.talent_profile.model import TalentProfile
 from src.app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
-
 from tests.helpers.talent import (
     build_application_items,
     build_form_fields,
@@ -19,7 +22,6 @@ from tests.helpers.talent import (
     fetch_operation_logs,
     login_web_user,
 )
-
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -129,9 +131,8 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
     assert detail_payload["logs"][0]["title"]
     assert detail_payload["logs"][0]["summary"]
     assert sum(1 for item in detail_payload["applications"] if item["source_of_current_snapshot"]) == 1
-    assert next(item for item in detail_payload["applications"] if item["source_of_current_snapshot"])["id"] == first_apply[
-        "application_id"
-    ]
+    source_application = next(item for item in detail_payload["applications"] if item["source_of_current_snapshot"])
+    assert source_application["id"] == first_apply["application_id"]
 
     merge_response = await admin_client.post(
         f"/api/v1/talents/{talent_id}/merge-from-application/{second_apply['application_id']}",
@@ -148,9 +149,10 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
     assert merged_payload["source_application_id"] == second_apply["application_id"]
     assert merged_payload["merge_strategy"] == "manual_merge"
     assert sum(1 for item in merged_payload["applications"] if item["source_of_current_snapshot"]) == 1
-    assert next(item for item in merged_payload["applications"] if item["source_of_current_snapshot"])["id"] == second_apply[
-        "application_id"
-    ]
+    merged_source_application = next(
+        item for item in merged_payload["applications"] if item["source_of_current_snapshot"]
+    )
+    assert merged_source_application["id"] == second_apply["application_id"]
 
     async with local_session() as assertion_session:
         talent_result = await assertion_session.execute(select(TalentProfile).where(TalentProfile.id == talent_id))
@@ -183,3 +185,69 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
             "job_progress_created",
             "talent_profile_manual_merge",
         ]
+
+
+async def test_talent_detail_timesheet_records_include_poc_evaluation_and_extra_notes(
+    admin_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid4().hex[:8]
+    user, _password = await create_candidate_user(db_session, suffix=f"timesheet{suffix}", name="Case Timesheet")
+    company = AdminCompany(
+        name=f"Timesheet Company {suffix}",
+        description=None,
+        data={},
+    )
+    db_session.add(company)
+    await db_session.flush()
+    project = AdminCompanyProject(
+        company_id=company.id,
+        name=f"Timesheet Project {suffix}",
+        data={},
+    )
+    db_session.add(project)
+    await db_session.flush()
+    talent = TalentProfile(
+        user_id=user.id,
+        full_name=user.name,
+        email=user.email,
+        latest_applied_job_id=None,
+        latest_applied_job_title=None,
+        data={},
+    )
+    db_session.add(talent)
+    await db_session.flush()
+
+    db_session.add(
+        ProjectTimesheetRecord(
+            company_id=company.id,
+            project_id=project.id,
+            sub_project_name="POC Review Batch",
+            work_date=date(2026, 6, 25),
+            user_id=user.id,
+            talent_profile_id=talent.id,
+            contract_record_id=None,
+            user_name_snapshot=user.name,
+            user_email_snapshot=user.email,
+            language="Filipino",
+            work_type="QA",
+            output_quantity=Decimal("12"),
+            customer_human_efficiency_minutes=Decimal("5"),
+            candidate_human_efficiency_minutes=Decimal("6"),
+            customer_duration_hours=Decimal("1.00"),
+            candidate_duration_hours=Decimal("1.20"),
+            role_name="Reviewer",
+            non_operational_duration_hours=Decimal("0"),
+            project_link="https://example.com/timesheet/poc-review",
+            poc_evaluation="POC says quality is stable.",
+            extra_notes="Other note from imported sheet.",
+        )
+    )
+    await db_session.commit()
+
+    detail_response = await admin_client.get(f"/api/v1/talents/{talent.id}", headers=admin_auth_headers)
+    assert detail_response.status_code == 200, detail_response.text
+    timesheet_record = detail_response.json()["timesheet_records"][0]
+    assert timesheet_record["poc_evaluation"] == "POC says quality is stable."
+    assert timesheet_record["extra_notes"] == "Other note from imported sheet."
