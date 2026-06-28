@@ -30,7 +30,7 @@ from ..candidate_field.const import CandidateFieldKey
 from ..candidate_field.service import hydrate_candidate_field_options
 from ..job.const import JOB_DATA_APPLICATION_SUMMARY_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..job.model import Job
-from ..job_progress.const import get_recruitment_stage_cn_name
+from ..job_progress.const import JobProgressDataKey, RecruitmentStage, get_recruitment_stage_cn_name
 from ..job_progress.model import JobProgress
 from ..job_progress.service import create_job_progress_for_application
 from ..operation_log.const import OperationLogType
@@ -42,7 +42,13 @@ from ..project_timesheet_record.model import ProjectTimesheetRecord
 from ..talent_profile_merge_log.model import TalentProfileMergeLog
 from .const import TalentMergeStrategy
 from .model import TalentProfile
-from .pool_fields import build_talent_pool_extra_fields, load_talent_pool_sources
+from .pool_fields import (
+    TALENT_STATUS_OVERRIDE_KEY,
+    TALENT_STATUS_REPLACED,
+    build_talent_pool_extra_fields,
+    load_talent_pool_sources,
+    validate_manual_talent_status,
+)
 from .schema import (
     TalentPaymentRecordRead,
     TalentPendingMergeFieldRead,
@@ -1122,6 +1128,53 @@ async def get_talent_profile(talent_id: int, db: AsyncSession) -> dict[str, Any]
 
 async def get_talent_profile_by_user_id(user_id: int, db: AsyncSession) -> dict[str, Any]:
     talent = await _get_talent_profile_model_by_user_id(user_id, db)
+    return await _serialize_talent_profile(talent, db)
+
+
+async def update_talent_pool_note(
+    *,
+    talent_id: int,
+    note: str | None,
+    current_admin: dict[str, Any],
+    db: AsyncSession,
+) -> dict[str, Any]:
+    talent = await _get_talent_profile_model(talent_id, db)
+    source_bundle = await load_talent_pool_sources(db=db, talents=[talent])
+    progress = source_bundle.progress_by_talent.get(int(talent.id))
+    normalized_note = (note or "").strip() or None
+    if progress is not None:
+        progress.data = {
+            **(progress.data or {}),
+            JobProgressDataKey.NOTE.value: normalized_note,
+        }
+    talent.note = normalized_note
+    await db.commit()
+    await db.refresh(talent)
+    return await _serialize_talent_profile(talent, db)
+
+
+async def update_talent_pool_status(
+    *,
+    talent_id: int,
+    status: str,
+    current_admin: dict[str, Any],
+    db: AsyncSession,
+) -> dict[str, Any]:
+    talent = await _get_talent_profile_model(talent_id, db)
+    source_bundle = await load_talent_pool_sources(db=db, talents=[talent])
+    progress = source_bundle.progress_by_talent.get(int(talent.id))
+    try:
+        normalized_status = validate_manual_talent_status(status, progress)
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    talent.data = {
+        **(talent.data or {}),
+        TALENT_STATUS_OVERRIDE_KEY: normalized_status,
+    }
+    if normalized_status == TALENT_STATUS_REPLACED and progress is not None:
+        progress.current_stage = RecruitmentStage.REPLACED.value
+    await db.commit()
+    await db.refresh(talent)
     return await _serialize_talent_profile(talent, db)
 
 

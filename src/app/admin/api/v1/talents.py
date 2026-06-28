@@ -6,15 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..dependencies import get_current_admin_user, require_admin_permission
 from ....core.db.database import async_get_db
 from ....modules.talent_profile.schema import (
+    TalentNoteUpdateRequest,
     TalentProfileListPage,
     TalentProfileMergeRequest,
     TalentProfileRead,
+    TalentStatusUpdateRequest,
 )
 from ....modules.talent_profile.service import (
     get_talent_profile,
     get_talent_profile_by_user_id,
     list_talent_profiles,
     merge_application_into_talent,
+    update_talent_pool_note,
+    update_talent_pool_status,
 )
 
 router = APIRouter(prefix="/talents", tags=["admin-talents"])
@@ -59,6 +63,44 @@ async def read_talent(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, Any]:
     return await get_talent_profile(talent_id, db)
+
+
+@router.patch(
+    "/{talent_id}/note",
+    response_model=TalentProfileRead,
+    dependencies=[Depends(require_admin_permission("总人才库"))],
+)
+async def update_talent_note_endpoint(
+    talent_id: int,
+    payload: TalentNoteUpdateRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    return await update_talent_pool_note(
+        talent_id=talent_id,
+        note=payload.note,
+        current_admin=current_admin,
+        db=db,
+    )
+
+
+@router.patch(
+    "/{talent_id}/status",
+    response_model=TalentProfileRead,
+    dependencies=[Depends(require_admin_permission("总人才库"))],
+)
+async def update_talent_status_endpoint(
+    talent_id: int,
+    payload: TalentStatusUpdateRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    return await update_talent_pool_status(
+        talent_id=talent_id,
+        status=payload.status,
+        current_admin=current_admin,
+        db=db,
+    )
 
 
 @router.post(
