@@ -190,18 +190,6 @@ class AssetStorageSettings(BaseSettings):
     ASSET_STORAGE_KEY_PREFIX: str = "hr-assets"
 
 
-class FeishuPreviewSettings(BaseSettings):
-    FEISHU_PREVIEW_ENABLED: bool = False
-    FEISHU_APP_ID: str = ""
-    FEISHU_APP_SECRET: SecretStr = SecretStr("")
-    FEISHU_PREVIEW_FOLDER_URL: str = ""
-    FEISHU_PREVIEW_PUBLIC_LINK_ENABLED: bool = False
-    FEISHU_PREVIEW_MAX_FILE_SIZE_MB: int = 20
-    FEISHU_PREVIEW_POLL_INTERVAL_SECONDS: float = 1.0
-    FEISHU_PREVIEW_POLL_TIMEOUT_SECONDS: float = 30.0
-    FEISHU_OPEN_API_BASE_URL: str = "https://open.feishu.cn/open-apis"
-
-
 class AliyunOSSSettings(BaseSettings):
     ALIYUN_OSS_ENDPOINT: str = ""
     ALIYUN_OSS_ACCESS_KEY_ID: str = ""
@@ -245,7 +233,6 @@ class Settings(
     MailDeliverySettings,
     CandidateRegisterVerificationSettings,
     AssetStorageSettings,
-    FeishuPreviewSettings,
     AliyunOSSSettings,
     EnvironmentSettings,
     CORSSettings,

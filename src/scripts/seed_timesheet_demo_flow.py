@@ -1202,14 +1202,15 @@ async def seed_timesheet_records(
     for batch in DEMO_TIMESHEET_BATCHES:
         payload = ProjectTimesheetBatchCreateRequest(
             sub_project_name=batch["sub_project_name"],
-            work_date=today + timedelta(days=int(batch["work_date_offset"])),
             language=batch["language"],
             project_link=batch["project_link"],
             customer_human_efficiency_minutes=batch["customer_human_efficiency_minutes"],
             candidate_human_efficiency_minutes=batch["candidate_human_efficiency_minutes"],
             team_leader_user_id=int(contracts_by_index[int(batch["entries"][0]["worker_index"])].user_id),
+            project_manager_admin_user_id=int(admin.id),
             entries=[
                 ProjectTimesheetBatchCreateEntry(
+                    work_date=today + timedelta(days=int(batch["work_date_offset"])),
                     contract_record_id=int(contracts_by_index[int(item["worker_index"])].id),
                     user_id=int(contracts_by_index[int(item["worker_index"])].user_id),
                     work_type=item["work_type"],
@@ -1271,14 +1272,15 @@ async def seed_candidate_portal_timesheet_records(
         contract = contracts_by_key[str(batch["contract_key"])]
         payload = ProjectTimesheetBatchCreateRequest(
             sub_project_name=batch["sub_project_name"],
-            work_date=today + timedelta(days=int(batch["work_date_offset"])),
             language=batch["language"],
             project_link=batch["project_link"],
             customer_human_efficiency_minutes=batch["customer_human_efficiency_minutes"],
             candidate_human_efficiency_minutes=batch["candidate_human_efficiency_minutes"],
             team_leader_user_id=int(contract.user_id),
+            project_manager_admin_user_id=int(admin.id),
             entries=[
                 ProjectTimesheetBatchCreateEntry(
+                    work_date=today + timedelta(days=int(batch["work_date_offset"])),
                     contract_record_id=int(contract.id),
                     user_id=int(contract.user_id),
                     work_type=batch["work_type"],

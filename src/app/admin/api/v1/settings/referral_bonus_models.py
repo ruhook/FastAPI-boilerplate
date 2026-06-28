@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.referral_bonus_model.schema import (
     ReferralBonusModelCreate,
@@ -18,10 +17,11 @@ from .....modules.referral_bonus_model.service import (
     serialize_referral_bonus_model,
     update_referral_bonus_model,
 )
+from ...dependencies import get_current_admin_user, require_any_admin_permission
 
 router = APIRouter(prefix="/referral-bonus-models", tags=["admin-referral-bonus-models"])
 
-REFERRAL_BONUS_MODEL_READ_PERMISSIONS = ("岗位管理", "邀请奖励", "流水记录")
+REFERRAL_BONUS_MODEL_READ_PERMISSIONS = ("岗位管理", "内推奖金", "流水记录")
 REFERRAL_BONUS_MODEL_WRITE_PERMISSIONS = REFERRAL_BONUS_MODEL_READ_PERMISSIONS
 
 

@@ -852,7 +852,7 @@ async def seed_preview_demo_data() -> dict[str, Any]:
                 "generic": generic_case,
             },
             "notes": [
-                "Spreadsheet files are .xlsx/.csv and should request /api/v1/assets/{asset_id}/feishu-preview.",
+                "Spreadsheet files are .xlsx/.csv and should be downloaded instead of previewed inline.",
                 "PDF files preview locally in the browser.",
                 "DOCX files use the backend /download-pdf preview path.",
             ],

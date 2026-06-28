@@ -3,18 +3,29 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_superuser, get_current_admin_user, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....core.exceptions.http_exceptions import NotFoundException
-from .....modules.admin.admin_user.schema import AdminUserCreate, AdminUserCreateResponse, AdminUserRead, AdminUserUpdate
+from .....modules.admin.admin_user.schema import (
+    AdminUserCreate,
+    AdminUserCreateResponse,
+    AdminUserRead,
+    AdminUserUpdate,
+)
 from .....modules.admin.admin_user.service import (
     create_admin_account as create_admin_account_service,
+)
+from .....modules.admin.admin_user.service import (
     delete_admin_account as delete_admin_account_service,
+)
+from .....modules.admin.admin_user.service import (
     get_account_with_role,
     query_admin_accounts,
     serialize_admin_user,
+)
+from .....modules.admin.admin_user.service import (
     update_admin_account as update_admin_account_service,
 )
+from ...dependencies import get_current_admin_superuser, require_any_admin_permission
 
 router = APIRouter(prefix="/accounts", tags=["admin-accounts"])
 
@@ -22,7 +33,7 @@ router = APIRouter(prefix="/accounts", tags=["admin-accounts"])
 @router.get(
     "",
     response_model=list[AdminUserRead],
-    dependencies=[Depends(require_any_admin_permission("岗位管理", "账户管理"))],
+    dependencies=[Depends(require_any_admin_permission("岗位管理", "账户管理", "工时记录"))],
 )
 async def read_admin_accounts(
     db: Annotated[AsyncSession, Depends(async_get_db)],

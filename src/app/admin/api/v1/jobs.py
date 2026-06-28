@@ -26,6 +26,8 @@ from ....modules.job_progress.schema import (
     JobProgressContractDraftUploadResponse,
     JobProgressContractRecordUpdateRequest,
     JobProgressContractRecordUpdateResponse,
+    JobProgressLanguageUpdateRequest,
+    JobProgressLanguageUpdateResponse,
     JobProgressListPage,
     JobProgressNoteUpdateRequest,
     JobProgressNoteUpdateResponse,
@@ -44,6 +46,7 @@ from ....modules.job_progress.service import (
     notify_job_progress_sign_contract,
     update_job_progress_assessment_review,
     update_job_progress_contract_record,
+    update_job_progress_language,
     update_job_progress_note,
     update_job_progress_onboarding,
     upload_job_progress_company_sealed_contract,
@@ -338,6 +341,27 @@ async def update_job_progress_note_endpoint(
 
 
 @router.patch(
+    "/{job_id}/progress/language",
+    response_model=JobProgressLanguageUpdateResponse,
+    dependencies=[Depends(require_admin_permission("岗位管理"))],
+)
+async def update_job_progress_language_endpoint(
+    job_id: int,
+    payload: JobProgressLanguageUpdateRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    await _ensure_job_write_allowed(job_id, db, current_admin)
+    return await update_job_progress_language(
+        job_id=job_id,
+        progress_ids=payload.progress_ids,
+        language=payload.language,
+        admin_user_id=int(current_admin["id"]),
+        db=db,
+    )
+
+
+@router.patch(
     "/{job_id}/progress/onboarding",
     response_model=JobProgressOnboardingUpdateResponse,
     dependencies=[Depends(require_admin_permission("岗位管理"))],
@@ -355,8 +379,12 @@ async def update_job_progress_onboarding_endpoint(
         progress_ids=payload.progress_ids,
         onboarding_status=payload.onboarding_status,
         onboarding_date=payload.onboarding_date,
+        salary_confirmed_at=payload.salary_confirmed_at,
+        gift_package_sent_at=payload.gift_package_sent_at,
         update_onboarding_status="onboarding_status" in update_fields,
         update_onboarding_date="onboarding_date" in update_fields,
+        update_salary_confirmed_at="salary_confirmed_at" in update_fields,
+        update_gift_package_sent_at="gift_package_sent_at" in update_fields,
         admin_user_id=int(current_admin["id"]),
         db=db,
     )

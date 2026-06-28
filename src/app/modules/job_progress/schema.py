@@ -67,10 +67,22 @@ class JobProgressNoteUpdateResponse(BaseModel):
     updated_field_keys: list[str] = Field(default_factory=list)
 
 
+class JobProgressLanguageUpdateRequest(BaseModel):
+    progress_ids: list[int] = Field(min_length=1)
+    language: str = Field(min_length=1, max_length=100)
+
+
+class JobProgressLanguageUpdateResponse(BaseModel):
+    updated_count: int
+    updated_field_keys: list[str] = Field(default_factory=list)
+
+
 class JobProgressOnboardingUpdateRequest(BaseModel):
     progress_ids: list[int] = Field(min_length=1)
     onboarding_status: str | None = None
     onboarding_date: date | None = None
+    salary_confirmed_at: str | None = Field(default=None, max_length=32)
+    gift_package_sent_at: str | None = Field(default=None, max_length=32)
 
 
 class JobProgressOnboardingUpdateResponse(BaseModel):

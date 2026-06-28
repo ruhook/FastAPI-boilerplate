@@ -626,6 +626,7 @@ async def seed_timesheet_workers_and_records(
                     ),
                 )
                 entry = ProjectTimesheetBatchCreateEntry(
+                    work_date=work_date,
                     contract_record_id=int(contract.id),
                     user_id=int(contract.user_id),
                     work_type=str(template["work_type"]),
@@ -664,12 +665,12 @@ async def seed_timesheet_workers_and_records(
 
             payload = ProjectTimesheetBatchCreateRequest(
                 sub_project_name=str(template["sub_project_name"]),
-                work_date=work_date,
                 language=str(template["language"]),
                 project_link=str(template["project_link"]),
                 customer_human_efficiency_minutes=Decimal(template["customer_human_efficiency_minutes"]),
                 candidate_human_efficiency_minutes=Decimal(template["candidate_human_efficiency_minutes"]),
                 team_leader_user_id=int(leader_contract.user_id),
+                project_manager_admin_user_id=int(admin.id),
                 entries=entries,
             )
             await create_project_timesheet_records(

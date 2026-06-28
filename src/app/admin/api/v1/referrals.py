@@ -3,11 +3,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_admin_user, require_admin_permission
 from ....core.db.database import async_get_db
 from ....modules.referral.schema import AdminReferralListPage, AdminReferralMarkPaidResponse
 from ....modules.referral.service import list_referrals_for_admin, mark_referral_reward_paid
-
+from ..dependencies import get_current_admin_user, require_admin_permission
 
 router = APIRouter(prefix="/referrals", tags=["admin-referrals"])
 
@@ -15,7 +14,7 @@ router = APIRouter(prefix="/referrals", tags=["admin-referrals"])
 @router.get(
     "",
     response_model=AdminReferralListPage,
-    dependencies=[Depends(require_admin_permission("邀请奖励"))],
+    dependencies=[Depends(require_admin_permission("内推奖金"))],
 )
 async def read_referrals(
     db: Annotated[AsyncSession, Depends(async_get_db)],
@@ -37,7 +36,7 @@ async def read_referrals(
 @router.post(
     "/{referral_record_id}/mark-paid",
     response_model=AdminReferralMarkPaidResponse,
-    dependencies=[Depends(require_admin_permission("邀请奖励"))],
+    dependencies=[Depends(require_admin_permission("内推奖金"))],
 )
 async def mark_referral_paid(
     referral_record_id: int,
@@ -50,4 +49,3 @@ async def mark_referral_paid(
         db=db,
     )
     return AdminReferralMarkPaidResponse(item=item).model_dump()
-

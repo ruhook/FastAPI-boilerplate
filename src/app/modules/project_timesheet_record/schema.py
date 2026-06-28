@@ -48,6 +48,10 @@ class ProjectTimesheetRecordRead(BaseModel):
     user_email: str | None = None
     team_leader_user_id: int | None = None
     team_leader_name: str | None = None
+    project_manager_admin_user_id: int | None = None
+    project_manager_name: str | None = None
+    registrar_admin_user_id: int | None = None
+    registrar_name: str | None = None
     language: str
     work_type: str
     output_quantity: Decimal | None = None
@@ -165,6 +169,7 @@ class ProjectTimesheetAnalyticsRead(BaseModel):
 
 
 class ProjectTimesheetBatchCreateEntry(BaseModel):
+    work_date: date
     contract_record_id: int = Field(..., ge=1)
     user_id: int | None = Field(default=None, ge=1)
     work_type: str = Field(..., min_length=1, max_length=64)
@@ -206,12 +211,12 @@ class ProjectTimesheetBatchCreateEntry(BaseModel):
 
 class ProjectTimesheetBatchCreateRequest(BaseModel):
     sub_project_name: str = Field(..., min_length=1, max_length=160)
-    work_date: date
     language: str = Field(..., min_length=1, max_length=64)
     project_link: str | None = Field(default=None, max_length=2048)
     customer_human_efficiency_minutes: Decimal = Field(..., gt=0)
     candidate_human_efficiency_minutes: Decimal = Field(..., gt=0)
     team_leader_user_id: int = Field(..., ge=0)
+    project_manager_admin_user_id: int = Field(..., ge=1)
     entries: list[ProjectTimesheetBatchCreateEntry] = Field(..., min_length=1)
 
     @field_validator("sub_project_name", "language")

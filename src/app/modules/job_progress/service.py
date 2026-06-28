@@ -67,6 +67,11 @@ from .const import (
     get_allowed_recruitment_stage_transitions,
     get_recruitment_stage_cn_name,
 )
+from .language_rules import (
+    DEFAULT_PROGRESS_LANGUAGE,
+    normalize_progress_language_value,
+    resolve_progress_language,
+)
 from .model import JobProgress
 from .schema import (
     CandidateContractListItemRead,
@@ -311,12 +316,11 @@ def _build_progress_json_text_expression(key: str):
     return func.json_unquote(func.json_extract(JobProgress.data, f"$.{key}"))
 
 
-def _build_job_languages_sql_expression(job: Job | None):
+def _build_job_languages_sql_expression():
     snapshot_expr = _build_progress_json_text_expression(JobProgressDataKey.JOB_LANGUAGES.value)
     snapshot_text = func.replace(func.replace(func.replace(snapshot_expr, '"', ""), "[", ""), "]", "")
-    fallback_languages = _normalize_language_values((job.data or {}).get(JOB_DATA_LANGUAGES_KEY)) if job else []
-    fallback_text = " / ".join(fallback_languages)
-    return func.coalesce(func.nullif(snapshot_text, ""), fallback_text)
+    first_legacy_value = func.trim(func.substring_index(snapshot_text, ",", 1))
+    return func.coalesce(func.nullif(first_legacy_value, ""), DEFAULT_PROGRESS_LANGUAGE)
 
 
 def _build_progress_assessment_attachment_filter_expression():
@@ -420,6 +424,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         "contract_return_attachment": "file",
         "onboarding_status": "select",
         "onboarding_date": "date",
+        "salary_confirmed_at": "date",
         "gift_package_sent_at": "date",
         "job_languages": "multiselect",
         "rejected_from_stage": "select",
@@ -490,10 +495,12 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ONBOARDING_STATUS.value)
         elif name == "onboarding_date":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.ONBOARDING_DATE.value)
+        elif name == "salary_confirmed_at":
+            sql_expression = _build_progress_json_text_expression(JobProgressDataKey.SALARY_CONFIRMED_AT.value)
         elif name == "gift_package_sent_at":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
         elif name == "job_languages":
-            sql_expression = _build_job_languages_sql_expression(job)
+            sql_expression = _build_job_languages_sql_expression()
         elif name == "rejected_from_stage":
             sql_expression = _build_rejected_from_stage_progress_stage_sql_expression()
         elif name == "replacement_reason":
@@ -1058,7 +1065,12 @@ async def create_job_progress_for_application(
         job=job,
         field_rows=field_rows,
     )
-    job_languages = _normalize_language_values((job.data or {}).get(JOB_DATA_LANGUAGES_KEY))
+    progress_language = resolve_progress_language(
+        job_country=job.country,
+        job_language_requirements=(job.data or {}).get(JOB_DATA_LANGUAGES_KEY),
+        candidate_country_of_residence=_field_row_value(field_rows, "country_of_residence"),
+        candidate_native_languages=_field_row_value(field_rows, "native_languages"),
+    )
 
     progress = JobProgress(
         job_id=job.id,
@@ -1068,7 +1080,7 @@ async def create_job_progress_for_application(
         current_stage=final_stage.value,
         screening_mode=screening_mode.value,
         entered_stage_at=application.submitted_at,
-        data={JobProgressDataKey.JOB_LANGUAGES.value: job_languages},
+        data={JobProgressDataKey.JOB_LANGUAGES.value: progress_language},
     )
     db.add(progress)
     await db.flush()
@@ -1210,23 +1222,26 @@ def _serialize_application_snapshot(
     return snapshot
 
 
+def _field_row_value(field_rows: list[CandidateApplicationFieldValue], key: str) -> str:
+    for row in field_rows:
+        row_key = row.catalog_key or row.field_key
+        if row_key == key:
+            return _normalize_text(row.display_value if row.display_value is not None else row.raw_value)
+    return ""
+
+
 def _serialize_progress_process_data(
     progress_data: dict[str, Any],
     asset_map: dict[int, dict[str, Any]],
-    *,
-    fallback_job_languages: list[str],
 ) -> dict[str, Any]:
     payload = _serialize_process_data(
         progress_data,
         asset_map,
         exclude_contract_fields=True,
     )
-    if JobProgressDataKey.JOB_LANGUAGES.value not in payload:
-        payload[JobProgressDataKey.JOB_LANGUAGES.value] = list(fallback_job_languages)
-    else:
-        payload[JobProgressDataKey.JOB_LANGUAGES.value] = _normalize_language_values(
-            payload.get(JobProgressDataKey.JOB_LANGUAGES.value)
-        )
+    payload[JobProgressDataKey.JOB_LANGUAGES.value] = normalize_progress_language_value(
+        payload.get(JobProgressDataKey.JOB_LANGUAGES.value, DEFAULT_PROGRESS_LANGUAGE)
+    )
     return payload
 
 
@@ -1616,11 +1631,14 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
             or (_normalize_text(contract_record.signing_status) if contract_record is not None else "")
         ),
         "onboarding_date": _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_DATE.value)),
+        "salary_confirmed_at": _normalize_text(
+            item.process_data.get(JobProgressDataKey.SALARY_CONFIRMED_AT.value)
+        ),
         "gift_package_sent_at": _normalize_text(
             item.process_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
         ),
-        "job_languages": " / ".join(
-            _normalize_language_values(item.process_data.get(JobProgressDataKey.JOB_LANGUAGES.value))
+        "job_languages": normalize_progress_language_value(
+            item.process_data.get(JobProgressDataKey.JOB_LANGUAGES.value)
         ),
         "rejected_from_stage": _serialize_rejected_from_stage_for_filter(item),
         "replacement_reason": _normalize_text(item.process_data.get(JobProgressDataKey.REPLACEMENT_REASON.value)),
@@ -1660,7 +1678,6 @@ async def list_job_progress(
     job = job_result.scalar_one_or_none()
     company_name_map = await _get_company_name_map_by_job_ids(job_ids=[job_id], db=db)
     current_company_name = company_name_map.get(job_id)
-    fallback_job_languages = _normalize_language_values((job.data or {}).get(JOB_DATA_LANGUAGES_KEY)) if job else []
     result = await db.execute(
         select(JobProgress, CandidateApplication)
         .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
@@ -1753,7 +1770,6 @@ async def list_job_progress(
             process_data=_serialize_progress_process_data(
                 progress.data or {},
                 asset_map,
-                fallback_job_languages=fallback_job_languages,
             ),
             process_assets=_serialize_process_assets(
                 progress.data or {},
@@ -2245,6 +2261,19 @@ async def move_job_progress_stage(  # noqa: C901
             raise BadRequestException(
                 f"Current stage {progress.current_stage} cannot move to {normalized_target_stage.value}."
             )
+        if progress.current_stage == RecruitmentStage.REJECTED.value:
+            rejected_from_stage = _normalize_text(
+                (progress.data or {}).get(JobProgressDataKey.REJECTED_FROM_STAGE.value)
+            )
+            allowed_restore_stages = {
+                RecruitmentStage.PENDING_SCREENING.value,
+                RecruitmentStage.ASSESSMENT_REVIEW.value,
+                RecruitmentStage.SCREENING_PASSED.value,
+            }
+            if rejected_from_stage not in allowed_restore_stages:
+                raise BadRequestException("Rejected progress record is missing a supported source stage.")
+            if normalized_target_stage.value != rejected_from_stage:
+                raise BadRequestException("Rejected progress record can only restore to its source stage.")
         if (
             progress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value
             and normalized_target_stage == RecruitmentStage.SCREENING_PASSED
@@ -2803,8 +2832,76 @@ async def update_job_progress_note(
     }
 
 
+async def update_job_progress_language(
+    *,
+    job_id: int,
+    progress_ids: list[int],
+    language: str,
+    admin_user_id: int,
+    db: AsyncSession,
+) -> dict[str, Any]:
+    job_result = await db.execute(
+        select(Job).where(
+            Job.id == job_id,
+            Job.is_deleted.is_(False),
+        )
+    )
+    job = job_result.scalar_one_or_none()
+    if job is None:
+        raise NotFoundException("Job not found.")
+
+    if not _normalize_text(language):
+        raise BadRequestException("Language is required.")
+    normalized_language = normalize_progress_language_value(language)
+
+    progress_items = await get_job_progress_models(job_id=job_id, progress_ids=progress_ids, db=db)
+    changed_count = 0
+    for progress in progress_items:
+        next_data = dict(progress.data or {})
+        previous_value = normalize_progress_language_value(next_data.get(JobProgressDataKey.JOB_LANGUAGES.value))
+        if previous_value == normalized_language:
+            continue
+
+        next_data[JobProgressDataKey.JOB_LANGUAGES.value] = normalized_language
+        progress.data = next_data
+        changed_count += 1
+
+        await create_operation_log(
+            db=db,
+            user_id=progress.user_id,
+            job_id=progress.job_id,
+            application_id=progress.application_id,
+            talent_profile_id=progress.talent_profile_id,
+            log_type=OperationLogType.JOB_PROGRESS_LANGUAGE_UPDATED.value,
+            data={
+                "job_progress_id": progress.id,
+                "job_id": job.id,
+                "job_title": job.title,
+                "current_stage": progress.current_stage,
+                "current_stage_cn_name": get_recruitment_stage_cn_name(progress.current_stage),
+                "operator_admin_user_id": admin_user_id,
+                "updated_fields": {
+                    JobProgressDataKey.JOB_LANGUAGES.value: {
+                        "from": previous_value,
+                        "to": normalized_language,
+                    },
+                },
+            },
+        )
+
+    await db.flush()
+    return {
+        "updated_count": changed_count,
+        "updated_field_keys": [JobProgressDataKey.JOB_LANGUAGES.value],
+    }
+
+
 def _format_current_process_datetime() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_current_process_date() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 async def update_job_progress_onboarding(
@@ -2815,12 +2912,23 @@ async def update_job_progress_onboarding(
     db: AsyncSession,
     onboarding_status: str | None = None,
     onboarding_date: date | None = None,
+    salary_confirmed_at: str | None = None,
+    gift_package_sent_at: str | None = None,
     update_onboarding_status: bool = False,
     update_onboarding_date: bool = False,
+    update_salary_confirmed_at: bool = False,
+    update_gift_package_sent_at: bool = False,
 ) -> dict[str, Any]:
     has_onboarding_status_update = update_onboarding_status or onboarding_status is not None
     has_onboarding_date_update = update_onboarding_date or onboarding_date is not None
-    if not has_onboarding_status_update and not has_onboarding_date_update:
+    has_salary_confirmed_at_update = update_salary_confirmed_at or salary_confirmed_at is not None
+    has_gift_package_sent_at_update = update_gift_package_sent_at or gift_package_sent_at is not None
+    if not (
+        has_onboarding_status_update
+        or has_onboarding_date_update
+        or has_salary_confirmed_at_update
+        or has_gift_package_sent_at_update
+    ):
         raise BadRequestException("At least one onboarding field is required.")
 
     job_result = await db.execute(
@@ -2851,11 +2959,14 @@ async def update_job_progress_onboarding(
     changed_count = 0
     updated_field_keys: set[str] = set()
     normalized_onboarding_status = onboarding_status.strip() or None if onboarding_status is not None else None
+    normalized_salary_confirmed_at = salary_confirmed_at.strip() or None if salary_confirmed_at is not None else None
+    normalized_gift_package_sent_at = gift_package_sent_at.strip() or None if gift_package_sent_at is not None else None
     milestone_timestamp = (
         _format_current_process_datetime()
         if normalized_onboarding_status in {"已进群", "已发大礼包"}
         else None
     )
+    salary_confirmed_date = _format_current_process_date() if normalized_onboarding_status == "已发砍价" else None
     for progress in progress_items:
         next_data = dict(progress.data or {})
         changed_fields: dict[str, dict[str, Any]] = {}
@@ -2882,6 +2993,28 @@ async def update_job_progress_onboarding(
                     "from": previous_value,
                     "to": next_date,
                 }
+        if has_salary_confirmed_at_update:
+            previous_value = next_data.get(JobProgressDataKey.SALARY_CONFIRMED_AT.value)
+            if previous_value != normalized_salary_confirmed_at:
+                if normalized_salary_confirmed_at is None:
+                    next_data.pop(JobProgressDataKey.SALARY_CONFIRMED_AT.value, None)
+                else:
+                    next_data[JobProgressDataKey.SALARY_CONFIRMED_AT.value] = normalized_salary_confirmed_at
+                changed_fields[JobProgressDataKey.SALARY_CONFIRMED_AT.value] = {
+                    "from": previous_value,
+                    "to": normalized_salary_confirmed_at,
+                }
+        if has_gift_package_sent_at_update:
+            previous_value = next_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
+            if previous_value != normalized_gift_package_sent_at:
+                if normalized_gift_package_sent_at is None:
+                    next_data.pop(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value, None)
+                else:
+                    next_data[JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value] = normalized_gift_package_sent_at
+                changed_fields[JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value] = {
+                    "from": previous_value,
+                    "to": normalized_gift_package_sent_at,
+                }
         if milestone_timestamp and normalized_onboarding_status == "已进群":
             previous_value = next_data.get(JobProgressDataKey.ONBOARDING_DATE.value)
             if previous_value != milestone_timestamp:
@@ -2898,6 +3031,12 @@ async def update_job_progress_onboarding(
                     "from": previous_value,
                     "to": milestone_timestamp,
                 }
+        if salary_confirmed_date and not _normalize_text(next_data.get(JobProgressDataKey.SALARY_CONFIRMED_AT.value)):
+            next_data[JobProgressDataKey.SALARY_CONFIRMED_AT.value] = salary_confirmed_date
+            changed_fields[JobProgressDataKey.SALARY_CONFIRMED_AT.value] = {
+                "from": None,
+                "to": salary_confirmed_date,
+            }
         if not changed_fields:
             continue
         progress.data = next_data

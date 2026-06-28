@@ -15,6 +15,7 @@ from ...core.advanced_filter import (
     validate_advanced_filter_query,
 )
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
+from ..admin.admin_user.model import AdminUser
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.company.service import (
     COMPANY_DATA_TIMESHEET_LANGUAGES_KEY,
@@ -78,6 +79,18 @@ def _build_timesheet_team_leader_name_expression():
     )
 
 
+def _build_timesheet_registrar_name_expression():
+    return (
+        select(AdminUser.name)
+        .where(
+            AdminUser.id == ProjectTimesheetRecord.created_by_admin_user_id,
+            AdminUser.is_deleted.is_(False),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
 def _get_timesheet_worker_name(user: User, talent: TalentProfile | None) -> str:
     return str((talent.full_name if talent and talent.full_name else None) or user.name or user.email or "").strip()
 
@@ -112,6 +125,16 @@ TIMESHEET_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = 
         name="team_leader_name",
         filter_kind="select",
         sql_expression=_build_timesheet_team_leader_name_expression(),
+    ),
+    "project_manager_name": AdvancedFilterFieldDefinition(
+        name="project_manager_name",
+        filter_kind="text",
+        sql_expression=ProjectTimesheetRecord.project_manager_name_snapshot,
+    ),
+    "registrar_name": AdvancedFilterFieldDefinition(
+        name="registrar_name",
+        filter_kind="text",
+        sql_expression=_build_timesheet_registrar_name_expression(),
     ),
     "language": AdvancedFilterFieldDefinition(
         name="language",
@@ -355,8 +378,10 @@ def _serialize_timesheet_record(
     *,
     asset_map: dict[int, dict[str, Any]],
     team_leader_map: dict[int, dict[str, Any]] | None = None,
+    admin_user_map: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     team_leader = team_leader_map.get(int(record.team_leader_user_id or 0)) if team_leader_map else None
+    registrar = admin_user_map.get(int(record.created_by_admin_user_id or 0)) if admin_user_map else None
     return ProjectTimesheetRecordRead(
         id=record.id,
         company_id=record.company_id,
@@ -370,6 +395,10 @@ def _serialize_timesheet_record(
         user_email=record.user_email_snapshot,
         team_leader_user_id=record.team_leader_user_id,
         team_leader_name=team_leader.get("name") if team_leader else None,
+        project_manager_admin_user_id=record.project_manager_admin_user_id,
+        project_manager_name=record.project_manager_name_snapshot,
+        registrar_admin_user_id=record.created_by_admin_user_id,
+        registrar_name=registrar.get("name") if registrar else None,
         language=record.language,
         work_type=record.work_type,
         output_quantity=record.output_quantity,
@@ -393,8 +422,10 @@ def _build_timesheet_advanced_filter_record(
     *,
     asset_map: dict[int, dict[str, Any]],
     team_leader_map: dict[int, dict[str, Any]] | None = None,
+    admin_user_map: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     team_leader = team_leader_map.get(int(record.team_leader_user_id or 0)) if team_leader_map else None
+    registrar = admin_user_map.get(int(record.created_by_admin_user_id or 0)) if admin_user_map else None
     note_images = _serialize_note_assets(record, asset_map)
     return {
         "sub_project_name": record.sub_project_name,
@@ -402,6 +433,8 @@ def _build_timesheet_advanced_filter_record(
         "user_name": record.user_name_snapshot or "",
         "user_email": record.user_email_snapshot or "",
         "team_leader_name": team_leader.get("name") if team_leader else "",
+        "project_manager_name": record.project_manager_name_snapshot or "",
+        "registrar_name": registrar.get("name") if registrar else "",
         "language": record.language,
         "work_type": record.work_type,
         "output_quantity": float(record.output_quantity) if record.output_quantity is not None else None,
@@ -475,6 +508,30 @@ async def _load_note_asset_payload_map(
     return {int(asset.id): serialize_asset(asset) for asset in asset_result.scalars().all()}
 
 
+async def _load_admin_user_payload_map(
+    *,
+    db: AsyncSession,
+    admin_user_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    normalized_ids = sorted({int(user_id) for user_id in admin_user_ids if int(user_id) > 0})
+    if not normalized_ids:
+        return {}
+    result = await db.execute(
+        select(AdminUser).where(
+            AdminUser.id.in_(normalized_ids),
+            AdminUser.is_deleted.is_(False),
+        )
+    )
+    return {
+        int(account.id): {
+            "name": account.name,
+            "username": account.username,
+            "email": account.email,
+        }
+        for account in result.scalars().all()
+    }
+
+
 async def _validate_timesheet_note_assets(
     *,
     db: AsyncSession,
@@ -500,6 +557,23 @@ async def _validate_timesheet_note_assets(
     ]
     if unauthorized_assets:
         raise BadRequestException("Invalid timesheet note attachment.")
+
+
+async def _resolve_project_manager_admin_user(
+    *,
+    db: AsyncSession,
+    admin_user_id: int,
+) -> AdminUser:
+    result = await db.execute(
+        select(AdminUser).where(
+            AdminUser.id == admin_user_id,
+            AdminUser.is_deleted.is_(False),
+        )
+    )
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise BadRequestException("Selected project manager must be an active admin account.")
+    return account
 
 
 async def _resolve_timesheet_worker(
@@ -631,6 +705,14 @@ async def list_project_timesheet_workspace(
         db=db,
         user_ids=[int(record.team_leader_user_id) for record in filtered_records if record.team_leader_user_id],
     )
+    admin_user_map = await _load_admin_user_payload_map(
+        db=db,
+        admin_user_ids=[
+            int(record.created_by_admin_user_id)
+            for record in filtered_records
+            if record.created_by_admin_user_id
+        ],
+    )
 
     dashboard_totals_by_language: dict[str, dict[str, Decimal]] = defaultdict(
         lambda: {
@@ -684,7 +766,12 @@ async def list_project_timesheet_workspace(
         latest_created_at=latest_created_at,
         dashboard_items=dashboard_items,
         records=[
-            _serialize_timesheet_record(record, asset_map=asset_map, team_leader_map=team_leader_map)
+            _serialize_timesheet_record(
+                record,
+                asset_map=asset_map,
+                team_leader_map=team_leader_map,
+                admin_user_map=admin_user_map,
+            )
             for record in filtered_records
         ],
         start_date=start_date,
@@ -1483,6 +1570,10 @@ async def create_project_timesheet_records(
     active_team_leader_user_ids = {int(worker["user_id"]) for worker in team_leader_options}
     if int(payload.team_leader_user_id) > 0 and int(payload.team_leader_user_id) not in active_team_leader_user_ids:
         raise BadRequestException("Selected team leader must have an active contract.")
+    project_manager = await _resolve_project_manager_admin_user(
+        db=db,
+        admin_user_id=int(payload.project_manager_admin_user_id),
+    )
 
     note_asset_ids = sorted(
         {int(asset_id) for entry in payload.entries for asset_id in entry.note_asset_ids if int(asset_id) > 0}
@@ -1510,12 +1601,14 @@ async def create_project_timesheet_records(
             company_id=company.id,
             project_id=project.id,
             sub_project_name=payload.sub_project_name,
-            work_date=payload.work_date,
+            work_date=entry.work_date,
             user_id=int(worker["user_id"]),
             talent_profile_id=worker.get("talent_profile_id"),
             contract_record_id=int(worker["contract_record_id"]),
             user_name_snapshot=str(worker["name"]),
             user_email_snapshot=worker.get("email"),
+            project_manager_admin_user_id=int(project_manager.id),
+            project_manager_name_snapshot=project_manager.name,
             language=payload.language,
             work_type=entry.work_type,
             output_quantity=_quantize_hours(entry.output_quantity),
@@ -1639,7 +1732,16 @@ async def update_project_timesheet_record(
         db=db,
         user_ids=[int(record.team_leader_user_id)] if record.team_leader_user_id else [],
     )
-    return _serialize_timesheet_record(record, asset_map=asset_map, team_leader_map=team_leader_map)
+    admin_user_map = await _load_admin_user_payload_map(
+        db=db,
+        admin_user_ids=[int(record.created_by_admin_user_id)] if record.created_by_admin_user_id else [],
+    )
+    return _serialize_timesheet_record(
+        record,
+        asset_map=asset_map,
+        team_leader_map=team_leader_map,
+        admin_user_map=admin_user_map,
+    )
 
 
 async def delete_project_timesheet_records(

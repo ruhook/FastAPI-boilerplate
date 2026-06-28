@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .....core.db.database import async_get_db
 from .....core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from .....modules.admin.role.const import is_assessment_reviewer_only_permissions
-from .....modules.assets import feishu_preview
 from .....modules.assets.schema import AssetRead, AssetUploadPayload
 from .....modules.assets.service import build_asset_pdf_export, get_asset, get_asset_content, upload_asset
 from .....modules.job_progress.const import JobProgressDataKey
@@ -300,24 +299,6 @@ async def preview_asset(
     response = Response(content=content, media_type=asset.mime_type)
     response.headers["Content-Disposition"] = build_content_disposition("inline", asset.original_name)
     return response
-
-
-@router.get(
-    "/{asset_id}/feishu-preview",
-    response_model=feishu_preview.FeishuPreviewResult,
-    dependencies=[Depends(get_current_admin_user)],
-)
-async def preview_spreadsheet_asset_with_feishu(
-    asset_id: int,
-    db: Annotated[AsyncSession, Depends(async_get_db)],
-    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
-) -> feishu_preview.FeishuPreviewResult:
-    asset_payload = await get_asset(asset_id, db)
-    await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
-    asset, content = await get_asset_content(asset_id, db)
-    result = await feishu_preview.build_feishu_spreadsheet_preview(asset=asset, content=content)
-    await db.flush()
-    return result
 
 
 @router.get("/{asset_id}/download", dependencies=[Depends(get_current_admin_user)])

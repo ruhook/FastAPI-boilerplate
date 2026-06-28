@@ -19,9 +19,6 @@ from .model import Asset
 from .schema import AssetRead, AssetUploadPayload
 
 DOCX_NAMESPACE = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-XLSX_NAMESPACE = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-PACKAGE_RELATIONSHIP_NAMESPACE = {"r": "http://schemas.openxmlformats.org/package/2006/relationships"}
-OFFICE_RELATIONSHIP_NAMESPACE = {"r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
 
 
 def _using_aliyun_oss() -> bool:
@@ -360,58 +357,6 @@ def _extract_docx_text(content: bytes) -> str:
     return "\n".join(filter(None, paragraphs))
 
 
-def _extract_xlsx_text(content: bytes) -> str:
-    try:
-        with ZipFile(BytesIO(content)) as archive:
-            shared_strings: list[str] = []
-            if "xl/sharedStrings.xml" in archive.namelist():
-                shared_root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
-                for item in shared_root.findall("s:si", XLSX_NAMESPACE):
-                    shared_strings.append("".join(node.text or "" for node in item.findall(".//s:t", XLSX_NAMESPACE)))
-
-            workbook_root = ElementTree.fromstring(archive.read("xl/workbook.xml"))
-            rel_root = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
-            rel_targets = {
-                rel.attrib.get("Id"): rel.attrib.get("Target", "")
-                for rel in rel_root.findall("r:Relationship", PACKAGE_RELATIONSHIP_NAMESPACE)
-            }
-            lines: list[str] = []
-            for sheet in workbook_root.findall("s:sheets/s:sheet", XLSX_NAMESPACE)[:3]:
-                sheet_name = sheet.attrib.get("name", "Sheet")
-                relation_id = sheet.attrib.get(
-                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id",
-                    "",
-                )
-                target = rel_targets.get(relation_id, "")
-                if not target:
-                    continue
-                sheet_path = f"xl/{target}" if not target.startswith("/") else target.lstrip("/")
-                sheet_path = sheet_path.replace("xl/worksheets/../", "xl/")
-                if sheet_path not in archive.namelist():
-                    continue
-                sheet_root = ElementTree.fromstring(archive.read(sheet_path))
-                lines.append(f"[{sheet_name}]")
-                for row in sheet_root.findall("s:sheetData/s:row", XLSX_NAMESPACE)[:80]:
-                    values: list[str] = []
-                    for cell in row.findall("s:c", XLSX_NAMESPACE)[:24]:
-                        cell_type = cell.attrib.get("t")
-                        if cell_type == "inlineStr":
-                            values.append("".join(node.text or "" for node in cell.findall(".//s:t", XLSX_NAMESPACE)))
-                            continue
-                        raw_value = cell.findtext("s:v", default="", namespaces=XLSX_NAMESPACE)
-                        if cell_type == "s" and raw_value.isdigit():
-                            index = int(raw_value)
-                            values.append(shared_strings[index] if index < len(shared_strings) else raw_value)
-                        else:
-                            values.append(raw_value)
-                    if any(value.strip() for value in values):
-                        lines.append(" | ".join(value.strip() for value in values))
-                lines.append("")
-            return "\n".join(lines).strip()
-    except (BadZipFile, ElementTree.ParseError, KeyError):
-        return ""
-
-
 def build_asset_pdf_export(asset: Asset, content: bytes) -> bytes:
     suffix = Path(asset.original_name).suffix.lower()
     if suffix == ".pdf" or asset.mime_type == "application/pdf":
@@ -420,8 +365,6 @@ def build_asset_pdf_export(asset: Asset, content: bytes) -> bytes:
     extracted_text = ""
     if suffix == ".docx":
         extracted_text = _extract_docx_text(content)
-    if suffix == ".xlsx":
-        extracted_text = _extract_xlsx_text(content)
 
     export_lines = [
         f"Exported PDF preview for: {asset.original_name}",

@@ -52,13 +52,19 @@ async def _run_onboarding_update(
     monkeypatch: pytest.MonkeyPatch,
     *,
     progress: SimpleNamespace,
-    onboarding_status: str,
+    onboarding_status: str | None = None,
+    salary_confirmed_at: str | None = None,
+    gift_package_sent_at: str | None = None,
+    update_salary_confirmed_at: bool = False,
+    update_gift_package_sent_at: bool = False,
 ) -> dict[str, Any]:
+    operation_logs: list[dict[str, Any]] = []
+
     async def fake_get_job_progress_models(**_kwargs: Any) -> list[SimpleNamespace]:
         return [progress]
 
-    async def fake_create_operation_log(**_kwargs: Any) -> None:
-        return None
+    async def fake_create_operation_log(**kwargs: Any) -> None:
+        operation_logs.append(kwargs)
 
     monkeypatch.setattr(job_progress_service, "datetime", _FixedDateTime)
     monkeypatch.setattr(job_progress_service, "get_job_progress_models", fake_get_job_progress_models)
@@ -71,8 +77,13 @@ async def _run_onboarding_update(
         admin_user_id=1,
         db=db,
         onboarding_status=onboarding_status,
+        salary_confirmed_at=salary_confirmed_at,
+        gift_package_sent_at=gift_package_sent_at,
+        update_salary_confirmed_at=update_salary_confirmed_at,
+        update_gift_package_sent_at=update_gift_package_sent_at,
     )
     assert db.flushed is True
+    response["operation_logs"] = operation_logs
     return response
 
 
@@ -94,3 +105,84 @@ async def test_gift_package_status_sets_backend_sent_datetime(monkeypatch: pytes
     assert progress.data[JobProgressDataKey.ONBOARDING_STATUS.value] == "已发大礼包"
     assert progress.data[JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value] == "2026-06-24 14:35:20"
     assert response["updated_field_keys"] == ["gift_package_sent_at", "onboarding_status"]
+
+
+async def test_bargain_sent_status_sets_salary_confirmed_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    progress = _progress()
+
+    response = await _run_onboarding_update(monkeypatch, progress=progress, onboarding_status="已发砍价")
+
+    assert progress.data[JobProgressDataKey.ONBOARDING_STATUS.value] == "已发砍价"
+    assert progress.data[JobProgressDataKey.SALARY_CONFIRMED_AT.value] == "2026-06-24"
+    assert response["updated_field_keys"] == ["onboarding_status", "salary_confirmed_at"]
+
+
+async def test_bargain_sent_status_keeps_existing_salary_confirmed_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    progress = _progress(
+        data={
+            JobProgressDataKey.ONBOARDING_STATUS.value: "砍价中",
+            JobProgressDataKey.SALARY_CONFIRMED_AT.value: "2026-06-23",
+        }
+    )
+
+    response = await _run_onboarding_update(monkeypatch, progress=progress, onboarding_status="已发砍价")
+
+    assert progress.data[JobProgressDataKey.ONBOARDING_STATUS.value] == "已发砍价"
+    assert progress.data[JobProgressDataKey.SALARY_CONFIRMED_AT.value] == "2026-06-23"
+    assert response["updated_field_keys"] == ["onboarding_status"]
+
+
+async def test_salary_confirmed_date_can_be_manually_corrected_with_operation_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    progress = _progress(
+        data={
+            JobProgressDataKey.ONBOARDING_STATUS.value: "已发砍价",
+            JobProgressDataKey.SALARY_CONFIRMED_AT.value: "2026-06-24",
+        }
+    )
+
+    response = await _run_onboarding_update(
+        monkeypatch,
+        progress=progress,
+        salary_confirmed_at="2026-06-25",
+        update_salary_confirmed_at=True,
+    )
+
+    assert progress.data[JobProgressDataKey.SALARY_CONFIRMED_AT.value] == "2026-06-25"
+    assert response["updated_field_keys"] == ["salary_confirmed_at"]
+    assert response["operation_logs"][0]["data"]["updated_fields"] == {
+        "salary_confirmed_at": {
+            "from": "2026-06-24",
+            "to": "2026-06-25",
+        },
+    }
+
+
+async def test_gift_package_sent_date_can_be_manually_corrected_with_operation_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    progress = _progress(
+        data={
+            JobProgressDataKey.ONBOARDING_STATUS.value: "已发大礼包",
+            JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value: "2026-06-24 14:35:20",
+        }
+    )
+
+    response = await _run_onboarding_update(
+        monkeypatch,
+        progress=progress,
+        gift_package_sent_at="2026-06-25",
+        update_gift_package_sent_at=True,
+    )
+
+    assert progress.data[JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value] == "2026-06-25"
+    assert response["updated_field_keys"] == ["gift_package_sent_at"]
+    assert response["operation_logs"][0]["data"]["updated_fields"] == {
+        "gift_package_sent_at": {
+            "from": "2026-06-24 14:35:20",
+            "to": "2026-06-25",
+        },
+    }

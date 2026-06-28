@@ -49,6 +49,7 @@ class JobProgressDataKey(StrEnum):
     CONTRACT_RETURN_ATTACHMENT_ASSET_ID = "contract_return_attachment_asset_id"
     ONBOARDING_STATUS = "onboarding_status"
     ONBOARDING_DATE = "onboarding_date"
+    SALARY_CONFIRMED_AT = "salary_confirmed_at"
     GIFT_PACKAGE_SENT_AT = "gift_package_sent_at"
     JOB_LANGUAGES = "job_languages"
     REJECTED_FROM_STAGE = "rejected_from_stage"
@@ -157,6 +158,7 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "qa_status",
         "qa_feedback",
         "accepted_rate",
+        "salary_confirmed_at",
         "signing_status",
         "contract_number",
         "contract_draft_attachment",
@@ -174,6 +176,7 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "contract_review",
         "contract_return_attachment",
         "note",
+        "salary_confirmed_at",
     ),
     RecruitmentStage.ACTIVE: (
         CandidateFieldKey.FULL_NAME.value,
@@ -186,6 +189,7 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "assessment_result",
         "assessment_review_comment",
         "onboarding_status",
+        "salary_confirmed_at",
         "onboarding_date",
         "gift_package_sent_at",
     ),
@@ -243,6 +247,8 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
     ),
     RecruitmentStage.REJECTED: (
         RecruitmentStage.PENDING_SCREENING,
+        RecruitmentStage.ASSESSMENT_REVIEW,
+        RecruitmentStage.SCREENING_PASSED,
     ),
     RecruitmentStage.REPLACED: (
         RecruitmentStage.PENDING_SCREENING,

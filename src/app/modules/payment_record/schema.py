@@ -69,6 +69,8 @@ class PaymentPayableRecordRead(BaseModel):
     work_hours: Decimal
     rate: Decimal | None = None
     bonus_multiplier: Decimal | None = None
+    team_leader_base_pay: Decimal | None = None
+    team_leader_bonus: Decimal | None = None
     source_record_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None

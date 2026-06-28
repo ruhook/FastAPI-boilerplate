@@ -23,6 +23,12 @@ class ProjectTimesheetRecord(DataBackedSoftDeleteEntityMixin, Base):
     user_email_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
 
     team_leader_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True, index=True)
+    project_manager_admin_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_user.id"),
+        nullable=True,
+        index=True,
+    )
+    project_manager_name_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
 
     language: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     work_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

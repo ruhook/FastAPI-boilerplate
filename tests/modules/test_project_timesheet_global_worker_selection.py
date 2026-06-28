@@ -181,6 +181,19 @@ def _create_user(*, suffix: str, name: str) -> User:
     )
 
 
+def _create_admin_user(*, suffix: str, name: str) -> AdminUser:
+    return AdminUser(
+        name=name,
+        username=f"pm{suffix}"[:20],
+        email=f"project.manager.{suffix}@example.com",
+        hashed_password="unused-test-hash",
+        status="enabled",
+        profile_image_url="https://example.com/admin-avatar.png",
+        is_superuser=False,
+        data={},
+    )
+
+
 async def test_workspace_worker_and_team_leader_options_are_not_limited_to_current_project_or_company(
     db_session: AsyncSession,
     superadmin_credentials: dict[str, str | int],
@@ -248,7 +261,8 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
 
     worker = _create_user(suffix=f"cw{suffix}", name="External Worker")
     leader = _create_user(suffix=f"cl{suffix}", name="External Leader")
-    db_session.add_all([worker, leader])
+    project_manager = _create_admin_user(suffix=suffix, name="Project Manager")
+    db_session.add_all([worker, leader, project_manager])
     await db_session.flush()
     worker_contract = await _create_active_contract(
         db_session,
@@ -272,14 +286,15 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
 
     payload = ProjectTimesheetBatchCreateRequest(
         sub_project_name="Cross company support",
-        work_date=date(2026, 6, 25),
         language="Arabic",
         project_link="",
         customer_human_efficiency_minutes=Decimal("5"),
         candidate_human_efficiency_minutes=Decimal("6"),
         team_leader_user_id=leader_contract.user_id,
+        project_manager_admin_user_id=project_manager.id,
         entries=[
             {
+                "work_date": date(2026, 6, 26),
                 "contract_record_id": worker_contract.id,
                 "user_id": worker.id,
                 "work_type": "Production",
@@ -308,4 +323,17 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
         )
     )
     timesheet_record = timesheet_result.scalar_one()
+    assert timesheet_record.work_date == date(2026, 6, 26)
+    assert timesheet_record.project_manager_admin_user_id == project_manager.id
+    assert timesheet_record.project_manager_name_snapshot == project_manager.name
     assert timesheet_record.project_link is None
+
+    workspace = await list_project_timesheet_workspace(
+        company_id=current_company.id,
+        project_id=current_project.id,
+        db=db_session,
+    )
+    assert workspace["records"][0]["project_manager_admin_user_id"] == project_manager.id
+    assert workspace["records"][0]["project_manager_name"] == project_manager.name
+    assert workspace["records"][0]["registrar_admin_user_id"] == admin.id
+    assert workspace["records"][0]["registrar_name"] == admin.name

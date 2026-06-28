@@ -3,6 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.advanced_filter import parse_advanced_filter_query
 from ....core.db.database import async_get_db
 from ....modules.payment_record.schema import (
     PaymentPayableListPage,
@@ -68,6 +69,7 @@ async def read_payment_payables(
     payout_status: str | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_order: str | None = Query(default=None),
+    advanced_filter: str | None = Query(default=None),
 ) -> dict[str, Any]:
     return await list_auto_payment_payables_for_admin(
         db=db,
@@ -79,6 +81,7 @@ async def read_payment_payables(
         payout_status=payout_status,
         sort_by=sort_by,
         sort_order=sort_order,
+        advanced_filter=parse_advanced_filter_query(advanced_filter),
     )
 
 

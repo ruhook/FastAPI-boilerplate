@@ -7,6 +7,12 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from ...core.advanced_filter import (
+    AdvancedFilterFieldDefinition,
+    AdvancedFilterQuery,
+    evaluate_advanced_filter_query,
+    validate_advanced_filter_query,
+)
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..contract_record.const import CONTRACT_STATUS_ACTIVE, CONTRACT_TYPE_TEAM_LEADER
@@ -85,6 +91,8 @@ class _CalculatedPayable:
     work_hours: Decimal
     rate: Decimal | None
     bonus_multiplier: Decimal | None
+    team_leader_base_pay: Decimal | None
+    team_leader_bonus: Decimal | None
     source_record_count: int
 
 
@@ -232,6 +240,17 @@ def _normalize_decimal(value: Any) -> Decimal:
     return quantize_money(value)
 
 
+def _calculate_team_leader_salary_amount(
+    *,
+    base_pay: Decimal | int | float | str | None,
+    monthly_team_hours: Decimal,
+) -> tuple[Decimal, Decimal, Decimal]:
+    normalized_base_pay = _normalize_decimal(base_pay)
+    _multiplier, bonus = calculate_team_leader_bonus(monthly_team_hours)
+    amount = _normalize_decimal(normalized_base_pay + bonus)
+    return amount, normalized_base_pay, bonus
+
+
 def _merge_label_values(*values: str | None) -> str | None:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -364,6 +383,10 @@ def _build_auto_payable_data(
         calculation["rate"] = str(_normalize_decimal(item.rate))
     if item.bonus_multiplier is not None:
         calculation["bonus_multiplier"] = str(_normalize_decimal(item.bonus_multiplier))
+    if item.team_leader_base_pay is not None:
+        calculation["team_leader_base_pay"] = str(_normalize_decimal(item.team_leader_base_pay))
+    if item.team_leader_bonus is not None:
+        calculation["team_leader_bonus"] = str(_normalize_decimal(item.team_leader_bonus))
     if item.country:
         calculation["country"] = item.country
     if item.language:
@@ -676,6 +699,10 @@ def _serialize_calculated_payable(item: _CalculatedPayable) -> PaymentPayableRec
         work_hours=_normalize_decimal(item.work_hours),
         rate=_normalize_decimal(item.rate) if item.rate is not None else None,
         bonus_multiplier=_normalize_decimal(item.bonus_multiplier) if item.bonus_multiplier is not None else None,
+        team_leader_base_pay=(
+            _normalize_decimal(item.team_leader_base_pay) if item.team_leader_base_pay is not None else None
+        ),
+        team_leader_bonus=_normalize_decimal(item.team_leader_bonus) if item.team_leader_bonus is not None else None,
         source_record_count=item.source_record_count,
         created_at=None,
         updated_at=None,
@@ -704,6 +731,8 @@ def _serialize_paid_payable_record(record: PaymentRecord) -> PaymentPayableRecor
         calculation = {}
     rate = calculation.get("rate")
     bonus_multiplier = calculation.get("bonus_multiplier")
+    team_leader_base_pay = calculation.get("team_leader_base_pay")
+    team_leader_bonus = calculation.get("team_leader_bonus")
     country = str(calculation.get("country") or "").strip() or None
     language = str(calculation.get("language") or "").strip() or None
     payout_status = str(data.get(AUTO_PAYABLE_PAYOUT_STATUS_DATA_KEY) or PAYMENT_PAYOUT_STATUS_PAID).strip()
@@ -740,6 +769,10 @@ def _serialize_paid_payable_record(record: PaymentRecord) -> PaymentPayableRecor
         work_hours=_normalize_decimal(calculation.get("work_hours")),
         rate=_normalize_decimal(rate) if rate not in (None, "") else None,
         bonus_multiplier=_normalize_decimal(bonus_multiplier) if bonus_multiplier not in (None, "") else None,
+        team_leader_base_pay=(
+            _normalize_decimal(team_leader_base_pay) if team_leader_base_pay not in (None, "") else None
+        ),
+        team_leader_bonus=_normalize_decimal(team_leader_bonus) if team_leader_bonus not in (None, "") else None,
         source_record_count=int(calculation.get("source_record_count") or 0),
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -874,6 +907,8 @@ async def _calculate_salary_payables(*, db: AsyncSession, cutoff_start: date) ->
                 work_hours=Decimal("0.00"),
                 rate=rate,
                 bonus_multiplier=None,
+                team_leader_base_pay=None,
+                team_leader_bonus=None,
                 source_record_count=0,
             )
             groups[source_key] = group
@@ -978,13 +1013,21 @@ async def _calculate_team_leader_bonus_payables(*, db: AsyncSession, cutoff_star
                 work_hours=Decimal("0.00"),
                 rate=None,
                 bonus_multiplier=None,
+                team_leader_base_pay=None,
+                team_leader_bonus=None,
                 source_record_count=0,
             )
             groups[source_key] = group
         group.work_hours = _normalize_decimal(group.work_hours + hours)
-        multiplier, bonus = calculate_team_leader_bonus(group.work_hours)
+        multiplier, _bonus = calculate_team_leader_bonus(group.work_hours)
+        amount, base_pay, bonus = _calculate_team_leader_salary_amount(
+            base_pay=contract.base_pay,
+            monthly_team_hours=group.work_hours,
+        )
         group.bonus_multiplier = multiplier
-        group.amount = bonus
+        group.team_leader_base_pay = base_pay
+        group.team_leader_bonus = bonus
+        group.amount = amount
         group.source_record_count += 1
         group.language = _merge_label_values(group.language, record.language)
     return [item for item in groups.values() if item.amount > 0]
@@ -1069,6 +1112,8 @@ async def _calculate_referral_reward_payables(*, db: AsyncSession, cutoff_start:
                 work_hours=work_hours,
                 rate=None,
                 bonus_multiplier=None,
+                team_leader_base_pay=None,
+                team_leader_bonus=None,
                 source_record_count=len(work_rows),
             )
         )
@@ -1115,6 +1160,61 @@ def _payable_matches_keyword(item: PaymentPayableRecordRead, keyword: str | None
     return text in haystack
 
 
+def _build_payable_advanced_filter_field_map() -> dict[str, AdvancedFilterFieldDefinition]:
+    return {
+        "userName": AdvancedFilterFieldDefinition(name="userName", filter_kind="text"),
+        "userEmail": AdvancedFilterFieldDefinition(name="userEmail", filter_kind="email"),
+        "companyProject": AdvancedFilterFieldDefinition(name="companyProject", filter_kind="text"),
+        "paymentType": AdvancedFilterFieldDefinition(name="paymentType", filter_kind="select"),
+        "language": AdvancedFilterFieldDefinition(name="language", filter_kind="select"),
+        "country": AdvancedFilterFieldDefinition(name="country", filter_kind="select"),
+        "contractRefNo": AdvancedFilterFieldDefinition(name="contractRefNo", filter_kind="text"),
+        "externalPlatform": AdvancedFilterFieldDefinition(name="externalPlatform", filter_kind="select"),
+        "sourceMonth": AdvancedFilterFieldDefinition(name="sourceMonth", filter_kind="date"),
+        "payoutStatus": AdvancedFilterFieldDefinition(name="payoutStatus", filter_kind="select"),
+        "amount": AdvancedFilterFieldDefinition(name="amount", filter_kind="number"),
+        "remark": AdvancedFilterFieldDefinition(name="remark", filter_kind="text"),
+    }
+
+
+def _get_payable_advanced_filter_record(item: PaymentPayableRecordRead) -> dict[str, Any]:
+    return {
+        "userName": item.user_name,
+        "userEmail": item.user_email,
+        "companyProject": " / ".join(
+            value for value in (item.company_name, item.project_name) if value and value != "-"
+        ),
+        "paymentType": item.payment_type,
+        "language": item.language,
+        "country": item.country,
+        "contractRefNo": item.contract_ref_no,
+        "externalPlatform": item.external_platform,
+        "sourceMonth": f"{item.source_month}-01" if item.source_month else None,
+        "payoutStatus": item.payout_status,
+        "amount": item.amount,
+        "remark": item.remark,
+    }
+
+
+def _apply_payable_advanced_filter(
+    items: list[PaymentPayableRecordRead],
+    query: AdvancedFilterQuery | None,
+) -> list[PaymentPayableRecordRead]:
+    if not query or not query.get("rules"):
+        return items
+    field_map = _build_payable_advanced_filter_field_map()
+    validate_advanced_filter_query(query, field_map=field_map)
+    return [
+        item
+        for item in items
+        if evaluate_advanced_filter_query(
+            query,
+            record=_get_payable_advanced_filter_record(item),
+            field_map=field_map,
+        )
+    ]
+
+
 def _build_payable_summary(*, month: str, items: list[PaymentPayableRecordRead]) -> PaymentPayableSummaryRead:
     pending_items = [item for item in items if item.payout_status != PAYMENT_PAYOUT_STATUS_PAID]
     paid_items = [item for item in items if item.payout_status == PAYMENT_PAYOUT_STATUS_PAID]
@@ -1142,6 +1242,7 @@ async def list_auto_payment_payables_for_admin(
     payout_status: str | None = None,
     sort_by: str | None = None,
     sort_order: str | None = None,
+    advanced_filter: AdvancedFilterQuery | None = None,
 ) -> dict[str, Any]:
     payable_month, _month_start = _parse_payable_month(month)
     cutoff_start = _next_month_start(payable_month)
@@ -1177,6 +1278,7 @@ async def list_auto_payment_payables_for_admin(
         )
 
     items = [item for item in items if _payable_matches_keyword(item, keyword)]
+    items = _apply_payable_advanced_filter(items, advanced_filter)
     _sort_payables(items, sort_by=sort_by, sort_order=sort_order)
     total = len(items)
     offset = (page - 1) * page_size
