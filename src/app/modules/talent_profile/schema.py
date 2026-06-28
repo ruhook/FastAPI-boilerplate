@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -35,11 +35,30 @@ class TalentProfileListItemRead(BaseModel):
     latest_applied_job_title: str | None = None
     resume_asset_id: int | None = None
     resume_asset_name: str | None = None
+    resume_attachment_asset: "TalentAttachmentRead | None" = None
     note: str | None = None
     latest_applied_at: datetime | None = None
     created_at: datetime
     merge_strategy: str | None = None
     source_application_id: int | None = None
+    english_proficiency: str | None = None
+    age_range: str | None = None
+    referrer_name: str | None = None
+    progress_language: str | None = None
+    talent_status: str | None = None
+    talent_status_label: str | None = None
+    talent_status_editable: bool = False
+    contract_type: str | None = None
+    accepted_hourly_rate: Decimal | None = None
+    contract_number: str | None = None
+    contract_effective_date: date | None = None
+    contract_end_date: date | None = None
+    company_sealed_contract_asset: "TalentAttachmentRead | None" = None
+    id_attachment_asset: "TalentAttachmentRead | None" = None
+    onboarding_status: str | None = None
+    onboarding_date: date | None = None
+    total_work_hours: Decimal | None = None
+    recent_work_date: date | None = None
 
 
 class TalentProfileListPage(BaseModel):
@@ -47,6 +66,22 @@ class TalentProfileListPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class TalentAttachmentRead(BaseModel):
+    asset_id: int
+    name: str
+    preview_url: str | None = None
+    download_url: str | None = None
+    mime_type: str | None = None
+
+
+class TalentStatusUpdateRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=32)
+
+
+class TalentNoteUpdateRequest(BaseModel):
+    note: str | None = None
 
 
 class TalentTimesheetRecordRead(BaseModel):
