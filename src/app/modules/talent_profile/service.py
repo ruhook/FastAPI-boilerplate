@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.advanced_filter import (
@@ -28,6 +28,7 @@ from ..candidate_application.schema import (
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
 from ..candidate_field.const import CandidateFieldKey
 from ..candidate_field.service import hydrate_candidate_field_options
+from ..contract_record.model import ContractRecord
 from ..job.const import JOB_DATA_APPLICATION_SUMMARY_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..job.model import Job
 from ..job_progress.const import JobProgressDataKey, RecruitmentStage, get_recruitment_stage_cn_name
@@ -39,6 +40,7 @@ from ..operation_log.schema import OperationLogRead
 from ..operation_log.service import create_operation_log
 from ..payment_record.model import PaymentRecord
 from ..project_timesheet_record.model import ProjectTimesheetRecord
+from ..referral.model import ReferralRecord
 from ..talent_profile_merge_log.model import TalentProfileMergeLog
 from .const import TalentMergeStrategy
 from .model import TalentProfile
@@ -73,6 +75,68 @@ TALENT_FIELD_MAPPING: dict[str, str] = {
 TALENT_ASSET_FIELD_MAPPING: dict[str, str] = {
     CandidateFieldKey.RESUME_ATTACHMENT.value: "resume_asset_id",
 }
+
+
+def _json_text_expression(column: Any, key: str):
+    return func.json_unquote(func.json_extract(column, f"$.{key}"))
+
+
+def _latest_progress_json_text_expression(key: str):
+    return (
+        select(_json_text_expression(JobProgress.data, key))
+        .where(
+            JobProgress.talent_profile_id == TalentProfile.id,
+            JobProgress.is_deleted.is_(False),
+        )
+        .order_by(JobProgress.updated_at.desc(), JobProgress.entered_stage_at.desc(), JobProgress.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _latest_progress_stage_expression():
+    return (
+        select(JobProgress.current_stage)
+        .where(
+            JobProgress.talent_profile_id == TalentProfile.id,
+            JobProgress.is_deleted.is_(False),
+        )
+        .order_by(JobProgress.updated_at.desc(), JobProgress.entered_stage_at.desc(), JobProgress.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _current_contract_field_expression(column: Any):
+    return (
+        select(column)
+        .where(
+            ContractRecord.talent_profile_id == TalentProfile.id,
+            ContractRecord.is_deleted.is_(False),
+            ContractRecord.is_current.is_(True),
+        )
+        .order_by(ContractRecord.updated_at.desc(), ContractRecord.created_at.desc(), ContractRecord.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _talent_status_sql_expression():
+    latest_stage = _latest_progress_stage_expression()
+    latest_onboarding_date = _latest_progress_json_text_expression(JobProgressDataKey.ONBOARDING_DATE.value)
+    override_status = _json_text_expression(TalentProfile.data, TALENT_STATUS_OVERRIDE_KEY)
+    return case(
+        (latest_stage == RecruitmentStage.REJECTED.value, "rejected"),
+        (latest_stage == RecruitmentStage.REPLACED.value, "replaced"),
+        (
+            or_(
+                latest_onboarding_date.is_(None),
+                func.trim(func.coalesce(latest_onboarding_date, "")) == "",
+            ),
+            "recruiting",
+        ),
+        else_=func.coalesce(override_status, "active"),
+    )
 
 TALENT_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
     "full_name": AdvancedFilterFieldDefinition(
@@ -154,6 +218,34 @@ TALENT_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
         name="created_at",
         filter_kind="date",
         sql_expression=TalentProfile.created_at,
+    ),
+    "talent_status": AdvancedFilterFieldDefinition(
+        name="talent_status",
+        filter_kind="select",
+        sql_expression=_talent_status_sql_expression(),
+    ),
+    "progress_language": AdvancedFilterFieldDefinition(
+        name="progress_language",
+        filter_kind="text",
+        sql_expression=_latest_progress_json_text_expression(JobProgressDataKey.JOB_LANGUAGES.value),
+    ),
+    "contract_number": AdvancedFilterFieldDefinition(
+        name="contract_number",
+        filter_kind="text",
+        sql_expression=func.coalesce(
+            _current_contract_field_expression(ContractRecord.agreement_ref_no),
+            _latest_progress_json_text_expression(JobProgressDataKey.CONTRACT_NUMBER.value),
+        ),
+    ),
+    "contract_type": AdvancedFilterFieldDefinition(
+        name="contract_type",
+        filter_kind="select",
+        sql_expression=_current_contract_field_expression(ContractRecord.contract_type),
+    ),
+    "onboarding_status": AdvancedFilterFieldDefinition(
+        name="onboarding_status",
+        filter_kind="text",
+        sql_expression=_latest_progress_json_text_expression(JobProgressDataKey.ONBOARDING_STATUS.value),
     ),
 }
 
@@ -1206,6 +1298,39 @@ async def list_talent_profiles(
                 TalentProfile.education.ilike(term),
                 TalentProfile.latest_applied_job_title.ilike(term),
                 TalentProfile.note.ilike(term),
+                select(ReferralRecord.id)
+                .where(
+                    ReferralRecord.referred_user_id == TalentProfile.user_id,
+                    ReferralRecord.is_deleted.is_(False),
+                    or_(
+                        ReferralRecord.referrer_snapshot_name.ilike(term),
+                        ReferralRecord.referrer_snapshot_email.ilike(term),
+                    ),
+                )
+                .exists(),
+                select(JobProgress.id)
+                .where(
+                    JobProgress.talent_profile_id == TalentProfile.id,
+                    JobProgress.is_deleted.is_(False),
+                    or_(
+                        _json_text_expression(JobProgress.data, JobProgressDataKey.JOB_LANGUAGES.value).ilike(term),
+                        _json_text_expression(JobProgress.data, JobProgressDataKey.ONBOARDING_STATUS.value).ilike(term),
+                        _json_text_expression(JobProgress.data, JobProgressDataKey.CONTRACT_NUMBER.value).ilike(term),
+                        _json_text_expression(JobProgress.data, JobProgressDataKey.NOTE.value).ilike(term),
+                    ),
+                )
+                .exists(),
+                select(ContractRecord.id)
+                .where(
+                    ContractRecord.talent_profile_id == TalentProfile.id,
+                    ContractRecord.is_deleted.is_(False),
+                    ContractRecord.is_current.is_(True),
+                    or_(
+                        ContractRecord.agreement_ref_no.ilike(term),
+                        ContractRecord.contract_type.ilike(term),
+                    ),
+                )
+                .exists(),
             )
         )
 

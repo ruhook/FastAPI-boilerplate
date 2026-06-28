@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -374,3 +375,57 @@ async def test_talent_note_update_syncs_progress_and_profile_note(
     await db_session.refresh(talent)
     assert progress.data[JobProgressDataKey.NOTE.value] == "Updated pool note"
     assert talent.note == "Updated pool note"
+
+
+async def test_admin_talent_pool_keyword_search_matches_aggregated_sources(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict[str, str],
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    context = await _create_talent_with_sources(
+        web_client=web_client,
+        db_session=db_session,
+        superadmin_credentials=superadmin_credentials,
+    )
+    talent = context["talent"]
+
+    for keyword in ["Referral Owner", "CON-009", "待入职材料"]:
+        response = await admin_client.get(
+            "/api/v1/talents",
+            headers=admin_auth_headers,
+            params={"keyword": keyword},
+        )
+        assert response.status_code == 200, response.text
+        assert any(row["id"] == talent.id for row in response.json()["items"])
+
+
+async def test_admin_talent_pool_advanced_filter_matches_aggregated_fields(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict[str, str],
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    context = await _create_talent_with_sources(
+        web_client=web_client,
+        db_session=db_session,
+        superadmin_credentials=superadmin_credentials,
+    )
+    talent = context["talent"]
+    advanced_filter = {
+        "combinator": "and",
+        "rules": [
+            {"field": "talent_status", "operator": "=", "value": "active"},
+            {"field": "contract_type", "operator": "=", "value": "normal"},
+        ],
+    }
+
+    response = await admin_client.get(
+        "/api/v1/talents",
+        headers=admin_auth_headers,
+        params={"advanced_filter": json.dumps(advanced_filter)},
+    )
+    assert response.status_code == 200, response.text
+    assert any(row["id"] == talent.id for row in response.json()["items"])
