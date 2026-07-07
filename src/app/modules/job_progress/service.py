@@ -765,7 +765,7 @@ def _build_candidate_assessment_url(application_id: int | None) -> str:
     if application_id is None:
         return ""
     base_url = settings.CANDIDATE_WEB_BASE_URL.strip().rstrip("/")
-    path = f"/my-assessments/{application_id}"
+    path = f"/my-jobs/{application_id}"
     return f"{base_url}{path}" if base_url else path
 
 
@@ -798,7 +798,7 @@ def _build_candidate_contract_upload_url(application_id: int | None) -> str:
     if application_id is None:
         return ""
     base_url = settings.CANDIDATE_WEB_BASE_URL.strip().rstrip("/")
-    path = f"/my-contracts/{application_id}/upload"
+    path = f"/my-jobs/{application_id}"
     return f"{base_url}{path}" if base_url else path
 
 
@@ -2025,9 +2025,19 @@ async def list_candidate_contracts(
         Job.is_deleted.is_(False),
         ContractRecord.is_deleted.is_(False),
         ContractRecord.is_current.is_(True),
+        ContractRecord.contract_status.notin_(
+            [
+                CONTRACT_STATUS_TERMINATED,
+                CONTRACT_STATUS_EXPIRED,
+            ]
+        ),
+        JobProgress.current_stage.notin_(
+            [
+                RecruitmentStage.REJECTED.value,
+                RecruitmentStage.REPLACED.value,
+            ]
+        ),
         or_(
-            ContractRecord.draft_contract_asset_id.is_not(None),
-            ContractRecord.candidate_signed_contract_asset_id.is_not(None),
             ContractRecord.company_sealed_contract_asset_id.is_not(None),
             ContractRecord.contract_attachment_asset_id.is_not(None),
         ),
@@ -3988,7 +3998,7 @@ async def upload_job_progress_company_sealed_contract(
         category="contract_company_signed",
         title="Your contract is ready",
         description=f"The company countersigned contract for {job.title} is ready. You can view it in My Contracts.",
-        action_url=f"/my-contracts/{progress.application_id}",
+        action_url=f"/my-jobs/{progress.application_id}",
         data={
             "job_id": job.id,
             "job_title": job.title,

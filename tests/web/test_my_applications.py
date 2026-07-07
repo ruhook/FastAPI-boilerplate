@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.db.database import local_session
 from src.app.modules.admin.dictionary.model import AdminDictionary
+from src.app.modules.assets.model import Asset
+from src.app.modules.contract_record.model import ContractRecord
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.job_progress.service import mark_job_progress_assessment_invited
 from tests.helpers.talent import (
@@ -29,6 +31,20 @@ def _build_web_application_fields() -> list[dict[str, object]]:
         if field.get("key") == "resume_attachment":
             field["type"] = "file"
     return fields
+
+
+def _contract_asset(*, suffix: str, original_name: str, owner_id: int) -> Asset:
+    return Asset(
+        type="contract_file",
+        module="contract",
+        owner_type="user",
+        owner_id=owner_id,
+        original_name=original_name,
+        storage_key=f"tests/contracts/{suffix}/{uuid4().hex}-{original_name}",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        file_size=256,
+        data={},
+    )
 
 
 async def test_web_me_applications_returns_current_users_records(
@@ -202,3 +218,103 @@ async def test_web_me_applications_shows_review_until_assessment_invite(
     assert invited_payload["current_stage"] == "pending_screening"
     assert invited_payload["candidate_visible_stage"] == "assessment_file"
     assert invited_payload["candidate_visible_stage_label"] == "Assessment File"
+
+
+async def test_web_me_contracts_only_lists_company_signed_active_contracts(
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    suffix = uuid4().hex[:8]
+    fields = _build_web_application_fields()
+    template = await create_form_template(db_session, suffix=f"contracts-{suffix}", fields=fields)
+    job = await create_open_job(
+        db_session,
+        suffix=f"contracts-{suffix}",
+        title=f"My Contracts Active Role {suffix}",
+        owner_admin_user_id=int(superadmin_credentials["id"]),
+        form_template_id=template.id,
+        form_fields=fields,
+    )
+
+    user, password = await create_candidate_user(
+        db_session,
+        suffix=f"contracts{suffix}",
+        name="My Contracts Candidate",
+    )
+    auth_headers = await login_web_user(web_client, username=user.email, password=password)
+    resume = await create_resume_asset(db_session, suffix=f"contracts-{suffix}", original_name="contracts.pdf")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
+
+    apply_response = await web_client.post(
+        f"/api/v1/jobs/{job.id}/apply",
+        headers=auth_headers,
+        json={
+            "items": build_application_items(
+                full_name="My Contracts Candidate",
+                email=user.email,
+                whatsapp="+1-444-4444",
+                nationality="Brazilian",
+                country_of_residence="Brazil",
+                education_status="Bachelor’s degree (completed)",
+                resume_asset_id=resume.id,
+            )
+        },
+    )
+    assert apply_response.status_code == 200, apply_response.text
+    application_id = int(apply_response.json()["application_id"])
+
+    progress_result = await db_session.execute(
+        select(JobProgress).where(JobProgress.application_id == application_id)
+    )
+    progress = progress_result.scalar_one()
+    progress.current_stage = "contract_pool"
+
+    draft_asset = _contract_asset(suffix=suffix, original_name="draft-contract.docx", owner_id=user.id)
+    signed_asset = _contract_asset(suffix=suffix, original_name="candidate-signed.docx", owner_id=user.id)
+    sealed_asset = _contract_asset(suffix=suffix, original_name="company-signed.docx", owner_id=user.id)
+    db_session.add_all([draft_asset, signed_asset, sealed_asset])
+    await db_session.flush()
+
+    contract = ContractRecord(
+        user_id=user.id,
+        user_snapshot_name=user.name,
+        user_snapshot_email=user.email,
+        talent_profile_id=progress.talent_profile_id,
+        application_id=application_id,
+        job_id=job.id,
+        job_progress_id=progress.id,
+        job_snapshot_title=job.title,
+        service_customer_project_id=job.project_id,
+        agreement_ref_no=f"ACTIVE-ONLY-{suffix}",
+        contract_status="Pending Activation",
+        contractor_name=user.name,
+        draft_contract_asset_id=draft_asset.id,
+        candidate_signed_contract_asset_id=signed_asset.id,
+        data={},
+    )
+    db_session.add(contract)
+    await db_session.commit()
+
+    pending_response = await web_client.get("/api/v1/me/contracts", headers=auth_headers)
+    assert pending_response.status_code == 200, pending_response.text
+    assert all(
+        int(item["application_id"]) != application_id
+        for item in pending_response.json()["items"]
+    )
+
+    contract.company_sealed_contract_asset_id = sealed_asset.id
+    contract.contract_status = "Active"
+    progress.current_stage = "active"
+    await db_session.commit()
+
+    active_response = await web_client.get("/api/v1/me/contracts", headers=auth_headers)
+    assert active_response.status_code == 200, active_response.text
+    active_item = next(
+        (item for item in active_response.json()["items"] if int(item["application_id"]) == application_id),
+        None,
+    )
+    assert active_item is not None
+    assert active_item["contract_record_data"]["company_sealed_contract_attachment"]["name"] == "company-signed.docx"

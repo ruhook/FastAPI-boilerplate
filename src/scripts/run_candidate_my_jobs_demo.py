@@ -35,8 +35,6 @@ from .run_client_apply_demo import (
 from .run_client_assessment_upload_demo import (
     build_demo_docx_bytes,
     build_demo_pdf_bytes,
-    build_demo_xlsx_bytes,
-    upload_assessment,
 )
 from .seed_apply_demo_flow import (
     DEMO_ADMIN_EMAIL,
@@ -162,7 +160,7 @@ PORTAL_JOB_DEFINITIONS = [
             )
         ),
         "application_scenario": "assessment_auto_pass",
-        "target_stage": "assessment_review",
+        "target_stage": "pending_screening",
         "auto_apply": True,
     },
     {
@@ -237,7 +235,7 @@ PORTAL_JOB_DEFINITIONS = [
         "company_name": "TMX Reject Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role is rejected by automation so the candidate can verify the closed state.</p>",
+        "description": "<p>This role is moved to rejected during the demo so the candidate can verify the closed state.</p>",
         "compensation_min": Decimal("7.00"),
         "compensation_max": Decimal("10.00"),
         "compensation_unit": "Per Hour",
@@ -314,7 +312,7 @@ def build_application_items(
         {"field_key": CandidateFieldKey.WHATSAPP.value, "value": whatsapp},
         {"field_key": CandidateFieldKey.COUNTRY_OF_RESIDENCE.value, "value": "Brazil"},
         {"field_key": CandidateFieldKey.CITY.value, "value": "Sao Paulo"},
-        {"field_key": CandidateFieldKey.NATIONALITY.value, "value": "Brazilian"},
+        {"field_key": CandidateFieldKey.NATIONALITY.value, "value": "Brazil"},
         {"field_key": CandidateFieldKey.NATIVE_LANGUAGES.value, "value": "Portuguese"},
         {"field_key": CandidateFieldKey.ADDITIONAL_LANGUAGES.value, "value": "English"},
         {
@@ -649,6 +647,26 @@ async def refresh_active_contract_attachment(
         return int(asset.id)
 
 
+async def update_progress_demo_state(
+    *,
+    progress_id: int,
+    current_stage: str | None = None,
+    process_data_updates: dict[str, Any] | None = None,
+) -> None:
+    async with local_session() as session:
+        progress = await session.get(JobProgress, progress_id)
+        if progress is None or progress.is_deleted:
+            raise RuntimeError(f"Job progress not found for progress_id={progress_id}")
+        if current_stage is not None:
+            progress.current_stage = current_stage
+            progress.entered_stage_at = datetime.now(UTC)
+        if process_data_updates:
+            next_data = dict(progress.data or {})
+            next_data.update(process_data_updates)
+            progress.data = next_data
+        await session.commit()
+
+
 async def admin_update_contract_record(
     client: httpx.AsyncClient,
     *,
@@ -660,16 +678,19 @@ async def admin_update_contract_record(
     contract_review: str | None = None,
     rate: str | None = None,
 ) -> dict[str, Any]:
+    payload: dict[str, Any] = {"progress_ids": progress_ids}
+    if agreement_ref_no is not None:
+        payload["agreement_ref_no"] = agreement_ref_no
+    if signing_status is not None:
+        payload["signing_status"] = signing_status
+    if contract_review is not None:
+        payload["contract_review"] = contract_review
+    if rate is not None:
+        payload["rate"] = rate
     response = await client.patch(
         f"/jobs/{job_id}/progress/contract-record",
         headers={"Authorization": f"Bearer {access_token}"},
-        json={
-            "progress_ids": progress_ids,
-            "agreement_ref_no": agreement_ref_no,
-            "signing_status": signing_status,
-            "contract_review": contract_review,
-            "rate": rate,
-        },
+        json=payload,
     )
     return ensure_ok(response, "Update contract record failed")
 
@@ -1008,9 +1029,7 @@ async def main() -> None:
         auto_subjects = _subjects_for_recipient(await list_mail_tasks(), args.candidate_email)
         if "请完成 {{job_title}} 测试题" not in auto_subjects:
             raise RuntimeError("Missing auto-created assessment mail task in candidate-portal demo flow.")
-        if "关于 {{job_title}} 的申请结果通知" not in auto_subjects:
-            raise RuntimeError("Missing auto-created rejection mail task in candidate-portal demo flow.")
-        print_detail("auto mail tasks created for assessment-review and rejected branches")
+        print_detail("auto mail task created for assessment-review branch")
 
         print_step("Step 4/6: shape the seven applications into seven different stages")
         list_payload = await fetch_my_applications(web_client, access_token=access_token)
@@ -1021,17 +1040,18 @@ async def main() -> None:
             case["job_progress_id"] = int(item["job_progress_id"])
 
         assessment_case = cases_by_key["assessment_review"]
-        await upload_assessment(
-            web_client,
-            access_token=access_token,
-            job_id=int(assessment_case["job"].id),
-            file_name="candidate-assessment.xlsx",
-            file_bytes=build_demo_xlsx_bytes(
-                candidate_email=args.candidate_email,
-                note="Candidate portal assessment submission.",
-            ),
+        assessment_invited_at = datetime.now(UTC).isoformat()
+        await update_progress_demo_state(
+            progress_id=int(assessment_case["job_progress_id"]),
+            current_stage="pending_screening",
+            process_data_updates={
+                "assessment_invited_at": assessment_invited_at,
+                "assessment_sent_at": assessment_invited_at,
+                "assessment_invite_mail_task_id": "candidate-portal-demo-assessment",
+            },
         )
-        print_detail("assessment_review job received one candidate submission")
+        assessment_case["detail"]["current_stage"] = "pending_screening"
+        print_detail("assessment_review job now waits for the candidate assessment upload")
 
         screening_case = cases_by_key["screening_passed"]
         await ensure_admin_stage(
@@ -1214,6 +1234,17 @@ async def main() -> None:
             )
             print_detail("active job now has draft, signed, company-returned contracts and is active")
 
+        await update_progress_demo_state(
+            progress_id=int(active_case["job_progress_id"]),
+            current_stage="active",
+            process_data_updates={
+                "onboarding_status": "已发大礼包",
+                "gift_package_sent_at": datetime.now(UTC).date().isoformat(),
+            },
+        )
+        active_case["detail"]["current_stage"] = "active"
+        print_detail("active job now shows the task-group onboarding action")
+
         replaced_case = cases_by_key["replaced"]
         replaced_case_stage = str(replaced_case["detail"]["current_stage"])
         if replaced_case_stage == "replaced":
@@ -1294,6 +1325,19 @@ async def main() -> None:
                 reason="candidate_portal_demo_replaced",
             )
             print_detail("replaced job moved to replaced")
+
+        rejected_case = cases_by_key["rejected"]
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=rejected_case,
+            target_stage="rejected",
+            reason="candidate_portal_demo_rejected",
+        )
+        auto_subjects = _subjects_for_recipient(await list_mail_tasks(), args.candidate_email)
+        if "关于 {{job_title}} 的申请结果通知" not in auto_subjects:
+            raise RuntimeError("Missing auto-created rejection mail task in candidate-portal demo flow.")
+        print_detail("rejected job moved to rejected and rejection mail task created")
 
         print_step("Step 5/6: verify My Jobs list and candidate-facing detail APIs")
         refreshed_items = await fetch_my_applications(web_client, access_token=access_token)
@@ -1423,7 +1467,6 @@ async def main() -> None:
             raise RuntimeError("Needs-action filter returned a non-action stage.")
         needs_action_titles = {str(item["job_title"]) for item in needs_action_payload["items"]}
         expected_needs_action_titles = {
-            str(cases_by_key["pending_screening"]["job"].title),
             str(cases_by_key["assessment_review"]["job"].title),
             str(cases_by_key["screening_passed"]["job"].title),
             str(cases_by_key["contract_pool"]["job"].title),

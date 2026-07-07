@@ -461,4 +461,4 @@ async def test_auto_screening_match_creates_assessment_mail_task_and_stays_pendi
     assert mail_task.status == "pending"
     assert mail_task.to_recipients == [{"name": "Assessment Mail Candidate", "email": user.email}]
     task_context = (mail_task.data or {}).get(MAIL_TASK_DATA_RENDER_CONTEXT_KEY) or {}
-    assert task_context["job"]["assessment_link"].endswith(f"/my-assessments/{application_id}")
+    assert task_context["job"]["assessment_link"].endswith(f"/my-jobs/{application_id}")
