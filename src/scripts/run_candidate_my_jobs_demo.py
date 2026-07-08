@@ -1417,13 +1417,17 @@ async def main() -> None:
         )
         my_contract_titles = {str(item["job_title"]): item for item in my_contracts_payload.get("items", [])}
         expected_contract_titles = {
-            str(cases_by_key["screening_passed"]["job"].title),
-            str(cases_by_key["contract_pool"]["job"].title),
             str(cases_by_key["active"]["job"].title),
         }
         missing_contract_titles = expected_contract_titles.difference(my_contract_titles.keys())
         if missing_contract_titles:
             raise RuntimeError(f"My Contracts missing titles: {sorted(missing_contract_titles)}")
+        inactive_contract_titles = {
+            str(cases_by_key["screening_passed"]["job"].title),
+            str(cases_by_key["contract_pool"]["job"].title),
+        }.intersection(my_contract_titles.keys())
+        if inactive_contract_titles:
+            raise RuntimeError(f"My Contracts should only show active contracts, got: {sorted(inactive_contract_titles)}")
         print_detail(f"my contracts endpoint works: items={my_contracts_payload['total']}")
 
         paged_payload = await fetch_my_applications_page(
