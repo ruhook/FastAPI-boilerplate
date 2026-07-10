@@ -167,8 +167,14 @@ class EventSettings(BaseSettings):
     EVENT_QUEUE_PREFIX: str = "hr-mq:"
     EVENT_CONSUMER_GROUP: str = "hr_event_consumer"
     EVENT_CONSUMER_CONCURRENCY: int = 3
+    EVENT_CONSUMER_BUFFER_SIZE: int = 12
+    EVENT_CONSUMER_MAX_DELIVERIES: int = 5
+    EVENT_CONSUMER_SHUTDOWN_TIMEOUT_SECONDS: float = 10.0
     EVENT_STATS_INTERVAL: int = 30
     EVENT_PENDING_IDLE_MS: int = 60_000
+    EVENT_DEAD_LETTER_MAXLEN: int = 10_000
+    EVENT_DEAD_LETTER_RAW_MAX_CHARS: int = 4_000
+    EVENT_DEAD_LETTER_ERROR_MAX_CHARS: int = 500
     EVENT_OUTBOX_BATCH_SIZE: int = 50
     EVENT_OUTBOX_LEASE_SECONDS: int = 60
     EVENT_OUTBOX_POLL_SECONDS: float = 1.0
@@ -296,10 +302,18 @@ class Settings(
             "AUTH_VERIFICATION_CHECK_WINDOW_SECONDS",
             "AUTH_VERIFICATION_CHECK_IP_LIMIT",
             "AUTH_VERIFICATION_CHECK_IDENTIFIER_LIMIT",
+            "EVENT_CONSUMER_CONCURRENCY",
+            "EVENT_CONSUMER_BUFFER_SIZE",
+            "EVENT_CONSUMER_MAX_DELIVERIES",
+            "EVENT_CONSUMER_SHUTDOWN_TIMEOUT_SECONDS",
+            "EVENT_PENDING_IDLE_MS",
+            "EVENT_DEAD_LETTER_MAXLEN",
+            "EVENT_DEAD_LETTER_RAW_MAX_CHARS",
+            "EVENT_DEAD_LETTER_ERROR_MAX_CHARS",
         )
         for setting_name in positive_setting_names:
-            if int(getattr(self, setting_name)) <= 0:
-                raise ValueError(f"{setting_name} must be a positive integer.")
+            if getattr(self, setting_name) <= 0:
+                raise ValueError(f"{setting_name} must be positive.")
 
         is_local = self.ENVIRONMENT == EnvironmentOption.LOCAL
         if self.ENABLE_LOCAL_AUTH_BYPASS and not is_local:

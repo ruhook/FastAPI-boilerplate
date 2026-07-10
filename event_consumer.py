@@ -17,7 +17,6 @@ init_logging(service_name="event")
 GROUP = settings.EVENT_CONSUMER_GROUP
 mq = AsyncMQClient(QueueType.MISC, group=GROUP)
 event_manager = AsyncEventManager(
-    concurrency=settings.EVENT_CONSUMER_CONCURRENCY,
     stats_interval=settings.EVENT_STATS_INTERVAL,
 )
 

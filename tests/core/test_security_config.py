@@ -115,6 +115,34 @@ def test_auth_abuse_limits_must_be_positive(setting_name: str) -> None:
         Settings(_env_file=None, ENVIRONMENT="local", **{setting_name: 0})
 
 
+@pytest.mark.parametrize(
+    "setting_name",
+    [
+        "EVENT_CONSUMER_CONCURRENCY",
+        "EVENT_CONSUMER_BUFFER_SIZE",
+        "EVENT_CONSUMER_MAX_DELIVERIES",
+        "EVENT_CONSUMER_SHUTDOWN_TIMEOUT_SECONDS",
+        "EVENT_PENDING_IDLE_MS",
+        "EVENT_DEAD_LETTER_MAXLEN",
+        "EVENT_DEAD_LETTER_RAW_MAX_CHARS",
+        "EVENT_DEAD_LETTER_ERROR_MAX_CHARS",
+    ],
+)
+def test_event_consumer_limits_must_be_positive(setting_name: str) -> None:
+    with pytest.raises(ValidationError, match=setting_name):
+        Settings(_env_file=None, ENVIRONMENT="local", **{setting_name: 0})
+
+
+def test_event_shutdown_timeout_accepts_positive_subsecond_value() -> None:
+    configured = Settings(
+        _env_file=None,
+        ENVIRONMENT="local",
+        EVENT_CONSUMER_SHUTDOWN_TIMEOUT_SECONDS=0.5,
+    )
+
+    assert configured.EVENT_CONSUMER_SHUTDOWN_TIMEOUT_SECONDS == 0.5
+
+
 def test_production_requires_mail_credential_encryption_key() -> None:
     with pytest.raises(ValidationError, match="MAIL_CREDENTIAL_ENCRYPTION_KEY"):
         production_settings(MAIL_CREDENTIAL_ENCRYPTION_KEY="")

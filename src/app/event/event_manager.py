@@ -14,11 +14,10 @@ class UnhandledEventError(ValueError):
 
 
 class AsyncEventManager:
-    def __init__(self, concurrency: int = 3, stats_interval: int = 30) -> None:
+    def __init__(self, stats_interval: int = 30) -> None:
         self._handlers: dict[str, list[Callable[[dict[str, Any]], Awaitable[None] | None]]] = {}
         self._stats: dict[str, dict[str, Any]] = {}
         self._last_func: str | None = None
-        self._semaphore = asyncio.Semaphore(concurrency)
         self._stats_interval = stats_interval
         self._stop_event = asyncio.Event()
         self._stats_task: asyncio.Task[None] | None = None
@@ -35,8 +34,7 @@ class AsyncEventManager:
         logger.info("Registered event handler", extra={"event_type": type_name, "handler": handler.__name__})
 
     async def receive(self, msg: dict[str, Any]) -> None:
-        async with self._semaphore:
-            await self._receive(msg)
+        await self._receive(msg)
 
     async def _receive(self, msg: dict[str, Any]) -> None:
         ev_type = msg.get("type")
