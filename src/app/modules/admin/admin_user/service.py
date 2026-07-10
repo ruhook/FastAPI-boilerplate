@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.auth_sessions import create_refresh_session, revoke_account_refresh_sessions
 from ....core.config import EnvironmentOption, settings
 from ....core.exceptions.http_exceptions import (
     DuplicateValueException,
@@ -312,8 +313,13 @@ async def update_admin_account(
     await ensure_role_exists(db, payload.role_id)
 
     update_data = build_admin_user_update_values(payload, existing_data=account.data)
+    should_revoke_sessions = bool(payload.password) or (
+        payload.status == AdminAccountStatus.DISABLED.value and account.status != AdminAccountStatus.DISABLED.value
+    )
     if payload.password:
         update_data["hashed_password"] = get_password_hash(payload.password)
+    if should_revoke_sessions:
+        update_data["token_version"] = account.token_version + 1
     if account.is_superuser and "status" in update_data:
         raise ForbiddenException("Superuser account status cannot be changed.")
     if (
@@ -327,6 +333,13 @@ async def update_admin_account(
         object={**update_data, "updated_at": datetime.now(UTC)},
         id=account_id,
     )
+    if should_revoke_sessions:
+        await revoke_account_refresh_sessions(
+            db,
+            portal="admin",
+            account_id=account_id,
+            reason="account_security_changed",
+        )
     refreshed = await get_account_with_role(db, account_id)
     if refreshed is None:
         raise NotFoundException("Admin account not found.")
@@ -356,12 +369,19 @@ async def delete_admin_account(account_id: int, current_admin: dict[str, Any], d
             "username": archived_username,
             "email": archived_email,
             "role_id": None,
+            "token_version": int(account.get("token_version", 0)) + 1,
             "data": archived_data,
             "is_deleted": True,
             "deleted_at": datetime.now(UTC),
             "updated_at": datetime.now(UTC),
         },
         id=account_id,
+    )
+    await revoke_account_refresh_sessions(
+        db,
+        portal="admin",
+        account_id=account_id,
+        reason="account_deleted",
     )
     return {"message": "Admin account deleted."}
 
@@ -404,12 +424,20 @@ async def build_admin_auth_user(
     )
 
 
-async def issue_admin_tokens(admin_user: dict[str, Any], db: AsyncSession, all_permissions: list[str]) -> AdminToken:
+async def _build_admin_token_response(
+    admin_user: dict[str, Any],
+    db: AsyncSession,
+    all_permissions: list[str],
+    *,
+    refresh_token: str,
+) -> AdminToken:
     access_expires = timedelta(minutes=ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES)
-    refresh_expires = timedelta(days=ADMIN_REFRESH_TOKEN_EXPIRE_DAYS)
-    token_payload = {"sub": admin_user["username"], "portal": "admin"}
+    token_payload = {
+        "sub": str(admin_user["id"]),
+        "portal": "admin",
+        "ver": int(admin_user.get("token_version", 0)),
+    }
     access_token = await create_access_token(data=token_payload, expires_delta=access_expires)
-    refresh_token = await create_refresh_token(data=token_payload, expires_delta=refresh_expires)
     user = await build_admin_auth_user(admin_user, db, all_permissions)
     return AdminToken(
         access_token=access_token,
@@ -420,10 +448,40 @@ async def issue_admin_tokens(admin_user: dict[str, Any], db: AsyncSession, all_p
     )
 
 
+async def issue_admin_tokens(
+    admin_user: dict[str, Any],
+    db: AsyncSession,
+    all_permissions: list[str],
+    *,
+    user_agent: str | None = None,
+) -> AdminToken:
+    if int(admin_user["id"]) == LOCAL_DEV_AUTO_LOGIN_ADMIN_ID:
+        refresh_expires = timedelta(days=ADMIN_REFRESH_TOKEN_EXPIRE_DAYS)
+        refresh_token = await create_refresh_token(
+            data={"sub": "0", "portal": "admin", "ver": 0},
+            expires_delta=refresh_expires,
+        )
+    else:
+        issued_refresh = await create_refresh_session(
+            db,
+            portal="admin",
+            account_id=int(admin_user["id"]),
+            user_agent=user_agent,
+        )
+        refresh_token = issued_refresh.token
+    return await _build_admin_token_response(
+        admin_user,
+        db,
+        all_permissions,
+        refresh_token=refresh_token,
+    )
+
+
 async def login_admin_user(
     payload: AdminLoginRequest,
     db: AsyncSession,
     all_permissions: list[str],
+    user_agent: str | None = None,
 ) -> AdminToken:
     if is_local_dev_auto_login_admin(payload.username_or_email):
         return await issue_local_dev_auto_login_admin_tokens(db, all_permissions)
@@ -447,7 +505,7 @@ async def login_admin_user(
         target_id=refreshed_user["id"],
         data={"username": refreshed_user["username"]},
     )
-    return await issue_admin_tokens(refreshed_user, db, all_permissions)
+    return await issue_admin_tokens(refreshed_user, db, all_permissions, user_agent=user_agent)
 
 
 async def refresh_admin_user_tokens(
@@ -458,8 +516,12 @@ async def refresh_admin_user_tokens(
 ) -> AdminToken:
     if admin_user is None or admin_user["status"] != "enabled":
         raise UnauthorizedException("Admin not authenticated.")
-    _ = refresh_token
-    return await issue_admin_tokens(admin_user, db, all_permissions)
+    return await _build_admin_token_response(
+        admin_user,
+        db,
+        all_permissions,
+        refresh_token=refresh_token,
+    )
 
 
 async def change_current_admin_password(
@@ -478,9 +540,16 @@ async def change_current_admin_password(
         db=db,
         object={
             "hashed_password": get_password_hash(payload.new_password),
+            "token_version": int(account.get("token_version", 0)) + 1,
             "updated_at": datetime.now(UTC),
         },
         id=current_admin["id"],
+    )
+    await revoke_account_refresh_sessions(
+        db,
+        portal="admin",
+        account_id=int(current_admin["id"]),
+        reason="password_changed",
     )
     await create_admin_audit_log(
         db=db,

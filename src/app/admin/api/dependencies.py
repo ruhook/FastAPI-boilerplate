@@ -26,16 +26,15 @@ def _is_assessment_reviewer_only(current_admin: dict[str, Any]) -> bool:
     )
 
 
-async def _get_admin_from_subject(
-    username_or_email: str,
+async def _get_admin_by_id(
+    account_id: int,
     db: AsyncSession,
 ) -> dict[str, Any] | None:
-    lookup_key = "email" if "@" in username_or_email else "username"
     return await crud_admin_users.get(
         db=db,
+        id=account_id,
         is_deleted=False,
         schema_to_select=AdminUserDBRead,
-        **{lookup_key: username_or_email},
     )
 
 
@@ -47,7 +46,7 @@ async def get_current_admin_user(
     if token_data is None or token_data.portal != "admin":
         raise UnauthorizedException("Admin not authenticated.")
 
-    if is_local_dev_auto_login_admin(token_data.username_or_email):
+    if token_data.account_id == 0 and is_local_dev_auto_login_admin("HaokangImport"):
         user = build_local_dev_auto_login_admin()
         return {
             **user,
@@ -55,9 +54,12 @@ async def get_current_admin_user(
             "role_name": "超级管理员",
         }
 
-    user = await _get_admin_from_subject(token_data.username_or_email, db=db)
+    user = await _get_admin_by_id(token_data.account_id, db=db)
     if user is None:
         raise UnauthorizedException("Admin not authenticated.")
+
+    if int(user.get("token_version", 0)) != token_data.token_version:
+        raise UnauthorizedException("Admin session is no longer valid.")
 
     if user["status"] != "enabled":
         raise ForbiddenException("Admin account is disabled.")

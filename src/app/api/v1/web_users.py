@@ -7,13 +7,14 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.auth_sessions import revoke_account_refresh_sessions
 from ...core.config import settings
-from ..dependencies import get_current_user
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import BadRequestException, DuplicateValueException
 from ...core.passwords import validate_password_strength
 from ...core.security import get_password_hash
 from ...core.utils.cache import async_get_redis
+from ...modules.referral.service import create_referral_from_code
 from ...modules.user.crud import crud_users
 from ...modules.user.model import User
 from ...modules.user.register_verification_service import (
@@ -23,8 +24,8 @@ from ...modules.user.register_verification_service import (
     verify_password_reset_verification_code,
     verify_register_verification_code,
 )
-from ...modules.referral.service import create_referral_from_code
 from ...modules.user.schema import UserAuth, UserCreateInternal, UserRead
+from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/user", tags=["web-user"])
 
@@ -217,7 +218,14 @@ async def confirm_password_reset(
         raise BadRequestException("No candidate account was found for this email.")
 
     user.hashed_password = get_password_hash(payload.password)
-    await db.commit()
+    user.token_version += 1
+    await revoke_account_refresh_sessions(
+        db,
+        portal="web",
+        account_id=user.id,
+        reason="password_reset",
+    )
+    await db.flush()
     return {"message": "Password reset successfully."}
 
 

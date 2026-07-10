@@ -2,29 +2,40 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.db.database import async_get_db
 from ..core.exceptions.http_exceptions import UnauthorizedException
 from ..core.security import TokenType, oauth2_scheme, verify_token
-from ..modules.user.crud import crud_users
+from ..modules.user.model import User
 from ..modules.user.schema import UserAuth
 
 logger = logging.getLogger(__name__)
 
 
-async def _get_web_user_from_subject(
-    username_or_email: str,
+async def _get_web_user_by_id(
+    account_id: int,
     db: AsyncSession,
-    schema_to_select: type[UserAuth],
-) -> dict[str, Any] | None:
-    lookup_key = "email" if "@" in username_or_email else "username"
-    return await crud_users.get(
-        db=db,
-        is_deleted=False,
-        schema_to_select=schema_to_select,
-        **{lookup_key: username_or_email},
+) -> User | None:
+    result = await db.execute(
+        select(User).where(
+            User.id == account_id,
+            User.is_deleted.is_(False),
+        )
     )
+    return result.scalar_one_or_none()
+
+
+def _serialize_authenticated_user(user: User) -> dict[str, Any]:
+    return UserAuth(
+        id=user.id,
+        name=user.name,
+        username=user.username,
+        email=user.email,
+        profile_image_url=user.profile_image_url,
+        data=user.data or {},
+    ).model_dump()
 
 
 async def _get_authorization_token(request: Request, db: AsyncSession) -> tuple[str, Any]:
@@ -50,10 +61,10 @@ async def get_current_user(
     if token_data is None or token_data.portal == "admin":
         raise UnauthorizedException("User not authenticated.")
 
-    user = await _get_web_user_from_subject(token_data.username_or_email, db=db, schema_to_select=UserAuth)
+    user = await _get_web_user_by_id(token_data.account_id, db=db)
 
-    if user:
-        return user
+    if user and user.token_version == token_data.token_version:
+        return _serialize_authenticated_user(user)
 
     raise UnauthorizedException("User not authenticated.")
 
@@ -71,7 +82,10 @@ async def get_optional_user(request: Request, db: AsyncSession = Depends(async_g
         if token_data.portal == "admin":
             return None
 
-        return await _get_web_user_from_subject(token_data.username_or_email, db=db, schema_to_select=UserAuth)
+        user = await _get_web_user_by_id(token_data.account_id, db=db)
+        if user is None or user.token_version != token_data.token_version:
+            return None
+        return _serialize_authenticated_user(user)
 
     except HTTPException as http_exc:
         if http_exc.status_code != 401:

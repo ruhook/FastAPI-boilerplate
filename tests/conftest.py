@@ -28,6 +28,7 @@ from src.app.modules.admin.mail_template.model import MailTemplate
 from src.app.modules.admin.mail_template_category.model import MailTemplateCategory
 from src.app.modules.admin.role.model import Role
 from src.app.modules.assets.model import Asset
+from src.app.modules.auth_refresh_session.model import AuthRefreshSession
 from src.app.modules.candidate_application.model import CandidateApplication
 from src.app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
 from src.app.modules.candidate_internal_notification.model import CandidateInternalNotification
@@ -96,6 +97,7 @@ def _env_flag(name: str) -> bool:
 
 async def _clear_tables() -> None:
     async with local_session() as session:
+        await session.execute(delete(AuthRefreshSession))
         await session.execute(delete(CandidateInternalNotification))
         await session.execute(delete(AdminInternalNotification))
         await session.execute(delete(PaymentRecord))

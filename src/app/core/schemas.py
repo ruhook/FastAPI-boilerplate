@@ -1,6 +1,6 @@
 import uuid as uuid_pkg
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_serializer
 from uuid6 import uuid7
@@ -66,5 +66,8 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    username_or_email: str
-    portal: str | None = None
+    account_id: int = Field(ge=0)
+    portal: Literal["web", "admin"]
+    token_version: int = Field(ge=0)
+    token_id: str = Field(min_length=1)
+    issued_at: int

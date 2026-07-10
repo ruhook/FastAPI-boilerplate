@@ -86,6 +86,8 @@ REDIS_CACHE_PORT=6379
 
 `ENABLE_LOCAL_AUTH_BYPASS=true` 时，可以使用用户名 `HaokangImport` 和任意非空密码登录 Admin。它是进程内虚拟超级管理员，不会写入数据库；`/me` 和 refresh 仍可正常使用。关闭该开关后，登录立即回到真实数据库账号校验。
 
+这个虚拟管理员是服务端 refresh session 的唯一例外：为了保持本地无数据库免登录，它的 refresh 仍是仅限 local 的签名 token，并且每次验证都会再次检查 bypass 开关。普通 Web/Admin 账号全部使用数据库中的单次轮换 refresh session。
+
 如果确实需要数据库中的固定本地管理员，可以仅在 `ENVIRONMENT=local` 时显式设置 `ENABLE_LOCAL_ADMIN_BOOTSTRAP=true`。这个开关与虚拟免登录相互独立。
 
 本地需要创建或发送邮件账号时，还要生成一个 Fernet key：

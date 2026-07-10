@@ -196,6 +196,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 Do not change that key without a credential re-encryption procedure: existing SMTP credentials depend on it. Mail-account read APIs expose only `has_auth_secret`; they never return the SMTP authorization code. See [docs/deployment-zh.md](docs/deployment-zh.md) for the migration and credential-rotation rollout.
 
+Normal Web/Admin access tokens expire after 15 minutes and carry the immutable account id plus account token version. Refresh tokens are single-use opaque values; only their SHA-256 hashes are stored, and each refresh rotates the token. Password reset/change, Admin disable/delete, logout, and detected refresh replay revoke server-side sessions. Deploying this contract intentionally requires all existing users to log in once again.
+
 ## Common tasks
 
 ```bash

@@ -140,19 +140,41 @@ async def test_admin_refresh_and_logout_blacklists_refresh_token(
     assert refresh_data["access_token"]
     assert refresh_data["refresh_token"]
 
+    replay_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": login_data["refresh_token"]},
+    )
+    assert replay_response.status_code == 401, replay_response.text
+
+    family_revoked_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_data["refresh_token"]},
+    )
+    assert family_revoked_response.status_code == 401, family_revoked_response.text
+
+    second_login_response = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username_or_email": superadmin_credentials["username"],
+            "password": superadmin_credentials["password"],
+        },
+    )
+    assert second_login_response.status_code == 200, second_login_response.text
+    second_login_data = second_login_response.json()
+
     logout_response = await client.post(
         "/api/v1/auth/logout",
-        headers={"Authorization": f"Bearer {refresh_data['access_token']}"},
-        json={"refresh_token": refresh_data["refresh_token"]},
+        headers={"Authorization": f"Bearer {second_login_data['access_token']}"},
+        json={"refresh_token": second_login_data["refresh_token"]},
     )
     assert logout_response.status_code == 200, logout_response.text
     assert logout_response.json()["message"] == "Logged out successfully."
 
     refresh_again_response = await client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": refresh_data["refresh_token"]},
+        json={"refresh_token": second_login_data["refresh_token"]},
     )
-    assert refresh_again_response.status_code == 200, refresh_again_response.text
+    assert refresh_again_response.status_code == 401, refresh_again_response.text
 
 
 async def test_admin_can_change_password_and_write_audit_log(

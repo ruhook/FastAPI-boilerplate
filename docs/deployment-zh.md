@@ -111,6 +111,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 这个 key 用于解密数据库中的 SMTP 凭据，不能在普通发布中随意更换。邮件账号的查询接口只返回 `has_auth_secret`，不会再返回 SMTP 授权码。
 
+Web/Admin access token 默认有效期均为 15 分钟。普通 refresh token 不再是 JWT，而是只在客户端出现的随机值；数据库仅保存 SHA-256 哈希，并在每次 refresh 时单次轮换。密码修改/重置、Admin 禁用/删除和 refresh 重放检测会撤销对应会话。
+
 仓库历史中曾出现过候选人注册邮件的 SMTP 授权码。上线前必须在邮件服务商后台撤销并重新生成该授权码，再通过 `CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET` 注入；只从当前代码删除旧值不等于完成轮换。
 
 首次管理员账号不再从 `.env` 读取，而是通过脚本运行时交互输入。
@@ -254,6 +256,8 @@ uv run python -m src.scripts.encrypt_mail_account_credentials
 ```
 
 如果存在独立事件/邮件 worker，也必须先升级并重启到新版本，再运行加密命令。迁移命令可以重跑：已经有密文或没有旧明文的记录会跳过。执行后请验证发信链路，并妥善备份 `MAIL_CREDENTIAL_ENCRYPTION_KEY`；丢失该 key 时，现有 SMTP 凭据无法恢复，只能重新录入。
+
+`20260710_000041` 会新增账户 token version 和服务端 refresh session 表。新版本拒绝旧的用户名型 JWT，因此这次发布后 Web/Admin 用户都需要重新登录一次，这是预期的安全切换。发布前应告知使用方，并确认前端会保存 refresh 返回的新值，而不是继续复用旧 refresh token。
 
 ## 12. 建议
 

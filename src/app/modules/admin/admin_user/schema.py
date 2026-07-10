@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from ....core.passwords import validate_admin_password
 from ....core.schemas import PersistentDeletion, TimestampSchema
-from .const import AdminAccountStatus, DEFAULT_ADMIN_PROFILE_IMAGE_URL
+from .const import DEFAULT_ADMIN_PROFILE_IMAGE_URL, AdminAccountStatus
 
 
 def generate_temporary_password(length: int = 12) -> str:
@@ -57,6 +57,7 @@ class AdminUserReadBase(BaseModel):
 
 
 class AdminUserDBRead(AdminUserReadBase):
+    token_version: int = 0
     data: dict[str, Any] = Field(default_factory=dict)
 
 

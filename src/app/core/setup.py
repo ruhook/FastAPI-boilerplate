@@ -25,6 +25,7 @@ from ..modules.admin.mail_template.model import MailTemplate
 from ..modules.admin.mail_template_category.model import MailTemplateCategory
 from ..modules.admin.role.model import Role
 from ..modules.assets.model import Asset
+from ..modules.auth_refresh_session.model import AuthRefreshSession
 from ..modules.candidate_application.model import CandidateApplication
 from ..modules.candidate_application_field_value.model import CandidateApplicationFieldValue
 from ..modules.job.model import Job
@@ -60,6 +61,7 @@ REGISTERED_MODELS = (
     Job,
     MailAccount,
     Asset,
+    AuthRefreshSession,
     MailTemplateCategory,
     MailTemplate,
     MailSignature,

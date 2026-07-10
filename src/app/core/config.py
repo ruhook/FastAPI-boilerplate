@@ -18,9 +18,9 @@ class AppSettings(BaseSettings):
 class CryptSettings(BaseSettings):
     SECRET_KEY: SecretStr = SecretStr("secret-key")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 15
-    ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30
+    ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     ADMIN_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
 

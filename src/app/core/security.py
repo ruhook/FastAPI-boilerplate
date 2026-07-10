@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
+from uuid import uuid4
 
 import bcrypt
 from fastapi.security import OAuth2PasswordBearer
@@ -75,22 +76,38 @@ async def authenticate_admin_user(
 
 async def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
+    now = datetime.now(UTC).replace(tzinfo=None)
     if expires_delta:
-        expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "token_type": TokenType.ACCESS})
+        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": now,
+            "jti": str(uuid4()),
+            "token_type": TokenType.ACCESS,
+        }
+    )
     encoded_jwt: str = jwt.encode(to_encode, SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
 async def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
+    now = datetime.now(UTC).replace(tzinfo=None)
     if expires_delta:
-        expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "token_type": TokenType.REFRESH})
+        expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update(
+        {
+            "exp": expire,
+            "iat": now,
+            "jti": str(uuid4()),
+            "token_type": TokenType.REFRESH,
+        }
+    )
     encoded_jwt: str = jwt.encode(to_encode, SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -111,13 +128,37 @@ async def verify_token(token: str, expected_token_type: TokenType) -> TokenData 
     """
     try:
         payload = jwt.decode(token, SECRET_KEY.get_secret_value(), algorithms=[ALGORITHM])
-        username_or_email: str | None = payload.get("sub")
-        token_type: str | None = payload.get("token_type")
+        subject = payload.get("sub")
+        portal = payload.get("portal")
+        token_type = payload.get("token_type")
+        token_version = payload.get("ver")
+        issued_at = payload.get("iat")
+        token_id = payload.get("jti")
 
-        if username_or_email is None or token_type != expected_token_type:
+        if (
+            token_type != expected_token_type.value
+            or portal not in {"web", "admin"}
+            or not isinstance(subject, str)
+            or not subject.isdigit()
+            or not isinstance(token_version, int)
+            or token_version < 0
+            or not isinstance(issued_at, int)
+            or not isinstance(token_id, str)
+            or not token_id
+        ):
             return None
 
-        return TokenData(username_or_email=username_or_email, portal=payload.get("portal"))
+        account_id = int(subject)
+        if account_id == 0 and portal != "admin":
+            return None
+
+        return TokenData(
+            account_id=account_id,
+            portal=portal,
+            token_version=token_version,
+            token_id=token_id,
+            issued_at=issued_at,
+        )
 
     except JWTError:
         return None
