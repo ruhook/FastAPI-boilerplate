@@ -202,6 +202,11 @@ class AssetStorageSettings(BaseSettings):
         "assets",
     )
     ASSET_STORAGE_KEY_PREFIX: str = "hr-assets"
+    ASSET_MAX_UPLOAD_BYTES: int = 25 * 1024 * 1024
+    ASSET_UPLOAD_CHUNK_BYTES: int = 1024 * 1024
+    ASSET_BATCH_MAX_FILES: int = 50
+    ASSET_BATCH_MAX_BYTES: int = 100 * 1024 * 1024
+    ASSET_ZIP_SPOOL_MAX_BYTES: int = 8 * 1024 * 1024
 
 
 class AliyunOSSSettings(BaseSettings):

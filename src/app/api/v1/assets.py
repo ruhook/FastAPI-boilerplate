@@ -1,17 +1,17 @@
-from urllib.parse import quote
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import NotFoundException
-from ...modules.job_progress.const import JobProgressDataKey
 from ...modules.assets.schema import AssetRead, AssetUploadPayload
 from ...modules.assets.service import get_asset, get_asset_content, upload_asset
+from ...modules.job_progress.const import JobProgressDataKey
+from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/assets", tags=["web-assets"])
 

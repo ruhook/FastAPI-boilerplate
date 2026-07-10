@@ -98,6 +98,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 将输出写入 `src/.env` 的 `MAIL_CREDENTIAL_ENCRYPTION_KEY`。邮件账号的 SMTP 授权码是只写字段：创建/更新时提交，查询时只会看到 `has_auth_secret=true|false`。
 
+本地资产默认写入 `ASSET_STORAGE_DIR`。前端拿到的始终是需要登录态的预览/下载 API，不是底层文件路径；默认单文件上限为 25 MiB，批量 ZIP 最多 50 个文件、未压缩内容总计 100 MiB，这些值都可以在 `src/.env` 中调整。
+
 ## 数据库初始化
 
 当前项目不会自动创建数据库本身。

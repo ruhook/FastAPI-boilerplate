@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 import re
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from .model import Asset
 from .schema import AssetRead, AssetUploadPayload
 
 DOCX_NAMESPACE = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+logger = logging.getLogger(__name__)
 
 
 def _using_aliyun_oss() -> bool:
@@ -51,21 +53,7 @@ def _get_oss_bucket() -> oss2.Bucket:
     return oss2.Bucket(auth, endpoint, bucket_name)
 
 
-def _normalize_oss_endpoint(endpoint: str) -> tuple[str, str]:
-    cleaned = endpoint.strip().rstrip("/")
-    if cleaned.startswith("https://"):
-        return "https", cleaned.removeprefix("https://")
-    if cleaned.startswith("http://"):
-        return "http", cleaned.removeprefix("http://")
-    return "https", cleaned
-
-
 def _build_public_asset_url(asset: Asset) -> str:
-    if _using_aliyun_oss():
-        scheme, host = _normalize_oss_endpoint(settings.ALIYUN_OSS_ENDPOINT)
-        bucket_name = settings.ALIYUN_OSS_BUCKET.strip()
-        if host and bucket_name:
-            return f"{scheme}://{bucket_name}.{host}/{asset.storage_key}"
     return f"/api/v1/assets/{asset.id}/preview"
 
 
@@ -77,10 +65,20 @@ def get_asset_storage_root() -> Path:
     return root
 
 
+def _get_local_storage_path(storage_key: str) -> Path:
+    root = get_asset_storage_root().resolve()
+    path = (root / storage_key).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise RuntimeError("Asset storage key escapes the configured storage directory.") from None
+    return path
+
+
 def get_asset_file_path(asset: Asset) -> Path:
     if _using_aliyun_oss():
         raise RuntimeError("Local asset file path is unavailable when using Aliyun OSS storage.")
-    return get_asset_storage_root() / asset.storage_key
+    return _get_local_storage_path(asset.storage_key)
 
 
 def store_asset_content(*, storage_key: str, content: bytes, mime_type: str) -> None:
@@ -95,9 +93,16 @@ def store_asset_content(*, storage_key: str, content: bytes, mime_type: str) -> 
         )
         return
 
-    path = get_asset_storage_root() / storage_key
+    path = _get_local_storage_path(storage_key)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
+
+
+def delete_asset_content(storage_key: str) -> None:
+    if _using_aliyun_oss():
+        _get_oss_bucket().delete_object(storage_key)
+        return
+    _get_local_storage_path(storage_key).unlink(missing_ok=True)
 
 
 def read_asset_content(asset: Asset) -> bytes:
@@ -109,6 +114,27 @@ def read_asset_content(asset: Asset) -> bytes:
     if not path.exists():
         raise NotFoundException("Asset file not found.")
     return path.read_bytes()
+
+
+async def read_upload_content_bounded(
+    upload: UploadFile,
+    *,
+    max_bytes: int | None = None,
+    chunk_bytes: int | None = None,
+) -> bytes:
+    resolved_max_bytes = max_bytes or settings.ASSET_MAX_UPLOAD_BYTES
+    resolved_chunk_bytes = chunk_bytes or settings.ASSET_UPLOAD_CHUNK_BYTES
+    if resolved_max_bytes <= 0 or resolved_chunk_bytes <= 0:
+        raise RuntimeError("Asset upload limits must be positive integers.")
+
+    content = bytearray()
+    while True:
+        chunk = await upload.read(resolved_chunk_bytes)
+        if not chunk:
+            return bytes(content)
+        content.extend(chunk)
+        if len(content) > resolved_max_bytes:
+            raise BadRequestException(f"Uploaded file is too large. Maximum size is {resolved_max_bytes} bytes.")
 
 
 def serialize_asset(asset: Asset) -> dict[str, Any]:
@@ -203,7 +229,7 @@ async def upload_asset(
     upload: UploadFile,
 ) -> dict[str, Any]:
     filename = (upload.filename or "").strip() or "asset"
-    content = await upload.read()
+    content = await read_upload_content_bounded(upload)
     if not content:
         raise BadRequestException("Uploaded file is empty.")
 
@@ -223,9 +249,16 @@ async def upload_asset(
         file_size=len(content),
         data={"suffix": suffix.lstrip(".").lower()},
     )
-    db.add(asset)
-    await db.flush()
-    await db.refresh(asset)
+    try:
+        db.add(asset)
+        await db.flush()
+        await db.refresh(asset)
+    except Exception:
+        try:
+            delete_asset_content(storage_key)
+        except Exception:
+            logger.exception("Failed to remove orphaned asset content after database failure.")
+        raise
     return serialize_asset(asset)
 
 
@@ -240,6 +273,10 @@ async def create_asset_from_bytes(
 ) -> Asset:
     if not content:
         raise BadRequestException("Uploaded file is empty.")
+    if len(content) > settings.ASSET_MAX_UPLOAD_BYTES:
+        raise BadRequestException(
+            f"Uploaded file is too large. Maximum size is {settings.ASSET_MAX_UPLOAD_BYTES} bytes."
+        )
     resolved_name = (original_name or "").strip() or "asset"
     resolved_mime_type = mime_type or mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
     storage_key = _build_asset_storage_key(payload=payload, original_name=resolved_name)
@@ -259,9 +296,16 @@ async def create_asset_from_bytes(
         file_size=len(content),
         data=asset_data,
     )
-    db.add(asset)
-    await db.flush()
-    await db.refresh(asset)
+    try:
+        db.add(asset)
+        await db.flush()
+        await db.refresh(asset)
+    except Exception:
+        try:
+            delete_asset_content(storage_key)
+        except Exception:
+            logger.exception("Failed to remove orphaned asset content after database failure.")
+        raise
     return asset
 
 

@@ -92,6 +92,13 @@ MYSQL_DB="hr_server"
 REDIS_CACHE_HOST="127.0.0.1"
 REDIS_CACHE_PORT=6379
 
+ASSET_STORAGE_PROVIDER="aliyun_oss"
+ASSET_MAX_UPLOAD_BYTES=26214400
+ASSET_UPLOAD_CHUNK_BYTES=1048576
+ASSET_BATCH_MAX_FILES=50
+ASSET_BATCH_MAX_BYTES=104857600
+ASSET_ZIP_SPOOL_MAX_BYTES=8388608
+
 ```
 
 生产环境约束：
@@ -112,6 +119,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 这个 key 用于解密数据库中的 SMTP 凭据，不能在普通发布中随意更换。邮件账号的查询接口只返回 `has_auth_secret`，不会再返回 SMTP 授权码。
 
 Web/Admin access token 默认有效期均为 15 分钟。普通 refresh token 不再是 JWT，而是只在客户端出现的随机值；数据库仅保存 SHA-256 哈希，并在每次 refresh 时单次轮换。密码修改/重置、Admin 禁用/删除和 refresh 重放检测会撤销对应会话。
+
+资产接口只返回带鉴权的 `/api/v1/assets/{id}/preview` 和 `/download` 地址，不会把 OSS 对象地址或 storage key 返回给前端。OSS bucket 应保持私有；上传按 `ASSET_UPLOAD_CHUNK_BYTES` 分块读取并受总大小限制，批量 ZIP 同时受文件数和未压缩总字节限制，压缩结果超过内存 spool 阈值后会自动落到临时文件。
 
 仓库历史中曾出现过候选人注册邮件的 SMTP 授权码。上线前必须在邮件服务商后台撤销并重新生成该授权码，再通过 `CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET` 注入；只从当前代码删除旧值不等于完成轮换。
 

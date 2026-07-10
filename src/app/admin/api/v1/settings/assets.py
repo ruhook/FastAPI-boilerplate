@@ -1,15 +1,16 @@
-from io import BytesIO
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .....core.config import settings
 from .....core.db.database import async_get_db
 from .....core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from .....modules.admin.role.const import is_assessment_reviewer_only_permissions
@@ -251,27 +252,43 @@ async def download_assets_as_zip(
     asset_ids = list(dict.fromkeys(asset_id for asset_id in payload.asset_ids if asset_id > 0))
     if not asset_ids:
         raise BadRequestException("No assets selected.")
-    if len(asset_ids) > 200:
+    if len(asset_ids) > settings.ASSET_BATCH_MAX_FILES:
         raise BadRequestException("Too many assets selected.")
 
-    output = BytesIO()
+    output = SpooledTemporaryFile(max_size=settings.ASSET_ZIP_SPOOL_MAX_BYTES, mode="w+b")
     used_names: set[str] = set()
-    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
-        for asset_id in asset_ids:
-            asset_payload = await get_asset(asset_id, db)
-            await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
-            asset, content = await get_asset_content(asset_id, db)
-            if payload.format == "pdf":
-                content = build_asset_pdf_export(asset, content)
-                filename = f"{asset.original_name.rsplit('.', 1)[0]}.pdf"
-            else:
-                filename = asset.original_name
-            archive.writestr(_safe_zip_member_name(filename, used_names), content)
+    total_content_bytes = 0
+    try:
+        with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+            for asset_id in asset_ids:
+                asset_payload = await get_asset(asset_id, db)
+                await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
+                asset, content = await get_asset_content(asset_id, db)
+                if payload.format == "pdf":
+                    content = build_asset_pdf_export(asset, content)
+                    filename = f"{asset.original_name.rsplit('.', 1)[0]}.pdf"
+                else:
+                    filename = asset.original_name
+                total_content_bytes += len(content)
+                if total_content_bytes > settings.ASSET_BATCH_MAX_BYTES:
+                    raise BadRequestException("Selected assets are too large for one archive.")
+                archive.writestr(_safe_zip_member_name(filename, used_names), content)
+        output.seek(0)
+    except Exception:
+        output.close()
+        raise
 
     filename = (payload.filename or "attachments.zip").strip() or "attachments.zip"
     if not filename.lower().endswith(".zip"):
         filename = f"{filename}.zip"
-    response = Response(content=output.getvalue(), media_type="application/zip")
+    def iter_archive():
+        try:
+            while chunk := output.read(1024 * 1024):
+                yield chunk
+        finally:
+            output.close()
+
+    response = StreamingResponse(iter_archive(), media_type="application/zip")
     response.headers["Content-Disposition"] = build_content_disposition("attachment", filename)
     return response
 
