@@ -10,6 +10,7 @@ The existing `web` and `admin` application entrypoints, MySQL database, Redis de
 
 - Work on the current branch; do not create a new branch or worktree.
 - Existing users and administrators may be required to sign in again once session versioning is deployed.
+- Preserve passwordless local-development administrator access behind an explicit local-only feature flag.
 - Existing SMTP credentials may be migrated with an encryption key or re-entered when automatic migration is not possible.
 - Preserve current public API paths unless a path is intrinsically unsafe. Response schemas may stop returning secret values.
 - Preserve the `web`/`admin` split and shared database.
@@ -34,7 +35,7 @@ This approach is preferred over a minimal patch because a minimal patch would le
 
 The umbrella design is delivered through separate, sequential implementation plans. Each subproject must be tested and deployable before the next one begins:
 
-1. **Security baseline:** fail-closed configuration, explicit local bootstrap, log redaction, secret removal, encrypted/write-only SMTP credentials, and candidate presentation safe fallback.
+1. **Security baseline:** fail-closed configuration, explicit local authentication/bootstrap flags, log redaction, secret removal, encrypted/write-only SMTP credentials, and candidate presentation safe fallback.
 2. **Revocable sessions:** immutable token subjects, account token versions, refresh-session rotation, logout, password-change/reset revocation, and account-disable revocation.
 3. **Reliable events:** transactional outbox, dispatcher leases, Redis pending recovery, idempotent handlers, and mail delivery state hardening.
 4. **Transactional recruitment:** request-owned transactions, deterministic row locking, optimistic versions, transition command boundaries, and concurrency tests.
@@ -51,12 +52,14 @@ Cross-subproject interfaces defined here—token versions, outbox event ids, rec
 
 - `SECRET_KEY` is a known placeholder or too short.
 - wildcard CORS is enabled while credentials are allowed.
-- local automatic administrator login or bootstrap is enabled.
+- local automatic administrator login or bootstrap is enabled in a non-local environment.
 - candidate verification is enabled without complete SMTP settings.
 - Aliyun OSS is selected without complete credentials and bucket configuration.
 - the SMTP credential encryption key is missing.
 
-Local developer conveniences will require an explicit `ENABLE_LOCAL_ADMIN_BOOTSTRAP=true`. `ENVIRONMENT=local` alone will no longer create or authenticate a virtual superuser. The default for the new flag is `false`.
+Local passwordless administrator access is preserved, but it requires both `ENVIRONMENT=local` and `ENABLE_LOCAL_AUTH_BYPASS=true`. `ENVIRONMENT=local` alone no longer activates the bypass. The setting default is `false`; the local `.env.example` may enable it explicitly so the existing development workflow remains one-step. Production validation rejects the bypass regardless of any other setting.
+
+Database-backed local administrator creation is controlled independently by `ENABLE_LOCAL_ADMIN_BOOTSTRAP`. This prevents the passwordless virtual identity and persistent seed account from being coupled accidentally.
 
 ### Request log redaction
 
@@ -108,7 +111,7 @@ Web refresh tokens remain in `HttpOnly`, `Secure` cookies outside local developm
 
 ### Local admin behavior
 
-Local bootstrap creates a real database administrator only when the explicit bootstrap flag is enabled. It never resets an existing administrator password during normal startup. Virtual “any password” authentication is removed.
+Local bootstrap creates a real database administrator only when the explicit bootstrap flag is enabled. The virtual development identity remains available when the separate local-auth bypass flag is enabled. Tokens for that identity are accepted only while the process is both local and explicitly bypass-enabled; changing either condition invalidates further authentication and refresh.
 
 ## 3. Transactional Events And Mail Delivery
 
@@ -232,7 +235,8 @@ Each stage is independently reversible at the application level until destructiv
 
 ### Unit tests
 
-- Production settings reject unsafe defaults and wildcard credentialed CORS.
+- Production settings reject unsafe defaults, local auth/bootstrap flags, and wildcard credentialed CORS.
+- Local passwordless authentication succeeds only when its explicit bypass flag is enabled.
 - Redaction covers nested JSON, form bodies, query parameters, malformed bodies, and all secret key aliases.
 - Credential encryption round-trips, rejects tampering, and never serializes plaintext.
 - JWT validation rejects stale account token versions.

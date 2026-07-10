@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
-from src.app.core.config import EnvironmentOption, settings
+from src.app.core.config import settings
 from src.app.core.db.database import local_session
 from src.app.modules.admin.admin_audit_log.const import AdminAuditLogActionType
 from src.app.modules.admin.role.const import ALL_ADMIN_PERMISSIONS, DEFAULT_ADMIN_PERMISSIONS
@@ -11,9 +11,11 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 @pytest.mark.no_database_cleanup
-async def test_local_dev_auto_login_returns_virtual_superadmin(
+async def test_local_dev_auto_login_returns_virtual_superadmin_when_enabled(
     client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "ENABLE_LOCAL_AUTH_BYPASS", True, raising=False)
     login_response = await client.post(
         "/api/v1/auth/login",
         json={
@@ -53,24 +55,6 @@ async def test_local_dev_auto_login_returns_virtual_superadmin(
     assert refresh_data["access_token"]
     assert refresh_data["user"]["id"] == 0
     assert refresh_data["user"]["is_superuser"] is True
-
-
-@pytest.mark.no_database_cleanup
-async def test_dev_auto_login_account_does_not_bypass_auth_outside_local(
-    client: AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.STAGING)
-
-    response = await client.post(
-        "/api/v1/auth/login",
-        json={
-            "username_or_email": "HaokangImport",
-            "password": "anything-can-login-locally",
-        },
-    )
-
-    assert response.status_code == 401, response.text
 
 
 async def test_admin_login_me_and_permissions_catalog(

@@ -19,8 +19,8 @@ LOCAL_ADMIN_EMAIL = "haokang-import-admin@example.com"
 LOCAL_ADMIN_PASSWORD = "HaokangImport123!"
 
 
-def should_ensure_local_admin(environment: EnvironmentOption | str) -> bool:
-    return environment == EnvironmentOption.LOCAL or environment == EnvironmentOption.LOCAL.value
+def should_ensure_local_admin(settings: Settings) -> bool:
+    return settings.ENVIRONMENT == EnvironmentOption.LOCAL and settings.ENABLE_LOCAL_ADMIN_BOOTSTRAP
 
 
 def build_local_admin_values() -> dict[str, Any]:
@@ -88,7 +88,7 @@ async def ensure_local_admin_user(session: AsyncSession) -> AdminUser:
 
 
 async def ensure_local_admin_for_settings(settings: Settings) -> None:
-    if not should_ensure_local_admin(settings.ENVIRONMENT):
+    if not should_ensure_local_admin(settings):
         return
 
     async with local_session() as session:

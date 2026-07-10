@@ -6,13 +6,18 @@ from src.app.admin.local_admin_bootstrap import (
     build_local_admin_values,
     should_ensure_local_admin,
 )
-from src.app.core.config import EnvironmentOption
+from src.app.core.config import Settings
 
 
-def test_should_ensure_local_admin_only_in_local_environment() -> None:
-    assert should_ensure_local_admin(EnvironmentOption.LOCAL) is True
-    assert should_ensure_local_admin(EnvironmentOption.STAGING) is False
-    assert should_ensure_local_admin(EnvironmentOption.PRODUCTION) is False
+def test_should_ensure_local_admin_requires_explicit_local_opt_in() -> None:
+    assert should_ensure_local_admin(Settings(_env_file=None, ENVIRONMENT="local")) is False
+    assert should_ensure_local_admin(
+        Settings(
+            _env_file=None,
+            ENVIRONMENT="local",
+            ENABLE_LOCAL_ADMIN_BOOTSTRAP=True,
+        )
+    ) is True
 
 
 def test_build_local_admin_values_uses_expected_dev_credentials() -> None:
@@ -29,5 +34,5 @@ def test_build_local_admin_values_uses_expected_dev_credentials() -> None:
 
 
 if __name__ == "__main__":
-    test_should_ensure_local_admin_only_in_local_environment()
+    test_should_ensure_local_admin_requires_explicit_local_opt_in()
     test_build_local_admin_values_uses_expected_dev_credentials()

@@ -30,8 +30,8 @@ from ..modules.candidate_application_field_value.model import CandidateApplicati
 from ..modules.job.model import Job
 from ..modules.job_progress.model import JobProgress
 from ..modules.operation_log.model import OperationLog
-from ..modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
 from ..modules.referral.model import ReferralRecord
+from ..modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
 from ..modules.talent_profile.model import TalentProfile
 from ..modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from ..modules.user.model import User
@@ -46,8 +46,8 @@ from .config import (
 )
 from .db.database import Base
 from .db.database import async_engine as engine
-from .logger import init_logging
 from .exception_logging import register_exception_logging
+from .logger import init_logging
 from .utils import cache
 
 REGISTERED_MODELS = (
@@ -213,11 +213,12 @@ def create_application(
 
     if isinstance(settings, CORSSettings):
         allow_all_origins = settings.CORS_ORIGINS == ["*"]
+        allow_credentialed_wildcard = allow_all_origins and settings.CORS_ALLOW_CREDENTIALS
         application.add_middleware(
             CORSMiddleware,
-            allow_origins=[] if allow_all_origins else settings.CORS_ORIGINS,
-            allow_origin_regex=".*" if allow_all_origins else None,
-            allow_credentials=True,
+            allow_origins=[] if allow_credentialed_wildcard else settings.CORS_ORIGINS,
+            allow_origin_regex=".*" if allow_credentialed_wildcard else None,
+            allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
             allow_methods=settings.CORS_METHODS,
             allow_headers=settings.CORS_HEADERS,
         )

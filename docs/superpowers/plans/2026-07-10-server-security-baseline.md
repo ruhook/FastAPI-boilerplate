@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make production configuration fail closed, remove passwordless local-admin authentication, redact secrets from request logs, encrypt and stop returning SMTP credentials, and make candidate presentation fall back safely for inconsistent state.
+**Goal:** Make production configuration fail closed while preserving explicitly enabled local passwordless admin access, redact secrets from request logs, encrypt and stop returning SMTP credentials, and make candidate presentation fall back safely for inconsistent state.
 
 **Architecture:** Keep the current FastAPI modular monolith. Add focused security helpers under `src/app/core`, validate unsafe production combinations in `Settings`, keep credential encryption behind a small versioned interface, and use a forward-only Alembic migration that supports a compatibility window for existing plaintext SMTP credentials.
 
@@ -21,7 +21,7 @@
 
 ---
 
-### Task 1: Fail-closed settings and explicit local administrator bootstrap
+### Task 1: Fail-closed settings and explicit local authentication/bootstrap
 
 **Files:**
 - Create: `tests/core/test_security_config.py`
@@ -36,10 +36,11 @@
 
 **Interfaces:**
 - Produces: `Settings.validate_runtime_security() -> None`.
+- Produces: `Settings.ENABLE_LOCAL_AUTH_BYPASS: bool` with default `False`.
 - Produces: `Settings.ENABLE_LOCAL_ADMIN_BOOTSTRAP: bool` with default `False`.
 - Produces: `Settings.CORS_ALLOW_CREDENTIALS: bool` with default `True`.
 - Produces: `should_ensure_local_admin(settings: Settings) -> bool`.
-- Removes: virtual `HaokangImport` authentication that accepts arbitrary passwords.
+- Preserves: virtual `HaokangImport` authentication, gated by local environment plus the explicit bypass flag.
 
 - [ ] **Step 1: Write failing production-configuration tests**
 
@@ -58,6 +59,7 @@ def production_settings(**overrides):
         "SECRET_KEY": "production-secret-with-at-least-32-characters",
         "CORS_ORIGINS": ["https://admin.example.com"],
         "CORS_ALLOW_CREDENTIALS": True,
+        "ENABLE_LOCAL_AUTH_BYPASS": False,
         "ENABLE_LOCAL_ADMIN_BOOTSTRAP": False,
         "CANDIDATE_REGISTER_VERIFICATION_ENABLED": False,
         "ASSET_STORAGE_PROVIDER": "local",
@@ -82,6 +84,11 @@ def test_production_rejects_local_admin_bootstrap():
         production_settings(ENABLE_LOCAL_ADMIN_BOOTSTRAP=True)
 
 
+def test_production_rejects_local_auth_bypass():
+    with pytest.raises(ValidationError, match="ENABLE_LOCAL_AUTH_BYPASS"):
+        production_settings(ENABLE_LOCAL_AUTH_BYPASS=True)
+
+
 def test_production_requires_mail_credential_encryption_key():
     with pytest.raises(ValidationError, match="MAIL_CREDENTIAL_ENCRYPTION_KEY"):
         production_settings(MAIL_CREDENTIAL_ENCRYPTION_KEY="")
@@ -90,6 +97,7 @@ def test_production_requires_mail_credential_encryption_key():
 def test_local_admin_bootstrap_is_opt_in():
     settings = Settings(_env_file=None, ENVIRONMENT="local")
     assert settings.ENABLE_LOCAL_ADMIN_BOOTSTRAP is False
+    assert settings.ENABLE_LOCAL_AUTH_BYPASS is False
 ```
 
 - [ ] **Step 2: Run tests and verify red**
@@ -122,13 +130,13 @@ class CORSSettings(BaseSettings):
     CORS_ALLOW_CREDENTIALS: bool = True
 ```
 
-Add both new setting classes to `Settings`. Add an `after` model validator that returns immediately outside production and otherwise raises `ValueError` for placeholder/short secrets, credentialed wildcard CORS, enabled local bootstrap, incomplete enabled verification SMTP, incomplete OSS configuration, or missing credential encryption key when mail delivery is configured for real delivery. Remove real-looking candidate SMTP defaults and replace them with empty strings.
+Add both new setting classes to `Settings`. Add an `after` model validator that rejects either local-only flag outside the local environment, and in production raises `ValueError` for placeholder/short secrets, credentialed wildcard CORS, enabled local authentication/bootstrap, incomplete enabled verification SMTP, incomplete OSS configuration, or a missing credential encryption key. Remove real-looking candidate SMTP defaults and replace them with empty strings.
 
-In `core/setup.py`, pass `settings.CORS_ALLOW_CREDENTIALS` to `CORSMiddleware`; only use `allow_origin_regex=".*"` when credentials are disabled.
+In `core/setup.py`, pass `settings.CORS_ALLOW_CREDENTIALS` to `CORSMiddleware`. A non-credentialed wildcard is passed as `allow_origins=["*"]`; the local-only credentialed wildcard is represented by `allow_origin_regex=".*"` so responses echo a concrete origin. Production rejects that credentialed wildcard combination.
 
 - [ ] **Step 4: Write failing local-admin tests**
 
-Replace the passwordless virtual-admin test with pure behavior tests:
+Add pure behavior tests for the independent bootstrap flag and update the virtual-admin API test to cover both bypass states:
 
 ```python
 def test_local_admin_bootstrap_requires_explicit_flag():
@@ -146,7 +154,7 @@ def test_local_admin_bootstrap_never_runs_in_production():
     assert should_ensure_local_admin(settings) is False
 ```
 
-Update the API test to assert that `HaokangImport` with an arbitrary password returns `401` when no matching database account exists.
+The API tests monkeypatch the global settings flag. With `ENABLE_LOCAL_AUTH_BYPASS=True`, `HaokangImport` and an arbitrary password must return the existing virtual-superadmin token, `/me`, and refresh behavior. With the flag false, the same request returns `401` when no matching database account exists.
 
 - [ ] **Step 5: Run local-admin tests and verify red**
 
@@ -156,16 +164,17 @@ Run:
 .venv/bin/pytest -q tests/core/test_security_config.py tests/admin/test_auth.py -k "local or bootstrap or dev_auto"
 ```
 
-Expected: failures showing bootstrap depends only on environment and virtual authentication still succeeds.
+Expected: failures showing bootstrap depends only on environment and virtual authentication ignores the new flag.
 
-- [ ] **Step 6: Remove virtual auth and stop resetting local passwords**
+- [ ] **Step 6: Gate virtual auth and persistent bootstrap independently**
 
-Change `should_ensure_local_admin` to accept `Settings` and require both local environment and the explicit flag. `ensure_local_admin_user` may create a missing account, but when the account exists it must not replace `hashed_password`. Remove `is_local_dev_auto_login_admin`, `build_local_dev_auto_login_admin`, and `issue_local_dev_auto_login_admin_tokens`; remove their branches from login, refresh, and current-user dependencies.
+Change `should_ensure_local_admin` to accept `Settings` and require both local environment and the bootstrap flag. Preserve `is_local_dev_auto_login_admin`, `build_local_dev_auto_login_admin`, and `issue_local_dev_auto_login_admin_tokens`, but make the predicate require both local environment and `ENABLE_LOCAL_AUTH_BYPASS`. Login, refresh, and current-user dependencies continue using that single predicate so disabling the flag closes every virtual-user path consistently.
 
 Update `src/.env.example` with:
 
 ```env
 ENABLE_LOCAL_ADMIN_BOOTSTRAP=false
+ENABLE_LOCAL_AUTH_BYPASS=true
 CORS_ALLOW_CREDENTIALS=true
 MAIL_CREDENTIAL_ENCRYPTION_KEY=""
 ```
@@ -551,7 +560,7 @@ git commit -m "docs: document server security baseline"
 
 ## Plan Self-Review
 
-- Security-baseline spec coverage: production validation, local bootstrap, CORS, redaction, SMTP encryption/write-only responses, candidate safe fallback, migration, docs, and focused gates all have explicit tasks.
+- Security-baseline spec coverage: production validation, explicit local auth/bootstrap, CORS, redaction, SMTP encryption/write-only responses, candidate safe fallback, migration, docs, and focused gates all have explicit tasks.
 - Deferred by design: revocable sessions, transactional outbox, recruitment concurrency, asset storage, strict RBAC, SQL pagination, and full-repository type cleanup belong to later subproject plans defined in the umbrella design.
 - Type consistency: `MAIL_CREDENTIAL_ENCRYPTION_KEY`, `auth_secret_encrypted`, `has_auth_secret`, `encrypt_credential`, `decrypt_credential`, and `resolve_mail_account_auth_secret` use the same names across tasks.
 - Worktree safety: no task stages the two concurrently modified demo files.

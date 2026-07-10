@@ -1,7 +1,7 @@
 import os
 from enum import Enum
 
-from pydantic import SecretStr, computed_field
+from pydantic import SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -159,16 +159,25 @@ class MailDeliverySettings(BaseSettings):
     MAIL_DELIVERY_MODE: str | None = None
 
 
+class MailCredentialSettings(BaseSettings):
+    MAIL_CREDENTIAL_ENCRYPTION_KEY: SecretStr = SecretStr("")
+
+
+class LocalDevelopmentSettings(BaseSettings):
+    ENABLE_LOCAL_AUTH_BYPASS: bool = False
+    ENABLE_LOCAL_ADMIN_BOOTSTRAP: bool = False
+
+
 class CandidateRegisterVerificationSettings(BaseSettings):
     CANDIDATE_WEB_BASE_URL: str = "http://localhost:3002"
     CANDIDATE_REGISTER_VERIFICATION_ENABLED: bool = True
     CANDIDATE_REGISTER_VERIFICATION_SENDER_NAME: str = "T-Maxx Recruit"
-    CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL: str = "betty-recruit@t-maxx.cc"
-    CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME: str = "betty-recruit@t-maxx.cc"
-    CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST: str = "smtp.feishu.cn"
+    CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL: str = ""
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME: str = ""
+    CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST: str = ""
     CANDIDATE_REGISTER_VERIFICATION_SMTP_PORT: int = 465
     CANDIDATE_REGISTER_VERIFICATION_SMTP_SECURITY_MODE: str = "ssl"
-    CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET: SecretStr = SecretStr("iojfbFwhmtFZdh2m")
+    CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET: SecretStr = SecretStr("")
     CANDIDATE_REGISTER_VERIFICATION_SUBJECT: str = "Your verification code"
     CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS: int = 600
     CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS: int = 60
@@ -219,6 +228,7 @@ class CORSSettings(BaseSettings):
     CORS_ORIGINS: list[str] = ["*"]
     CORS_METHODS: list[str] = ["*"]
     CORS_HEADERS: list[str] = ["*"]
+    CORS_ALLOW_CREDENTIALS: bool = True
 
 
 class Settings(
@@ -231,6 +241,8 @@ class Settings(
     RedisCacheSettings,
     EventSettings,
     MailDeliverySettings,
+    MailCredentialSettings,
+    LocalDevelopmentSettings,
     CandidateRegisterVerificationSettings,
     AssetStorageSettings,
     AliyunOSSSettings,
@@ -245,6 +257,59 @@ class Settings(
         case_sensitive=True,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_runtime_security(self) -> "Settings":
+        is_local = self.ENVIRONMENT == EnvironmentOption.LOCAL
+        if self.ENABLE_LOCAL_AUTH_BYPASS and not is_local:
+            raise ValueError("ENABLE_LOCAL_AUTH_BYPASS is only allowed when ENVIRONMENT=local.")
+        if self.ENABLE_LOCAL_ADMIN_BOOTSTRAP and not is_local:
+            raise ValueError("ENABLE_LOCAL_ADMIN_BOOTSTRAP is only allowed when ENVIRONMENT=local.")
+
+        if self.ENVIRONMENT != EnvironmentOption.PRODUCTION:
+            return self
+
+        secret_key = self.SECRET_KEY.get_secret_value().strip()
+        if len(secret_key) < 32 or secret_key.lower() in {
+            "secret-key",
+            "change-this-secret-key",
+            "replace-with-a-real-secret",
+        }:
+            raise ValueError("SECRET_KEY must be a non-placeholder value of at least 32 characters in production.")
+
+        if "*" in self.CORS_ORIGINS and self.CORS_ALLOW_CREDENTIALS:
+            raise ValueError("CORS_ORIGINS cannot contain '*' when CORS_ALLOW_CREDENTIALS is enabled in production.")
+
+        if not self.MAIL_CREDENTIAL_ENCRYPTION_KEY.get_secret_value().strip():
+            raise ValueError("MAIL_CREDENTIAL_ENCRYPTION_KEY is required in production.")
+
+        if self.CANDIDATE_REGISTER_VERIFICATION_ENABLED:
+            verification_values = {
+                "CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL": self.CANDIDATE_REGISTER_VERIFICATION_SENDER_EMAIL,
+                "CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME": self.CANDIDATE_REGISTER_VERIFICATION_SMTP_USERNAME,
+                "CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST": self.CANDIDATE_REGISTER_VERIFICATION_SMTP_HOST,
+                "CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET": (
+                    self.CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET.get_secret_value()
+                ),
+            }
+            missing = [name for name, value in verification_values.items() if not value.strip()]
+            if missing:
+                raise ValueError(
+                    "Candidate registration verification SMTP settings are incomplete: " + ", ".join(missing)
+                )
+
+        if self.ASSET_STORAGE_PROVIDER.strip().lower() == "aliyun_oss":
+            oss_values = {
+                "ALIYUN_OSS_ENDPOINT": self.ALIYUN_OSS_ENDPOINT,
+                "ALIYUN_OSS_ACCESS_KEY_ID": self.ALIYUN_OSS_ACCESS_KEY_ID,
+                "ALIYUN_OSS_ACCESS_KEY_SECRET": self.ALIYUN_OSS_ACCESS_KEY_SECRET.get_secret_value(),
+                "ALIYUN_OSS_BUCKET": self.ALIYUN_OSS_BUCKET,
+            }
+            missing = [name for name, value in oss_values.items() if not value.strip()]
+            if missing:
+                raise ValueError("Aliyun OSS settings are incomplete: " + ", ".join(missing))
+
+        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property

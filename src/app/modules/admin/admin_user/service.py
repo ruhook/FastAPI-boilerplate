@@ -54,7 +54,7 @@ LOCAL_DEV_AUTO_LOGIN_ADMIN_EMAIL = "haokang-import-admin@example.com"
 
 
 def is_local_dev_auto_login_admin(username_or_email: str) -> bool:
-    if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
+    if settings.ENVIRONMENT != EnvironmentOption.LOCAL or not settings.ENABLE_LOCAL_AUTH_BYPASS:
         return False
     normalized = username_or_email.strip().lower()
     return normalized in {
