@@ -64,6 +64,10 @@ DEFAULT_CANDIDATE_NAME = "Ruan Hao Kang"
 DEFAULT_CANDIDATE_EMAIL = "712696307@qq.com"
 DEFAULT_CANDIDATE_PASSWORD = "12345678"
 CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = "Candidate Portal Demo - "
+CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION = (
+    "<p>负责葡萄牙语数据标注、内容质量检查与结果反馈，"
+    "按照项目规范完成交付，并与项目团队保持及时沟通。</p>"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -109,14 +113,11 @@ def build_rule_group(*rules: dict[str, Any], combinator: str = "and") -> dict[st
 PORTAL_JOB_DEFINITIONS = [
     {
         "key": "fresh_apply_flow",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Fresh Apply Flow",
+        "title": "待申请",
         "company_name": "TMX Fresh Flow Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": (
-            "<p>This role is intentionally left without an application so the candidate can test the "
-            "end-to-end flow from the public jobs page.</p>"
-        ),
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("9.50"),
         "compensation_max": Decimal("13.50"),
         "compensation_unit": "Per Hour",
@@ -134,14 +135,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "application_review",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Application Review",
+        "title": "申请审核中",
         "company_name": "TMX Application Review Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": (
-            "<p>This role stays in application review so the candidate can verify the passive waiting "
-            "state in Applications.</p>"
-        ),
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("8.00"),
         "compensation_max": Decimal("12.00"),
         "compensation_unit": "Per Hour",
@@ -153,11 +151,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "assessment_action_required",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Assessment Action Required",
+        "title": "待上传测试题",
         "company_name": "TMX Assessment Action Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has an assessment invitation ready so the candidate can upload a response.</p>",
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("9.00"),
         "compensation_max": Decimal("13.00"),
         "compensation_unit": "Per Hour",
@@ -175,11 +173,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "assessment_under_review",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Assessment Under Review",
+        "title": "测试题审核中",
         "company_name": "TMX Assessment Review Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has a submitted assessment waiting for B-side review.</p>",
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("10.00"),
         "compensation_max": Decimal("14.00"),
         "compensation_unit": "Per Day",
@@ -197,14 +195,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "rate_confirmation_waiting",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Rate Confirmation Waiting",
+        "title": "费率确认待通知",
         "company_name": "TMX Rate Waiting Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": (
-            "<p>This role has passed assessment review but the rate confirmation email has not been "
-            "sent yet.</p>"
-        ),
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("10.50"),
         "compensation_max": Decimal("14.50"),
         "compensation_unit": "Per Hour",
@@ -223,14 +218,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "rate_confirmation_action_required",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Rate Confirmation Action Required",
+        "title": "待查看费率说明",
         "company_name": "TMX Rate Action Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": (
-            "<p>This role has the B-side onboarding status set to 已发砍价 so the candidate can view "
-            "the email instructions.</p>"
-        ),
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("11.00"),
         "compensation_max": Decimal("15.00"),
         "compensation_unit": "Per Line",
@@ -248,11 +240,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "signed_contract_action_required",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Signed Contract Action Required",
+        "title": "待上传签署合同",
         "company_name": "TMX Contract Action Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has a draft contract ready so the candidate can upload a signed copy.</p>",
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("12.00"),
         "compensation_max": Decimal("16.00"),
         "compensation_unit": "Per Month",
@@ -270,11 +262,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "signed_contract_under_review",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Signed Contract Under Review",
+        "title": "合同审核中",
         "company_name": "TMX Contract Review Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has a signed contract submitted and waiting for B-side review.</p>",
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("12.50"),
         "compensation_max": Decimal("16.50"),
         "compensation_unit": "Per Month",
@@ -292,14 +284,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "task_group_action_required",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Task Group Action Required",
+        "title": "待查看入组说明",
         "company_name": "TMX Task Group Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": (
-            "<p>This role is active with the onboarding gift package sent so the candidate can view "
-            "the joining instructions.</p>"
-        ),
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("13.00"),
         "compensation_max": Decimal("17.00"),
         "compensation_unit": "Per Hour",
@@ -317,11 +306,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "successfully_onboarded",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Successfully Onboarded",
+        "title": "已成功入职",
         "company_name": "TMX Onboarded Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has an onboarding date so the candidate sees the completed onboarding state.</p>",
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("13.50"),
         "compensation_max": Decimal("17.50"),
         "compensation_unit": "Per Hour",
@@ -339,14 +328,11 @@ PORTAL_JOB_DEFINITIONS = [
     },
     {
         "key": "rejected",
-        "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Rejected",
+        "title": "已拒绝（申请审核阶段）",
         "company_name": "TMX Reject Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": (
-            "<p>This role is moved to rejected during the demo so the candidate can verify the "
-            "closed state.</p>"
-        ),
+        "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
         "compensation_min": Decimal("7.00"),
         "compensation_max": Decimal("10.00"),
         "compensation_unit": "Per Hour",
@@ -368,11 +354,11 @@ PORTAL_JOB_DEFINITIONS.extend(
     [
         {
             "key": "assessment_revision_required",
-            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Assessment Revision Required",
+            "title": "测试题待重新提交",
             "company_name": "TMX Assessment Revision Lab",
             "country": "Brazil",
             "work_mode": "Remote",
-            "description": "<p>This role has a submitted assessment that B-side returned for revision.</p>",
+            "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
             "compensation_min": Decimal("10.25"),
             "compensation_max": Decimal("14.25"),
             "compensation_unit": "Per Hour",
@@ -384,11 +370,11 @@ PORTAL_JOB_DEFINITIONS.extend(
         },
         {
             "key": "signed_contract_revision_required",
-            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Signed Contract Revision Required",
+            "title": "合同待重新提交",
             "company_name": "TMX Contract Revision Lab",
             "country": "Brazil",
             "work_mode": "Remote",
-            "description": "<p>This role has a signed contract that B-side returned for revision.</p>",
+            "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
             "compensation_min": Decimal("12.75"),
             "compensation_max": Decimal("16.75"),
             "compensation_unit": "Per Month",
@@ -406,11 +392,11 @@ PORTAL_JOB_DEFINITIONS.extend(
         },
         {
             "key": "onboarding_preparation",
-            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Onboarding Preparation",
+            "title": "入职准备中",
             "company_name": "TMX Onboarding Preparation Lab",
             "country": "Brazil",
             "work_mode": "Remote",
-            "description": "<p>This role has a completed contract and is waiting for onboarding instructions.</p>",
+            "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
             "compensation_min": Decimal("13.25"),
             "compensation_max": Decimal("17.25"),
             "compensation_unit": "Per Hour",
@@ -428,11 +414,11 @@ PORTAL_JOB_DEFINITIONS.extend(
         },
         {
             "key": "rejected_late_stage",
-            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Rejected From Signed Contract",
+            "title": "已拒绝（合同阶段）",
             "company_name": "TMX Late Rejection Lab",
             "country": "Brazil",
             "work_mode": "Remote",
-            "description": "<p>This role was rejected after the signed-contract stage.</p>",
+            "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
             "compensation_min": Decimal("11.75"),
             "compensation_max": Decimal("15.75"),
             "compensation_unit": "Per Hour",
@@ -450,11 +436,11 @@ PORTAL_JOB_DEFINITIONS.extend(
         },
         {
             "key": "engagement_ended",
-            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Engagement Ended",
+            "title": "合作已结束",
             "company_name": "TMX Engagement End Lab",
             "country": "Brazil",
             "work_mode": "Remote",
-            "description": "<p>This role completed onboarding and was later marked as engagement ended.</p>",
+            "description": CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION,
             "compensation_min": Decimal("13.75"),
             "compensation_max": Decimal("17.75"),
             "compensation_unit": "Per Hour",

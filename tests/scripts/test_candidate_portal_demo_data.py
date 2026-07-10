@@ -35,6 +35,25 @@ EXPECTED_AUTO_CASES = {
     "engagement_ended": ("engagement_ended", "onboarding_completed", "view_details", False),
 }
 
+EXPECTED_DEMO_TITLES = {
+    "fresh_apply_flow": "待申请",
+    "application_review": "申请审核中",
+    "assessment_action_required": "待上传测试题",
+    "assessment_under_review": "测试题审核中",
+    "rate_confirmation_waiting": "费率确认待通知",
+    "rate_confirmation_action_required": "待查看费率说明",
+    "signed_contract_action_required": "待上传签署合同",
+    "signed_contract_under_review": "合同审核中",
+    "task_group_action_required": "待查看入组说明",
+    "successfully_onboarded": "已成功入职",
+    "rejected": "已拒绝（申请审核阶段）",
+    "assessment_revision_required": "测试题待重新提交",
+    "signed_contract_revision_required": "合同待重新提交",
+    "onboarding_preparation": "入职准备中",
+    "rejected_late_stage": "已拒绝（合同阶段）",
+    "engagement_ended": "合作已结束",
+}
+
 
 def test_candidate_portal_demo_cases_cover_applications_status_matrix() -> None:
     cases = run_candidate_my_jobs_demo.build_expected_candidate_portal_cases()
@@ -86,14 +105,16 @@ def test_candidate_portal_demo_has_one_manual_fresh_apply_job() -> None:
     assert [definition["key"] for definition in manual_definitions] == ["fresh_apply_flow"]
 
 
-def test_candidate_portal_demo_jobs_use_resettable_title_prefix() -> None:
-    prefix = run_candidate_my_jobs_demo.CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX
+def test_candidate_portal_demo_jobs_use_exact_chinese_state_copy() -> None:
+    definitions = run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS
 
-    assert prefix == "Candidate Portal Demo - "
-    assert all(
-        definition["title"].startswith(prefix)
-        for definition in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS
-    )
+    assert {item["key"]: item["title"] for item in definitions} == EXPECTED_DEMO_TITLES
+    assert len({item["title"] for item in definitions}) == 16
+    assert all("C端验收" not in item["title"] for item in definitions)
+    assert all("葡语数据标注员" not in item["title"] for item in definitions)
+    assert {
+        item["description"] for item in definitions
+    } == {run_candidate_my_jobs_demo.CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION}
 
 
 def test_candidate_portal_demo_current_title_guard_excludes_obsolete_titles() -> None:
