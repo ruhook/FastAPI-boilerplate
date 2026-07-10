@@ -117,13 +117,19 @@ def test_candidate_portal_demo_jobs_use_exact_chinese_state_copy() -> None:
     } == {run_candidate_my_jobs_demo.CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION}
 
 
-def test_candidate_portal_demo_current_title_guard_excludes_obsolete_titles() -> None:
-    assert run_candidate_my_jobs_demo.is_current_candidate_portal_demo_job_title(
-        "Candidate Portal Demo - Assessment Under Review"
+def test_candidate_portal_demo_ownership_uses_marker_or_legacy_prefix() -> None:
+    marked = SimpleNamespace(
+        title="合同审核中",
+        data={"candidate_portal_demo_case_key": "signed_contract_under_review"},
     )
-    assert not run_candidate_my_jobs_demo.is_current_candidate_portal_demo_job_title(
-        "Candidate Portal Demo - Assessment Review"
-    )
+    legacy = SimpleNamespace(title="Candidate Portal Demo - Rejected", data={})
+    unrelated = SimpleNamespace(title="合同审核中", data={})
+
+    assert run_candidate_my_jobs_demo.is_candidate_portal_demo_owned_job(marked)
+    assert run_candidate_my_jobs_demo.is_current_candidate_portal_demo_job(marked)
+    assert run_candidate_my_jobs_demo.is_candidate_portal_demo_owned_job(legacy)
+    assert not run_candidate_my_jobs_demo.is_current_candidate_portal_demo_job(legacy)
+    assert not run_candidate_my_jobs_demo.is_candidate_portal_demo_owned_job(unrelated)
 
 
 def test_candidate_portal_demo_does_not_require_auto_assessment_mail_task() -> None:
@@ -162,26 +168,30 @@ def test_demo_mail_task_scope_requires_recipient_and_demo_reference() -> None:
         to_recipients=[{"email": "712696307@qq.com"}],
         data={
             "render_context": {
-                "job": {"title": "Candidate Portal Demo - Rejected"},
-                "job_progress": {"id": 301},
+                "job": {"id": 101, "title": "已拒绝（申请审核阶段）"},
             }
         },
     )
     unrelated_task = SimpleNamespace(
         to_recipients=[{"email": "712696307@qq.com"}],
-        data={"render_context": {"job": {"title": "A real non-demo role"}}},
+        data={"render_context": {"job": {"title": "已拒绝（申请审核阶段）"}}},
+    )
+    legacy_task = SimpleNamespace(
+        to_recipients=[{"email": "712696307@qq.com"}],
+        data={"render_context": {"job": {"title": "Candidate Portal Demo - Rejected"}}},
     )
     wrong_recipient_task = SimpleNamespace(
         to_recipients=[{"email": "someone@example.com"}],
-        data={"render_context": {"job": {"title": "Candidate Portal Demo - Rejected"}}},
+        data={"render_context": {"job": {"id": 101, "title": "已拒绝（申请审核阶段）"}}},
     )
 
     scope = {
         "candidate_email": "712696307@qq.com",
-        "job_titles": {"Candidate Portal Demo - Rejected"},
+        "job_ids": {101},
         "application_ids": {201},
         "progress_ids": {301},
     }
     assert run_candidate_my_jobs_demo.mail_task_targets_demo_scope(demo_task, **scope) is True
     assert run_candidate_my_jobs_demo.mail_task_targets_demo_scope(unrelated_task, **scope) is False
+    assert run_candidate_my_jobs_demo.mail_task_targets_demo_scope(legacy_task, **scope) is True
     assert run_candidate_my_jobs_demo.mail_task_targets_demo_scope(wrong_recipient_task, **scope) is False

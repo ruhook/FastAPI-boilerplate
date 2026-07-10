@@ -63,7 +63,9 @@ ADMIN_BASE_URL = "http://testserver/api/v1"
 DEFAULT_CANDIDATE_NAME = "Ruan Hao Kang"
 DEFAULT_CANDIDATE_EMAIL = "712696307@qq.com"
 DEFAULT_CANDIDATE_PASSWORD = "12345678"
-CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = "Candidate Portal Demo - "
+CANDIDATE_PORTAL_DEMO_CASE_DATA_KEY = "candidate_portal_demo_case_key"
+LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = "Candidate Portal Demo - "
+CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX
 CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION = (
     "<p>负责葡萄牙语数据标注、内容质量检查与结果反馈，"
     "按照项目规范完成交付，并与项目团队保持及时沟通。</p>"
@@ -591,12 +593,20 @@ def get_expected_action_required_case_keys(cases: list[dict[str, Any]]) -> set[s
     }
 
 
-def get_candidate_portal_demo_job_titles() -> set[str]:
-    return {str(definition["title"]) for definition in PORTAL_JOB_DEFINITIONS}
+def get_candidate_portal_demo_case_key(job: Any) -> str:
+    data = job.data if isinstance(getattr(job, "data", None), dict) else {}
+    return str(data.get(CANDIDATE_PORTAL_DEMO_CASE_DATA_KEY) or "")
 
 
-def is_current_candidate_portal_demo_job_title(title: str | None) -> bool:
-    return str(title or "") in get_candidate_portal_demo_job_titles()
+def is_candidate_portal_demo_owned_job(job: Any) -> bool:
+    return bool(get_candidate_portal_demo_case_key(job)) or str(
+        getattr(job, "title", "") or ""
+    ).startswith(LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX)
+
+
+def is_current_candidate_portal_demo_job(job: Any) -> bool:
+    current_keys = {str(item["key"]) for item in PORTAL_JOB_DEFINITIONS}
+    return get_candidate_portal_demo_case_key(job) in current_keys
 
 
 def should_verify_auto_assessment_mail_task() -> bool:
@@ -727,15 +737,22 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
             )
             result = await session.execute(
                 select(Job).where(
-                    Job.title == definition["title"],
                     Job.owner_admin_user_id == admin.id,
                     Job.is_deleted.is_(False),
                 )
             )
-            job = result.scalar_one_or_none()
+            job = next(
+                (
+                    candidate_job
+                    for candidate_job in result.scalars().all()
+                    if get_candidate_portal_demo_case_key(candidate_job) == str(definition["key"])
+                ),
+                None,
+            )
             data = {
                 JOB_DATA_FORM_FIELDS_KEY: form_fields,
                 JOB_DATA_AUTOMATION_RULES_KEY: definition["automation_rules"],
+                CANDIDATE_PORTAL_DEMO_CASE_DATA_KEY: str(definition["key"]),
                 JOB_DATA_CONTRACT_EXAMPLE_KEY: definition.get("contract_example")
                 or build_contract_example_html(
                     job_title=definition["title"],
@@ -815,7 +832,6 @@ async def archive_obsolete_candidate_portal_jobs(*, admin_user_id: int) -> int:
     async with local_session() as session:
         result = await session.execute(
             select(Job).where(
-                Job.title.like(f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}%"),
                 Job.owner_admin_user_id == admin_user_id,
                 Job.is_deleted.is_(False),
             )
@@ -823,7 +839,7 @@ async def archive_obsolete_candidate_portal_jobs(*, admin_user_id: int) -> int:
         obsolete_jobs = [
             job
             for job in result.scalars().all()
-            if not is_current_candidate_portal_demo_job_title(str(job.title))
+            if is_candidate_portal_demo_owned_job(job) and not is_current_candidate_portal_demo_job(job)
         ]
         for job in obsolete_jobs:
             job.is_deleted = True
@@ -1121,7 +1137,7 @@ def mail_task_targets_demo_scope(
     task: MailTask,
     *,
     candidate_email: str,
-    job_titles: set[str],
+    job_ids: set[int],
     application_ids: set[int],
     progress_ids: set[int],
 ) -> bool:
@@ -1134,9 +1150,15 @@ def mail_task_targets_demo_scope(
         return False
 
     job_context = render_context.get("job")
-    job_title = str(job_context.get("title") or "") if isinstance(job_context, dict) else ""
-    if job_title in job_titles or job_title.startswith(CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX):
-        return True
+    if isinstance(job_context, dict):
+        try:
+            if int(job_context.get("id") or 0) in job_ids:
+                return True
+        except (TypeError, ValueError):
+            pass
+        job_title = str(job_context.get("title") or "")
+        if job_title.startswith(LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX):
+            return True
 
     progress_context = render_context.get("job_progress")
     if isinstance(progress_context, dict):
@@ -1159,14 +1181,15 @@ async def reset_candidate_portal_demo_state(
     now = datetime.now(UTC)
     async with local_session() as session:
         demo_job_result = await session.execute(
-            select(Job.id).where(
-                Job.title.like(f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}%"),
-            )
+            select(Job)
         )
+        demo_job_ids = {
+            int(job.id)
+            for job in demo_job_result.scalars().all()
+            if is_candidate_portal_demo_owned_job(job)
+        }
         scoped_job_ids = sorted(
-            {int(job_id) for job_id in job_ids}.union(
-                int(job_id) for job_id in demo_job_result.scalars().all()
-            )
+            {int(job_id) for job_id in job_ids}.union(demo_job_ids)
         )
 
         application_result = await session.execute(
@@ -1231,7 +1254,7 @@ async def reset_candidate_portal_demo_state(
             if mail_task_targets_demo_scope(
                 task,
                 candidate_email=candidate_email,
-                job_titles=get_candidate_portal_demo_job_titles(),
+                job_ids=set(scoped_job_ids),
                 application_ids=set(application_ids),
                 progress_ids=set(progress_ids),
             )
