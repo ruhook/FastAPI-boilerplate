@@ -100,6 +100,11 @@ def test_production_requires_mail_credential_encryption_key() -> None:
         production_settings(MAIL_CREDENTIAL_ENCRYPTION_KEY="")
 
 
+def test_production_rejects_malformed_mail_credential_encryption_key() -> None:
+    with pytest.raises(ValidationError, match="MAIL_CREDENTIAL_ENCRYPTION_KEY"):
+        production_settings(MAIL_CREDENTIAL_ENCRYPTION_KEY="not-a-fernet-key")
+
+
 def test_local_admin_bootstrap_is_opt_in() -> None:
     configured = Settings(_env_file=None, ENVIRONMENT="local")
 

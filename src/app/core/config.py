@@ -1,6 +1,7 @@
 import os
 from enum import Enum
 
+from cryptography.fernet import Fernet
 from pydantic import SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -280,8 +281,15 @@ class Settings(
         if "*" in self.CORS_ORIGINS and self.CORS_ALLOW_CREDENTIALS:
             raise ValueError("CORS_ORIGINS cannot contain '*' when CORS_ALLOW_CREDENTIALS is enabled in production.")
 
-        if not self.MAIL_CREDENTIAL_ENCRYPTION_KEY.get_secret_value().strip():
+        mail_credential_key = self.MAIL_CREDENTIAL_ENCRYPTION_KEY.get_secret_value().strip()
+        if not mail_credential_key:
             raise ValueError("MAIL_CREDENTIAL_ENCRYPTION_KEY is required in production.")
+        try:
+            Fernet(mail_credential_key.encode())
+        except (TypeError, ValueError):
+            raise ValueError(
+                "MAIL_CREDENTIAL_ENCRYPTION_KEY must be a valid URL-safe base64-encoded 32-byte Fernet key."
+            ) from None
 
         if self.CANDIDATE_REGISTER_VERIFICATION_ENABLED:
             verification_values = {
