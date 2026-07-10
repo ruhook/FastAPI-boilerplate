@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from src.app.modules.job_progress import service as job_progress_service
+from src.app.modules.job_progress import commands as job_progress_commands
 from src.app.modules.job_progress.const import JobProgressDataKey, RecruitmentStage
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.no_database_cleanup]
@@ -66,12 +66,12 @@ async def _run_onboarding_update(
     async def fake_create_operation_log(**kwargs: Any) -> None:
         operation_logs.append(kwargs)
 
-    monkeypatch.setattr(job_progress_service, "datetime", _FixedDateTime)
-    monkeypatch.setattr(job_progress_service, "get_job_progress_models", fake_get_job_progress_models)
-    monkeypatch.setattr(job_progress_service, "create_operation_log", fake_create_operation_log)
+    monkeypatch.setattr(job_progress_commands, "datetime", _FixedDateTime)
+    monkeypatch.setattr(job_progress_commands, "get_job_progress_models", fake_get_job_progress_models)
+    monkeypatch.setattr(job_progress_commands, "create_operation_log", fake_create_operation_log)
 
     db = _FakeDb(SimpleNamespace(id=12, title="Timestamp Probe"))
-    response = await job_progress_service.update_job_progress_onboarding(
+    response = await job_progress_commands.update_job_progress_onboarding(
         job_id=12,
         progress_ids=[101],
         admin_user_id=1,

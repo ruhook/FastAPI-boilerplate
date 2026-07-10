@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from src.app.modules.job_progress import commands as job_progress_commands
 from src.app.modules.job_progress import service as job_progress_service
 from src.app.modules.job_progress.const import JobProgressDataKey, RecruitmentStage
 
@@ -168,11 +169,11 @@ async def test_onboarding_date_can_be_cleared_with_explicit_null(monkeypatch: py
     async def fake_get_job_progress_models(**_kwargs: Any) -> list[SimpleNamespace]:
         return [progress]
 
-    monkeypatch.setattr(job_progress_service, "get_job_progress_models", fake_get_job_progress_models)
-    monkeypatch.setattr(job_progress_service, "create_operation_log", _noop_operation_log)
+    monkeypatch.setattr(job_progress_commands, "get_job_progress_models", fake_get_job_progress_models)
+    monkeypatch.setattr(job_progress_commands, "create_operation_log", _noop_operation_log)
 
     db = _FakeDb(_job())
-    response = await job_progress_service.update_job_progress_onboarding(
+    response = await job_progress_commands.update_job_progress_onboarding(
         job_id=12,
         progress_ids=[101],
         admin_user_id=1,
