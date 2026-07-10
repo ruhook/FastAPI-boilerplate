@@ -41,7 +41,28 @@ pytestmark = pytest.mark.no_database_cleanup
         (
             "assessment_review",
             True,
+            {},
+            None,
+            ("under_review", "application_review", "view_details"),
+        ),
+        (
+            "assessment_review",
+            True,
+            {"assessment_submitted_at": "2026-07-10T08:00:00Z"},
+            None,
+            ("under_review", "application_review", "view_details"),
+        ),
+        (
+            "assessment_review",
+            True,
             {"assessment_submitted_at": "2026-07-10T08:00:00Z", "assessment_attachment_asset_id": 101},
+            None,
+            ("under_review", "assessment_file", "view_status"),
+        ),
+        (
+            "assessment_review",
+            True,
+            {"assessment_submissions": [{"asset_id": 102, "submitted_at": "2026-07-10T08:00:00Z"}]},
             None,
             ("under_review", "assessment_file", "view_status"),
         ),
@@ -244,7 +265,7 @@ def test_submitted_states_explain_that_review_is_still_pending() -> None:
     assessment = build_candidate_presentation(
         current_stage="assessment_review",
         assessment_enabled=True,
-        process_data={"assessment_submitted_at": "2026-07-10"},
+        process_data={"assessment_submitted_at": "2026-07-10", "assessment_attachment_asset_id": 101},
         contract_data=None,
     )
     contract = build_candidate_presentation(

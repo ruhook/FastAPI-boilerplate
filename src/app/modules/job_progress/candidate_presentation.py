@@ -123,6 +123,21 @@ def _has_company_sealed_contract(contract_data: Mapping[str, Any]) -> bool:
     )
 
 
+def _has_assessment_submission(process_data: Mapping[str, Any]) -> bool:
+    legacy_asset_id = _text(process_data.get("assessment_attachment_asset_id")).lower()
+    if legacy_asset_id not in {"", "0", "none", "null"}:
+        return True
+
+    submissions = process_data.get("assessment_submissions")
+    if not isinstance(submissions, list):
+        return False
+    return any(
+        isinstance(item, Mapping)
+        and _text(item.get("asset_id")).lower() not in {"", "0", "none", "null"}
+        for item in submissions
+    )
+
+
 def _needs_assessment_revision(process_data: Mapping[str, Any]) -> bool:
     result = _text(process_data.get("assessment_result")).lower()
     return result in {"需重新提交", "needs revision", "needs_revision", "resubmit", "re-submit"}
@@ -236,7 +251,7 @@ def build_candidate_presentation(
             body=CONTRACT_REVIEW_BODY,
         )
 
-    if normalized_stage == "assessment_review":
+    if normalized_stage == "assessment_review" and _has_assessment_submission(process):
         if _needs_assessment_revision(process):
             return _build(
                 status="action_required",
