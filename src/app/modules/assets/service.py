@@ -108,7 +108,7 @@ def delete_asset_content(storage_key: str) -> None:
 def read_asset_content(asset: Asset) -> bytes:
     if _using_aliyun_oss():
         bucket = _get_oss_bucket()
-        return bucket.get_object(asset.storage_key).read()
+        return bytes(bucket.get_object(asset.storage_key).read())
 
     path = get_asset_file_path(asset)
     if not path.exists():

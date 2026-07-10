@@ -102,6 +102,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 本地资产默认写入 `ASSET_STORAGE_DIR`。前端拿到的始终是需要登录态的预览/下载 API，不是底层文件路径；默认单文件上限为 25 MiB，批量 ZIP 最多 50 个文件、未压缩内容总计 100 MiB，这些值都可以在 `src/.env` 中调整。
 
+仓库当前的 Ruff 门禁覆盖 `src` 和 `tests` 全部文件。mypy 门禁先覆盖安全配置、日志/过滤器、事件队列、refresh session、outbox、角色权限和资产模块，共 42 个生产源文件；其他历史业务模块仍有已知类型债务，因此 CI 明确命名为 `Core Type Checking`，不会把局部通过描述成全仓通过。
+
 ## 数据库初始化
 
 当前项目不会自动创建数据库本身。

@@ -177,7 +177,7 @@ class AsyncMQClient:
                 await self._redis.xgroup_delconsumer(self._queue, self._group, self._consumer_id)
             except Exception:
                 pass
-            await self._redis.aclose()
+            await self._redis.close()
             self._redis = None
 
     async def stop(self) -> None:
@@ -194,5 +194,5 @@ class AsyncMQClient:
 
     async def close(self) -> None:
         if self._redis is not None:
-            await self._redis.aclose()
+            await self._redis.close()
             self._redis = None

@@ -2,9 +2,10 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from sqlalchemy import Numeric, String, and_, cast, func, or_
+from sqlalchemy import Numeric, String, and_, func, or_
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.sql.elements import ColumnElement
 
 from .exceptions.http_exceptions import BadRequestException
@@ -103,7 +104,7 @@ def validate_advanced_filter_query(
     *,
     field_map: dict[str, AdvancedFilterFieldDefinition],
 ) -> None:
-    if not has_advanced_filter_rules(query):
+    if query is None or not query.get("rules"):
         return
     for rule in query["rules"]:
         if isinstance(rule, dict) and isinstance(rule.get("rules"), list):
@@ -274,7 +275,7 @@ def evaluate_advanced_filter_query(
     record: AdvancedFilterRecord,
     field_map: dict[str, AdvancedFilterFieldDefinition],
 ) -> bool:
-    if not has_advanced_filter_rules(query):
+    if query is None or not query.get("rules"):
         return True
 
     results: list[bool] = []
@@ -288,7 +289,7 @@ def evaluate_advanced_filter_query(
 
 
 def _build_sql_string_expression(expression: ColumnElement[Any]) -> ColumnElement[Any]:
-    return func.trim(func.coalesce(cast(expression, String()), ""))
+    return func.trim(func.coalesce(sql_cast(expression, String()), ""))
 
 
 def _build_sql_empty_condition(expression: ColumnElement[Any]) -> ColumnElement[bool]:
@@ -301,7 +302,7 @@ def _build_sql_empty_condition(expression: ColumnElement[Any]) -> ColumnElement[
 
 
 def _build_sql_number_expression(expression: ColumnElement[Any]) -> ColumnElement[Any]:
-    return cast(func.nullif(_build_sql_string_expression(expression), ""), Numeric(20, 6))
+    return sql_cast(func.nullif(_build_sql_string_expression(expression), ""), Numeric(20, 6))
 
 
 def _build_sql_date_expression(expression: ColumnElement[Any]) -> ColumnElement[Any]:
@@ -316,6 +317,10 @@ def _build_sql_multiselect_expression(expression: ColumnElement[Any]) -> ColumnE
     normalized = func.replace(normalized, ", ", ",")
     normalized = func.replace(normalized, " ,", ",")
     return func.concat(",", normalized, ",")
+
+
+def _as_sql_bool(value: Any) -> ColumnElement[bool]:
+    return cast(ColumnElement[bool], value)
 
 
 def build_advanced_filter_rule_sql_condition(  # noqa: C901
@@ -343,42 +348,42 @@ def build_advanced_filter_rule_sql_condition(  # noqa: C901
 
     if field_definition.filter_kind == "number":
         try:
-            right_value = Decimal(str(target_value))
+            numeric_target = Decimal(str(target_value))
         except (TypeError, ValueError, InvalidOperation) as exc:
             raise BadRequestException(f"Advanced filter value for '{field_name}' must be numeric.") from exc
         left_value = _build_sql_number_expression(expression)
         if operator == ">":
-            return left_value > right_value
+            return _as_sql_bool(left_value > numeric_target)
         if operator == ">=":
-            return left_value >= right_value
+            return _as_sql_bool(left_value >= numeric_target)
         if operator == "<":
-            return left_value < right_value
+            return _as_sql_bool(left_value < numeric_target)
         if operator == "<=":
-            return left_value <= right_value
+            return _as_sql_bool(left_value <= numeric_target)
         if operator == "=":
-            return left_value == right_value
+            return _as_sql_bool(left_value == numeric_target)
         if operator == "!=":
-            return left_value != right_value
+            return _as_sql_bool(left_value != numeric_target)
 
     if field_definition.filter_kind == "date":
         try:
-            right_value = _normalize_date_value(target_value)
+            date_target = _normalize_date_value(target_value)
         except (TypeError, ValueError) as exc:
             raise BadRequestException(f"Advanced filter value for '{field_name}' must be a valid date.") from exc
-        right_value_text = right_value.isoformat()
+        date_target_text = date_target.isoformat()
         left_value = _build_sql_date_expression(expression)
         if operator == ">":
-            return left_value > right_value_text
+            return _as_sql_bool(left_value > date_target_text)
         if operator == ">=":
-            return left_value >= right_value_text
+            return _as_sql_bool(left_value >= date_target_text)
         if operator == "<":
-            return left_value < right_value_text
+            return _as_sql_bool(left_value < date_target_text)
         if operator == "<=":
-            return left_value <= right_value_text
+            return _as_sql_bool(left_value <= date_target_text)
         if operator == "=":
-            return left_value == right_value_text
+            return _as_sql_bool(left_value == date_target_text)
         if operator == "!=":
-            return left_value != right_value_text
+            return _as_sql_bool(left_value != date_target_text)
 
     if field_definition.filter_kind == "multiselect":
         normalized_expression = _build_sql_multiselect_expression(expression)
@@ -396,15 +401,15 @@ def build_advanced_filter_rule_sql_condition(  # noqa: C901
         return or_(*conditions) if operator == "contains" else and_(*[~condition for condition in conditions])
 
     left_value = func.lower(_build_sql_string_expression(expression))
-    right_value = _normalize_to_comparable_string(target_value).lower()
+    text_target = _normalize_to_comparable_string(target_value).lower()
     if operator == "contains":
-        return left_value.like(f"%{right_value}%")
+        return _as_sql_bool(left_value.like(f"%{text_target}%"))
     if operator == "doesNotContain":
-        return ~left_value.like(f"%{right_value}%")
+        return _as_sql_bool(~left_value.like(f"%{text_target}%"))
     if operator == "=":
-        return left_value == right_value
+        return _as_sql_bool(left_value == text_target)
     if operator == "!=":
-        return left_value != right_value
+        return _as_sql_bool(left_value != text_target)
 
     raise BadRequestException(f"Advanced filter operator '{operator}' is not supported for field '{field_name}'.")
 
@@ -414,7 +419,7 @@ def build_advanced_filter_query_sql_condition(
     *,
     field_map: dict[str, AdvancedFilterFieldDefinition],
 ) -> ColumnElement[bool] | None:
-    if not has_advanced_filter_rules(query):
+    if query is None or not query.get("rules"):
         return None
 
     conditions: list[ColumnElement[bool]] = []

@@ -1,7 +1,7 @@
 import json
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qsl, urlencode
 
 from starlette.requests import Request
@@ -42,7 +42,7 @@ def redact_sensitive_data(value: Any) -> Any:
 
 
 def redact_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
-    return redact_sensitive_data(mapping)
+    return cast(dict[str, Any], redact_sensitive_data(mapping))
 
 
 def _truncate(serialized: str, max_length: int) -> str:

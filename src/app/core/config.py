@@ -219,7 +219,7 @@ class AliyunOSSSettings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def ALIYUN_OSS_BUCKET(self) -> str:
-        if self.ENVIRONMENT == EnvironmentOption.PRODUCTION:
+        if getattr(self, "ENVIRONMENT", "local") == "production":
             return self.ALIYUN_OSS_BUCKET_PRODUCTION
         return self.ALIYUN_OSS_BUCKET_NON_PRODUCTION
 
