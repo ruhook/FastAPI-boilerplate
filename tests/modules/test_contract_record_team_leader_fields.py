@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.app.modules.contract_record.schema import ContractRecordListItemRead
-from src.app.modules.job_progress import service as job_progress_service
+from src.app.modules.job_progress import serialization as job_progress_serialization
 
 pytestmark = pytest.mark.no_database_cleanup
 
@@ -47,7 +47,7 @@ def _progress() -> SimpleNamespace:
 
 
 def test_candidate_contract_record_data_includes_team_leader_base_pay() -> None:
-    payload = job_progress_service._serialize_contract_record_data(
+    payload = job_progress_serialization._serialize_contract_record_data(
         progress=_progress(),
         contract_record=_contract_record(),
         asset_map={},
