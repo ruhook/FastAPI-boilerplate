@@ -217,6 +217,7 @@ PORTAL_JOB_DEFINITIONS = [
             )
         ),
         "application_scenario": "assessment_manual_pending",
+        "assessment_submission_file_name": "rate-confirmation-waiting.xlsx",
         "target_stage": "screening_passed",
         "auto_apply": True,
     },
@@ -1436,6 +1437,10 @@ def assert_candidate_demo_item_matches_definition(item: dict[str, Any], definiti
         if not process_data.get("assessment_attachment"):
             raise RuntimeError("Assessment revision demo is missing its uploaded file.")
     elif key == "rate_confirmation_waiting":
+        if process_data.get("assessment_result") != "通过":
+            raise RuntimeError("Rate waiting demo should have assessment_result=通过.")
+        if not process_data.get("assessment_attachment"):
+            raise RuntimeError("Rate waiting demo is missing its uploaded file.")
         if process_data.get("onboarding_status") == "已发砍价":
             raise RuntimeError("Rate waiting demo should not have 已发砍价 yet.")
         if contract_data.get("draft_contract_attachment"):
@@ -1667,6 +1672,13 @@ async def main() -> None:  # noqa: C901
         print_detail("assessment revision job now has a submitted file returned for revision")
 
         rate_waiting_case = cases_by_key["rate_confirmation_waiting"]
+        await prepare_candidate_assessment_submission(
+            web_client,
+            access_token=access_token,
+            case=rate_waiting_case,
+            candidate_email=args.candidate_email,
+            file_name=str(rate_waiting_case["definition"]["assessment_submission_file_name"]),
+        )
         rate_waiting_at = datetime.now(UTC).isoformat()
         await update_progress_demo_state(
             progress_id=int(rate_waiting_case["job_progress_id"]),

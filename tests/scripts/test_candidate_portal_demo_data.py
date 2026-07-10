@@ -109,6 +109,33 @@ def test_candidate_portal_demo_does_not_require_auto_assessment_mail_task() -> N
     assert run_candidate_my_jobs_demo.should_verify_auto_assessment_mail_task() is False
 
 
+def test_rate_waiting_demo_uses_a_real_candidate_assessment_upload() -> None:
+    definition = next(
+        item
+        for item in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS
+        if item["key"] == "rate_confirmation_waiting"
+    )
+
+    assert definition["assessment_submission_file_name"] == "rate-confirmation-waiting.xlsx"
+
+
+def test_rate_waiting_demo_validation_rejects_missing_assessment_attachment() -> None:
+    definition = next(
+        item
+        for item in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS
+        if item["key"] == "rate_confirmation_waiting"
+    )
+    item = {
+        "current_stage": definition["target_stage"],
+        **run_candidate_my_jobs_demo.EXPECTED_CANDIDATE_VIEW_BY_KEY["rate_confirmation_waiting"],
+        "process_data": {"assessment_result": "通过"},
+        "contract_record_data": {},
+    }
+
+    with pytest.raises(RuntimeError, match="missing its uploaded file"):
+        run_candidate_my_jobs_demo.assert_candidate_demo_item_matches_definition(item, definition)
+
+
 def test_demo_mail_task_scope_requires_recipient_and_demo_reference() -> None:
     demo_task = SimpleNamespace(
         to_recipients=[{"email": "712696307@qq.com"}],
