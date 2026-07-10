@@ -3,7 +3,7 @@ from sqlalchemy.dialects import mysql
 
 from src.app.core.exceptions.http_exceptions import ConflictException
 from src.app.modules.job_progress.model import JobProgress
-from src.app.modules.job_progress.service import (
+from src.app.modules.job_progress.state import (
     build_locked_job_progress_query,
     ensure_expected_progress_versions,
 )
