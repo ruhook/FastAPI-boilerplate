@@ -1,8 +1,12 @@
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from src.app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY
 from src.app.modules.job_progress.service import _evaluate_automation_rules
+
+pytestmark = pytest.mark.no_database_cleanup
 
 
 def _job_with_rules(rule_group: dict[str, Any]) -> SimpleNamespace:
@@ -111,3 +115,27 @@ def test_required_rules_pass_but_no_any_rule_matches_fails() -> None:
 
     assert enabled is True
     assert matched is False
+
+
+def test_text_eq_matches_display_value_when_raw_value_is_serialized() -> None:
+    field = _field_value("education_status", '"bachelor_completed"')
+    field.display_value = "Bachelor completed"
+
+    enabled, matched = _evaluate_automation_rules(
+        _job_with_rules(
+            {
+                "combinator": "and",
+                "rules": [
+                    _rule(
+                        field_key="education_status",
+                        operator="eq",
+                        value="Bachelor completed",
+                    )
+                ],
+            }
+        ),
+        [field],
+    )
+
+    assert enabled is True
+    assert matched is True

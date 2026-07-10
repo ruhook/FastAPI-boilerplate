@@ -657,7 +657,7 @@ def _evaluate_automation_rule(
     if operator == "false":
         return _normalize_text(actual_value).lower() in {"false", "0", "no"}
 
-    if operator in {"gt", "lt", "eq", "between"}:
+    if operator in {"gt", "lt", "between"}:
         left = _normalize_number(actual_value)
         if left is None:
             return False
@@ -667,11 +667,6 @@ def _evaluate_automation_rule(
         if operator == "lt":
             right = _normalize_number(configured_value)
             return right is not None and left < right
-        if operator == "eq":
-            right = _normalize_number(configured_value)
-            if right is not None:
-                return left == right
-            return _normalize_text(actual_value).lower() == _normalize_text(configured_value).lower()
         if operator == "between":
             lower = _normalize_number(configured_value)
             upper = _normalize_number(rule.get("secondValue"))
@@ -697,6 +692,10 @@ def _evaluate_automation_rule(
         target_values = configured_value if isinstance(configured_value, list) else [configured_value]
         return all(_normalize_text(item).lower() not in normalized_actual_parts for item in target_values)
     if operator == "eq":
+        left_number = _normalize_number(actual_value)
+        right_number = _normalize_number(configured_value)
+        if left_number is not None and right_number is not None:
+            return left_number == right_number
         target = _normalize_text(configured_value).lower()
         return target in {actual_text, raw_text, display_text}
 
