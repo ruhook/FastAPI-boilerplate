@@ -28,13 +28,15 @@ src/app/modules/
 - `modules/admin/admin_user`
 - `modules/admin/role`
 
-模块目录只保留这 5 类文件：
+模块目录通常按下面这些职责拆分：
 
 - `const.py`
 - `model.py`
 - `schema.py`
 - `crud.py`
 - `service.py`
+
+底层运行模块可以增加职责明确的文件，例如邮件任务的 `recovery.py`；不要把新的业务规则塞进底层 worker。
 
 ### HTTP 层
 
@@ -56,7 +58,7 @@ src/app/admin/api/
 
 ```bash
 cd /Users/ruanhaokang/workspace/hr/hr-server
-uv sync
+uv sync --frozen --all-extras --all-groups
 cp src/.env.example src/.env
 ```
 
@@ -100,6 +102,8 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 将输出写入 `src/.env` 的 `MAIL_CREDENTIAL_ENCRYPTION_KEY`。邮件账号的 SMTP 授权码是只写字段：创建/更新时提交，查询时只会看到 `has_auth_secret=true|false`。
 
+邮件、Outbox 和 Redis Stream 都由 `event_consumer.py` 统一处理。该进程还会扫描超过 `MAIL_TASK_PROCESSING_LEASE_SECONDS` 的邮件任务：渲染阶段中断会重新排队，SMTP 发送阶段中断会标记为 `delivery_unknown`，必须确认收件情况后人工决定是否重发。
+
 本地资产默认写入 `ASSET_STORAGE_DIR`。前端拿到的始终是需要登录态的预览/下载 API，不是底层文件路径；默认单文件上限为 25 MiB，批量 ZIP 最多 50 个文件、未压缩内容总计 100 MiB，这些值都可以在 `src/.env` 中调整。
 
 仓库当前的 Ruff 门禁覆盖 `src` 和 `tests` 全部文件。mypy 门禁先覆盖安全配置、日志/过滤器、事件队列、refresh session、outbox、角色权限和资产模块，共 42 个生产源文件；其他历史业务模块仍有已知类型债务，因此 CI 明确命名为 `Core Type Checking`，不会把局部通过描述成全仓通过。
@@ -122,6 +126,17 @@ COLLATE utf8mb4_unicode_ci;
 cd src
 uv run alembic upgrade head
 cd ..
+```
+
+## 健康检查
+
+- `/api/v1/health` 是进程存活检查，不访问 MySQL 或 Redis。
+- `/api/v1/ready` 是就绪检查，要求应用 lifespan 初始化完成，并且 MySQL、Redis 都在 `HEALTH_CHECK_TIMEOUT_SECONDS` 内响应。
+
+本地启动事件消费者：
+
+```bash
+uv run --frozen python event_consumer.py
 ```
 
 ## 本地启动

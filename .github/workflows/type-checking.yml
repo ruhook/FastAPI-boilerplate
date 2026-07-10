@@ -27,6 +27,8 @@ jobs:
         src/app/event
         src/app/modules/auth_refresh_session
         src/app/modules/event_outbox
+        src/app/modules/admin/mail_account
+        src/app/modules/admin/mail_task
         src/app/modules/admin/role
         src/app/modules/assets
         --config-file pyproject.toml

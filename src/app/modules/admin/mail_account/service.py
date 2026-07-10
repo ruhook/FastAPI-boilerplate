@@ -166,16 +166,9 @@ async def update_mail_account(
 async def delete_mail_account(account_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     account = await get_mail_account_model(account_id, db, admin_user_id=admin_user_id)
 
-    related_checks = ((MailTask, "该发信账号下仍有发信任务记录。"),)
-    for model, message in related_checks:
-        result = await db.execute(
-            select(model.id).where(  # type: ignore[attr-defined]
-                model.account_id == account_id,  # type: ignore[attr-defined]
-                model.is_deleted.is_(False) if hasattr(model, "is_deleted") else True,  # type: ignore[attr-defined]
-            )
-        )
-        if result.first() is not None:
-            raise BadRequestException(message)
+    task_result = await db.execute(select(MailTask.id).where(MailTask.account_id == account_id))
+    if task_result.first() is not None:
+        raise BadRequestException("该发信账号下仍有发信任务记录。")
 
     asset_result = await db.execute(
         select(Asset.id).where(

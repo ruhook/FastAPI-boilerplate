@@ -4,6 +4,7 @@ import logging
 import mimetypes
 import smtplib
 import ssl
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
@@ -36,7 +37,7 @@ from ..mail_template.model import MailTemplate
 from ..mail_template.schema import TOKEN_PATTERN
 from ..mail_template.service import get_mail_template_model
 from .model import MailTask
-from .schema import MailTaskCreate, MailTaskRead
+from .schema import MailRecipient, MailTaskCreate, MailTaskRead
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +95,9 @@ def serialize_mail_task(
         body_html=task.body_html,
         final_subject=task.final_subject,
         final_body_html=task.final_body_html,
-        to_recipients=task.to_recipients or [],
-        cc_recipients=task.cc_recipients or [],
-        bcc_recipients=task.bcc_recipients or [],
+        to_recipients=[MailRecipient.model_validate(item) for item in task.to_recipients or []],
+        cc_recipients=[MailRecipient.model_validate(item) for item in task.cc_recipients or []],
+        bcc_recipients=[MailRecipient.model_validate(item) for item in task.bcc_recipients or []],
         attachment_asset_ids=task.attachment_asset_ids or [],
         status=task.status,
         status_cn_name=MAIL_TASK_STATUS_CN_NAME_MAP.get(task.status, task.status),
@@ -268,8 +269,9 @@ def build_mail_render_context(
 
 def render_template_text(content: str, context: dict[str, str]) -> str:
     def replace_token(match: Any) -> str:
-        key = match.group(1)
-        return context.get(key, match.group(0))
+        key = str(match.group(1))
+        original = str(match.group(0))
+        return context.get(key, original)
 
     rendered = TOKEN_PATTERN.sub(replace_token, content)
     for key, value in context.items():
@@ -278,7 +280,7 @@ def render_template_text(content: str, context: dict[str, str]) -> str:
     return rendered
 
 
-def _format_recipients(recipients: list[dict[str, str | None]]) -> list[str]:
+def _format_recipients(recipients: Sequence[Mapping[str, str | None]]) -> list[str]:
     values: list[str] = []
     for recipient in recipients:
         email = (recipient.get("email") or "").strip()
@@ -322,11 +324,11 @@ def _merge_attachment_asset_ids(
         seen.add(asset_id)
         merged.append(asset_id)
 
-    for item in explicit_asset_ids:
-        append_asset(item)
+    for asset_id in explicit_asset_ids:
+        append_asset(asset_id)
 
-    for item in template.attachments if template else []:
-        raw_asset_id = item.get("asset_id") if isinstance(item, dict) else None
+    for attachment in template.attachments if template else []:
+        raw_asset_id = attachment.get("asset_id") if isinstance(attachment, dict) else None
         append_asset(int(raw_asset_id) if raw_asset_id is not None else None)
 
     return merged
