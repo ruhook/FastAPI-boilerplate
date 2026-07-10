@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import EnvironmentOption, settings
@@ -98,6 +98,7 @@ def _env_flag(name: str) -> bool:
 
 async def _clear_tables() -> None:
     async with local_session() as session:
+        await session.execute(update(AuthRefreshSession).values(parent_session_id=None))
         await session.execute(delete(AuthRefreshSession))
         await session.execute(delete(EventOutbox))
         await session.execute(delete(CandidateInternalNotification))

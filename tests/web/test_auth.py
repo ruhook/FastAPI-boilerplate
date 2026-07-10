@@ -3,12 +3,16 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
+from src.app.core.config import settings
+
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
 async def test_web_register_login_me_refresh_and_logout_flow(
     web_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "CANDIDATE_REGISTER_VERIFICATION_ENABLED", False)
     suffix = uuid4().hex[:8]
     email = f"web.auth.{suffix}@example.com"
     password = "CandidatePass123!"

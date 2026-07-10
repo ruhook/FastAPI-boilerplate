@@ -1,9 +1,11 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
 
-import bcrypt
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import SecretStr
@@ -23,20 +25,32 @@ ADMIN_REFRESH_TOKEN_EXPIRE_DAYS = settings.ADMIN_REFRESH_TOKEN_EXPIRE_DAYS
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
 admin_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
+PASSWORD_MAX_UTF8_BYTES = 512
+PASSWORD_HASHER = PasswordHasher()
+DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("server-dummy-password-value")
+
 
 class TokenType(str, Enum):
     ACCESS = "access"
     REFRESH = "refresh"
 
 
+def _validate_password_input(password: str) -> None:
+    if len(password.encode("utf-8")) > PASSWORD_MAX_UTF8_BYTES:
+        raise ValueError("Password must not exceed 512 UTF-8 bytes.")
+
+
 async def verify_password(plain_password: str, hashed_password: str) -> bool:
-    correct_password: bool = bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
-    return correct_password
+    try:
+        _validate_password_input(plain_password)
+        return bool(await asyncio.to_thread(PASSWORD_HASHER.verify, hashed_password, plain_password))
+    except (InvalidHashError, VerificationError, VerifyMismatchError, ValueError):
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    hashed_password: str = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    return hashed_password
+    _validate_password_input(password)
+    return PASSWORD_HASHER.hash(password)
 
 
 async def authenticate_user(username_or_email: str, password: str, db) -> dict[str, Any] | Literal[False]:
@@ -45,10 +59,9 @@ async def authenticate_user(username_or_email: str, password: str, db) -> dict[s
     else:
         db_user = await crud_users.get(db=db, username=username_or_email, is_deleted=False)
 
-    if not db_user:
-        return False
-
-    if not await verify_password(password, db_user["hashed_password"]):
+    candidate_hash = db_user["hashed_password"] if db_user else DUMMY_PASSWORD_HASH
+    password_matches = await verify_password(password, candidate_hash)
+    if not db_user or not password_matches:
         return False
 
     return db_user
@@ -60,13 +73,12 @@ async def authenticate_admin_user(username_or_email: str, password: str, db) -> 
     else:
         db_user = await crud_admin_users.get(db=db, username=username_or_email, is_deleted=False)
 
-    if not db_user:
-        return False
-
-    if db_user["status"] != "enabled":
-        return False
-
-    if not await verify_password(password, db_user["hashed_password"]):
+    if db_user is not None and db_user["status"] == "enabled":
+        candidate_hash = db_user["hashed_password"]
+    else:
+        candidate_hash = DUMMY_PASSWORD_HASH
+    password_matches = await verify_password(password, candidate_hash)
+    if db_user is None or db_user["status"] != "enabled" or not password_matches:
         return False
 
     return db_user
