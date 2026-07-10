@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -35,6 +36,8 @@ from .run_client_apply_demo import (
 from .run_client_assessment_upload_demo import (
     build_demo_docx_bytes,
     build_demo_pdf_bytes,
+    build_demo_xlsx_bytes,
+    upload_assessment,
 )
 from .seed_apply_demo_flow import (
     DEMO_ADMIN_EMAIL,
@@ -147,11 +150,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "assessment_manual_pending",
         "target_stage": "pending_screening",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Under Review",
-            "stage_title": "Application Review",
-            "action_label": "View Details",
-        },
     },
     {
         "key": "assessment_action_required",
@@ -159,7 +157,7 @@ PORTAL_JOB_DEFINITIONS = [
         "company_name": "TMX Assessment Action Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has an assessment invitation ready so the candidate sees Upload Now.</p>",
+        "description": "<p>This role has an assessment invitation ready so the candidate can upload a response.</p>",
         "compensation_min": Decimal("9.00"),
         "compensation_max": Decimal("13.00"),
         "compensation_unit": "Per Hour",
@@ -174,11 +172,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "assessment_manual_pending",
         "target_stage": "pending_screening",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Action Required",
-            "stage_title": "Assessment File",
-            "action_label": "Upload Now",
-        },
     },
     {
         "key": "assessment_under_review",
@@ -201,11 +194,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "assessment_manual_pending",
         "target_stage": "assessment_review",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Under Review",
-            "stage_title": "Assessment File",
-            "action_label": "View Details",
-        },
     },
     {
         "key": "rate_confirmation_waiting",
@@ -231,11 +219,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "assessment_manual_pending",
         "target_stage": "screening_passed",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Under Review",
-            "stage_title": "Rate Confirmation",
-            "action_label": "View Details",
-        },
     },
     {
         "key": "rate_confirmation_action_required",
@@ -244,8 +227,8 @@ PORTAL_JOB_DEFINITIONS = [
         "country": "Brazil",
         "work_mode": "Remote",
         "description": (
-            "<p>This role has the B-side onboarding status set to 已发砍价 so the candidate sees "
-            "Confirm Now.</p>"
+            "<p>This role has the B-side onboarding status set to 已发砍价 so the candidate can view "
+            "the email instructions.</p>"
         ),
         "compensation_min": Decimal("11.00"),
         "compensation_max": Decimal("15.00"),
@@ -261,11 +244,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "screening_passed",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Action Required",
-            "stage_title": "Rate Confirmation",
-            "action_label": "Confirm Now",
-        },
     },
     {
         "key": "signed_contract_action_required",
@@ -273,7 +251,7 @@ PORTAL_JOB_DEFINITIONS = [
         "company_name": "TMX Contract Action Lab",
         "country": "Brazil",
         "work_mode": "Remote",
-        "description": "<p>This role has a draft contract ready so the candidate sees Upload Now.</p>",
+        "description": "<p>This role has a draft contract ready so the candidate can upload a signed copy.</p>",
         "compensation_min": Decimal("12.00"),
         "compensation_max": Decimal("16.00"),
         "compensation_unit": "Per Month",
@@ -288,11 +266,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "screening_passed",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Action Required",
-            "stage_title": "Signed Contract",
-            "action_label": "Upload Now",
-        },
     },
     {
         "key": "signed_contract_under_review",
@@ -315,11 +288,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "contract_pool",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Under Review",
-            "stage_title": "Signed Contract",
-            "action_label": "View Details",
-        },
     },
     {
         "key": "task_group_action_required",
@@ -328,8 +296,8 @@ PORTAL_JOB_DEFINITIONS = [
         "country": "Brazil",
         "work_mode": "Remote",
         "description": (
-            "<p>This role is active with the onboarding gift package sent so the candidate sees "
-            "Join Now.</p>"
+            "<p>This role is active with the onboarding gift package sent so the candidate can view "
+            "the joining instructions.</p>"
         ),
         "compensation_min": Decimal("13.00"),
         "compensation_max": Decimal("17.00"),
@@ -345,11 +313,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "active",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Action Required",
-            "stage_title": "Task Group",
-            "action_label": "Join Now",
-        },
     },
     {
         "key": "successfully_onboarded",
@@ -372,11 +335,6 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "no_assessment_auto_pass",
         "target_stage": "active",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Successfully Onboarded",
-            "stage_title": "Onboarding Completed",
-            "action_label": "View Details",
-        },
     },
     {
         "key": "rejected",
@@ -402,13 +360,210 @@ PORTAL_JOB_DEFINITIONS = [
         "application_scenario": "no_assessment_auto_rejected",
         "target_stage": "rejected",
         "auto_apply": True,
-        "expected_candidate_view": {
-            "status_label": "Rejected",
-            "stage_title": "Application Review",
-            "action_label": "View Details",
-        },
     },
 ]
+
+PORTAL_JOB_DEFINITIONS.extend(
+    [
+        {
+            "key": "assessment_revision_required",
+            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Assessment Revision Required",
+            "company_name": "TMX Assessment Revision Lab",
+            "country": "Brazil",
+            "work_mode": "Remote",
+            "description": "<p>This role has a submitted assessment that B-side returned for revision.</p>",
+            "compensation_min": Decimal("10.25"),
+            "compensation_max": Decimal("14.25"),
+            "compensation_unit": "Per Hour",
+            "assessment_enabled": True,
+            "automation_rules": {"combinator": "and", "rules": []},
+            "application_scenario": "assessment_manual_pending",
+            "target_stage": "assessment_review",
+            "auto_apply": True,
+        },
+        {
+            "key": "signed_contract_revision_required",
+            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Signed Contract Revision Required",
+            "company_name": "TMX Contract Revision Lab",
+            "country": "Brazil",
+            "work_mode": "Remote",
+            "description": "<p>This role has a signed contract that B-side returned for revision.</p>",
+            "compensation_min": Decimal("12.75"),
+            "compensation_max": Decimal("16.75"),
+            "compensation_unit": "Per Month",
+            "assessment_enabled": False,
+            "automation_rules": build_rule_group(
+                build_rule(
+                    field_key=CandidateFieldKey.COUNTRY_OF_RESIDENCE,
+                    operator="contains",
+                    value="Brazil",
+                )
+            ),
+            "application_scenario": "no_assessment_auto_pass",
+            "target_stage": "contract_pool",
+            "auto_apply": True,
+        },
+        {
+            "key": "onboarding_preparation",
+            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Onboarding Preparation",
+            "company_name": "TMX Onboarding Preparation Lab",
+            "country": "Brazil",
+            "work_mode": "Remote",
+            "description": "<p>This role has a completed contract and is waiting for onboarding instructions.</p>",
+            "compensation_min": Decimal("13.25"),
+            "compensation_max": Decimal("17.25"),
+            "compensation_unit": "Per Hour",
+            "assessment_enabled": False,
+            "automation_rules": build_rule_group(
+                build_rule(
+                    field_key=CandidateFieldKey.COUNTRY_OF_RESIDENCE,
+                    operator="contains",
+                    value="Brazil",
+                )
+            ),
+            "application_scenario": "no_assessment_auto_pass",
+            "target_stage": "active",
+            "auto_apply": True,
+        },
+        {
+            "key": "rejected_late_stage",
+            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Rejected From Signed Contract",
+            "company_name": "TMX Late Rejection Lab",
+            "country": "Brazil",
+            "work_mode": "Remote",
+            "description": "<p>This role was rejected after the signed-contract stage.</p>",
+            "compensation_min": Decimal("11.75"),
+            "compensation_max": Decimal("15.75"),
+            "compensation_unit": "Per Hour",
+            "assessment_enabled": False,
+            "automation_rules": build_rule_group(
+                build_rule(
+                    field_key=CandidateFieldKey.COUNTRY_OF_RESIDENCE,
+                    operator="contains",
+                    value="Brazil",
+                )
+            ),
+            "application_scenario": "no_assessment_auto_pass",
+            "target_stage": "rejected",
+            "auto_apply": True,
+        },
+        {
+            "key": "engagement_ended",
+            "title": f"{CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX}Engagement Ended",
+            "company_name": "TMX Engagement End Lab",
+            "country": "Brazil",
+            "work_mode": "Remote",
+            "description": "<p>This role completed onboarding and was later marked as engagement ended.</p>",
+            "compensation_min": Decimal("13.75"),
+            "compensation_max": Decimal("17.75"),
+            "compensation_unit": "Per Hour",
+            "assessment_enabled": False,
+            "automation_rules": build_rule_group(
+                build_rule(
+                    field_key=CandidateFieldKey.COUNTRY_OF_RESIDENCE,
+                    operator="contains",
+                    value="Brazil",
+                )
+            ),
+            "application_scenario": "no_assessment_auto_pass",
+            "target_stage": "replaced",
+            "auto_apply": True,
+        },
+    ]
+)
+
+EXPECTED_CANDIDATE_VIEW_BY_KEY: dict[str, dict[str, Any]] = {
+    "application_review": {
+        "candidate_status": "under_review",
+        "candidate_stage": "application_review",
+        "candidate_action": "view_details",
+        "candidate_action_required": False,
+    },
+    "assessment_action_required": {
+        "candidate_status": "action_required",
+        "candidate_stage": "assessment_file",
+        "candidate_action": "upload_assessment",
+        "candidate_action_required": True,
+    },
+    "assessment_revision_required": {
+        "candidate_status": "action_required",
+        "candidate_stage": "assessment_file",
+        "candidate_action": "upload_assessment",
+        "candidate_action_required": True,
+    },
+    "assessment_under_review": {
+        "candidate_status": "under_review",
+        "candidate_stage": "assessment_file",
+        "candidate_action": "view_status",
+        "candidate_action_required": False,
+    },
+    "rate_confirmation_waiting": {
+        "candidate_status": "under_review",
+        "candidate_stage": "rate_confirmation",
+        "candidate_action": "view_status",
+        "candidate_action_required": False,
+    },
+    "rate_confirmation_action_required": {
+        "candidate_status": "action_required",
+        "candidate_stage": "rate_confirmation",
+        "candidate_action": "view_rate_instructions",
+        "candidate_action_required": True,
+    },
+    "signed_contract_action_required": {
+        "candidate_status": "action_required",
+        "candidate_stage": "signed_contract",
+        "candidate_action": "upload_contract",
+        "candidate_action_required": True,
+    },
+    "signed_contract_revision_required": {
+        "candidate_status": "action_required",
+        "candidate_stage": "signed_contract",
+        "candidate_action": "upload_contract",
+        "candidate_action_required": True,
+    },
+    "signed_contract_under_review": {
+        "candidate_status": "under_review",
+        "candidate_stage": "signed_contract",
+        "candidate_action": "view_status",
+        "candidate_action_required": False,
+    },
+    "onboarding_preparation": {
+        "candidate_status": "under_review",
+        "candidate_stage": "task_group",
+        "candidate_action": "view_status",
+        "candidate_action_required": False,
+    },
+    "task_group_action_required": {
+        "candidate_status": "action_required",
+        "candidate_stage": "task_group",
+        "candidate_action": "view_joining_instructions",
+        "candidate_action_required": True,
+    },
+    "successfully_onboarded": {
+        "candidate_status": "onboarded",
+        "candidate_stage": "onboarding_completed",
+        "candidate_action": "view_status",
+        "candidate_action_required": False,
+    },
+    "rejected": {
+        "candidate_status": "rejected",
+        "candidate_stage": "application_review",
+        "candidate_action": "view_details",
+        "candidate_action_required": False,
+    },
+    "rejected_late_stage": {
+        "candidate_status": "rejected",
+        "candidate_stage": "signed_contract",
+        "candidate_action": "view_details",
+        "candidate_action_required": False,
+    },
+    "engagement_ended": {
+        "candidate_status": "engagement_ended",
+        "candidate_stage": "onboarding_completed",
+        "candidate_action": "view_details",
+        "candidate_action_required": False,
+    },
+}
 
 
 def build_expected_candidate_portal_cases() -> list[dict[str, Any]]:
@@ -416,11 +571,37 @@ def build_expected_candidate_portal_cases() -> list[dict[str, Any]]:
         {
             "key": str(definition["key"]),
             "title": str(definition["title"]),
-            "expected_candidate_view": dict(definition["expected_candidate_view"]),
+            "expected_candidate_view": dict(EXPECTED_CANDIDATE_VIEW_BY_KEY[str(definition["key"])]),
         }
         for definition in PORTAL_JOB_DEFINITIONS
         if should_auto_apply(definition)
     ]
+
+
+def build_expected_candidate_summary(cases: list[dict[str, Any]]) -> dict[str, int]:
+    contract_uploads = sum(
+        case["expected_candidate_view"]["candidate_action"] == "upload_contract" for case in cases
+    )
+    other_actions = sum(
+        case["expected_candidate_view"]["candidate_action_required"]
+        and case["expected_candidate_view"]["candidate_action"] != "upload_contract"
+        for case in cases
+    )
+    total_action_required = contract_uploads + other_actions
+    return {
+        "contract_uploads": contract_uploads,
+        "other_actions": other_actions,
+        "monitoring": len(cases) - total_action_required,
+        "total_action_required": total_action_required,
+    }
+
+
+def get_expected_action_required_case_keys(cases: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(case["key"])
+        for case in cases
+        if case["expected_candidate_view"]["candidate_action_required"]
+    }
 
 
 def get_candidate_portal_demo_job_titles() -> set[str]:
@@ -856,6 +1037,39 @@ async def update_progress_demo_state(
         await session.commit()
 
 
+async def prepare_candidate_assessment_submission(
+    client: httpx.AsyncClient,
+    *,
+    access_token: str,
+    case: dict[str, Any],
+    candidate_email: str,
+    file_name: str,
+) -> None:
+    sent_at = datetime.now(UTC).isoformat()
+    await update_progress_demo_state(
+        progress_id=int(case["job_progress_id"]),
+        current_stage="pending_screening",
+        process_data_updates={
+            "assessment_invited_at": sent_at,
+            "assessment_sent_at": sent_at,
+            "assessment_invite_mail_task_id": f"candidate-portal-demo-{case['job_progress_id']}",
+        },
+    )
+    await upload_assessment(
+        client,
+        access_token=access_token,
+        job_id=int(case["job"].id),
+        file_name=file_name,
+        file_bytes=build_demo_xlsx_bytes(
+            candidate_email=candidate_email,
+            note=f"Candidate portal demo submission for {case['definition']['key']}.",
+        ),
+    )
+    next_detail = dict(case.get("detail") or {})
+    next_detail["current_stage"] = "assessment_review"
+    case["detail"] = next_detail
+
+
 async def admin_update_contract_record(
     client: httpx.AsyncClient,
     *,
@@ -914,6 +1128,39 @@ def mail_task_targets_email(task: MailTask, email: str) -> bool:
         str(item.get("email") or "").strip().lower() == normalized_email
         for item in (task.to_recipients or [])
     )
+
+
+def mail_task_targets_demo_scope(
+    task: MailTask,
+    *,
+    candidate_email: str,
+    job_titles: set[str],
+    application_ids: set[int],
+    progress_ids: set[int],
+) -> bool:
+    if not mail_task_targets_email(task, candidate_email):
+        return False
+
+    task_data = task.data if isinstance(task.data, dict) else {}
+    render_context = task_data.get("render_context")
+    if not isinstance(render_context, dict):
+        return False
+
+    job_context = render_context.get("job")
+    job_title = str(job_context.get("title") or "") if isinstance(job_context, dict) else ""
+    if job_title in job_titles or job_title.startswith(CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX):
+        return True
+
+    progress_context = render_context.get("job_progress")
+    if isinstance(progress_context, dict):
+        try:
+            if int(progress_context.get("id") or 0) in progress_ids:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    serialized_context = json.dumps(render_context, ensure_ascii=False, default=str)
+    return any(f"/my-jobs/{application_id}" in serialized_context for application_id in application_ids)
 
 
 async def reset_candidate_portal_demo_state(
@@ -994,7 +1241,13 @@ async def reset_candidate_portal_demo_state(
         mail_tasks = [
             task
             for task in mail_task_result.scalars().all()
-            if mail_task_targets_email(task, candidate_email)
+            if mail_task_targets_demo_scope(
+                task,
+                candidate_email=candidate_email,
+                job_titles=get_candidate_portal_demo_job_titles(),
+                application_ids=set(application_ids),
+                progress_ids=set(progress_ids),
+            )
         ]
         for task in mail_tasks:
             await session.delete(task)
@@ -1029,7 +1282,7 @@ async def fetch_my_applications(
     *,
     access_token: str,
 ) -> list[dict[str, Any]]:
-    payload = await fetch_my_applications_page(client, access_token=access_token)
+    payload = await fetch_my_applications_page(client, access_token=access_token, page_size=100)
     return list(payload.get("items", []))
 
 
@@ -1150,6 +1403,22 @@ def assert_candidate_demo_item_matches_definition(item: dict[str, Any], definiti
             f"Job {definition['title']} expected stage={definition['target_stage']}, got {current_stage}"
         )
 
+    expected_presentation = EXPECTED_CANDIDATE_VIEW_BY_KEY[key]
+    actual_presentation = {
+        field: item.get(field)
+        for field in (
+            "candidate_status",
+            "candidate_stage",
+            "candidate_action",
+            "candidate_action_required",
+        )
+    }
+    if actual_presentation != expected_presentation:
+        raise RuntimeError(
+            f"Job {definition['title']} presentation mismatch: "
+            f"expected={expected_presentation}, got={actual_presentation}"
+        )
+
     if key == "application_review":
         if process_data.get("assessment_sent_at"):
             raise RuntimeError("Application Review demo should not have assessment_sent_at.")
@@ -1159,6 +1428,13 @@ def assert_candidate_demo_item_matches_definition(item: dict[str, Any], definiti
     elif key == "assessment_under_review":
         if not process_data.get("assessment_submitted_at"):
             raise RuntimeError("Assessment under-review demo is missing assessment_submitted_at.")
+        if not process_data.get("assessment_attachment"):
+            raise RuntimeError("Assessment under-review demo is missing its uploaded file.")
+    elif key == "assessment_revision_required":
+        if process_data.get("assessment_result") != "需重新提交":
+            raise RuntimeError("Assessment revision demo should have assessment_result=需重新提交.")
+        if not process_data.get("assessment_attachment"):
+            raise RuntimeError("Assessment revision demo is missing its uploaded file.")
     elif key == "rate_confirmation_waiting":
         if process_data.get("onboarding_status") == "已发砍价":
             raise RuntimeError("Rate waiting demo should not have 已发砍价 yet.")
@@ -1179,6 +1455,16 @@ def assert_candidate_demo_item_matches_definition(item: dict[str, Any], definiti
             raise RuntimeError("Signed contract under-review demo is missing candidate signed attachment.")
         if contract_data.get("contract_review") == "待修改":
             raise RuntimeError("Signed contract under-review demo should not be in 待修改.")
+    elif key == "signed_contract_revision_required":
+        if not contract_data.get("candidate_signed_contract_attachment"):
+            raise RuntimeError("Signed contract revision demo is missing candidate signed attachment.")
+        if contract_data.get("contract_review") != "待修改":
+            raise RuntimeError("Signed contract revision demo should have contract_review=待修改.")
+    elif key == "onboarding_preparation":
+        if not contract_data.get("company_sealed_contract_attachment"):
+            raise RuntimeError("Onboarding preparation demo is missing company sealed contract.")
+        if process_data.get("onboarding_status") != "成功签约":
+            raise RuntimeError("Onboarding preparation demo should still be waiting for the guide.")
     elif key == "task_group_action_required":
         if process_data.get("onboarding_status") != "已发大礼包":
             raise RuntimeError("Task group demo should have onboarding_status=已发大礼包.")
@@ -1190,6 +1476,12 @@ def assert_candidate_demo_item_matches_definition(item: dict[str, Any], definiti
     elif key == "rejected":
         if current_stage != "rejected":
             raise RuntimeError("Rejected demo should be in rejected stage.")
+    elif key == "rejected_late_stage":
+        if process_data.get("rejected_from_stage") != "contract_pool":
+            raise RuntimeError("Late-stage rejection demo should preserve rejected_from_stage=contract_pool.")
+    elif key == "engagement_ended":
+        if current_stage != "replaced" or not process_data.get("onboarding_date"):
+            raise RuntimeError("Engagement-ended demo should preserve its completed onboarding milestone.")
 
 
 async def main() -> None:  # noqa: C901
@@ -1347,19 +1639,32 @@ async def main() -> None:  # noqa: C901
         print_detail("assessment action-required job now waits for candidate upload")
 
         assessment_under_review_case = cases_by_key["assessment_under_review"]
-        assessment_submitted_at = datetime.now(UTC).isoformat()
+        await prepare_candidate_assessment_submission(
+            web_client,
+            access_token=access_token,
+            case=assessment_under_review_case,
+            candidate_email=args.candidate_email,
+            file_name="assessment-under-review.xlsx",
+        )
+        print_detail("assessment under-review job now has a submitted assessment")
+
+        assessment_revision_case = cases_by_key["assessment_revision_required"]
+        await prepare_candidate_assessment_submission(
+            web_client,
+            access_token=access_token,
+            case=assessment_revision_case,
+            candidate_email=args.candidate_email,
+            file_name="assessment-revision-required.xlsx",
+        )
         await update_progress_demo_state(
-            progress_id=int(assessment_under_review_case["job_progress_id"]),
+            progress_id=int(assessment_revision_case["job_progress_id"]),
             current_stage="assessment_review",
             process_data_updates={
-                "assessment_invited_at": assessment_submitted_at,
-                "assessment_sent_at": assessment_submitted_at,
-                "assessment_submitted_at": assessment_submitted_at,
-                "assessment_result": "",
+                "assessment_result": "需重新提交",
+                "assessment_review_comment": "Please revise the highlighted answers and upload a new file.",
             },
         )
-        assessment_under_review_case["detail"]["current_stage"] = "assessment_review"
-        print_detail("assessment under-review job now has a submitted assessment")
+        print_detail("assessment revision job now has a submitted file returned for revision")
 
         rate_waiting_case = cases_by_key["rate_confirmation_waiting"]
         rate_waiting_at = datetime.now(UTC).isoformat()
@@ -1387,7 +1692,7 @@ async def main() -> None:  # noqa: C901
             },
         )
         rate_action_case["detail"]["current_stage"] = "screening_passed"
-        print_detail("rate-confirmation action-required job now waits for candidate confirmation")
+        print_detail("rate-confirmation action-required job now points the candidate to email instructions")
 
         signed_action_case = cases_by_key["signed_contract_action_required"]
         await ensure_admin_stage(
@@ -1472,13 +1777,68 @@ async def main() -> None:  # noqa: C901
         signed_review_case["detail"]["current_stage"] = "contract_pool"
         print_detail("signed-contract under-review job now has a submitted signed contract")
 
+        signed_revision_case = cases_by_key["signed_contract_revision_required"]
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=signed_revision_case,
+            target_stage="screening_passed",
+            reason="Prepare candidate portal signed-contract revision data.",
+        )
+        await admin_update_contract_record(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(signed_revision_case["job"].id),
+            progress_ids=[int(signed_revision_case["job_progress_id"])],
+            agreement_ref_no="SIGN-REVISION-2026-003",
+            signing_status="已通知人选签合同",
+            rate="7.20",
+        )
+        await admin_upload_contract_draft(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(signed_revision_case["job"].id),
+            progress_id=int(signed_revision_case["job_progress_id"]),
+            file_name="Signed Revision 2026 003 Draft Contract.pdf",
+        )
+        revision_signed_upload = await candidate_upload_signed_contract_response(
+            web_client,
+            access_token=access_token,
+            job_id=int(signed_revision_case["job"].id),
+            file_name="candidate-signed-contract-revision.docx",
+        )
+        if revision_signed_upload.status_code not in {200, 201}:
+            raise RuntimeError(
+                "Revision signed contract upload should succeed, "
+                f"got {revision_signed_upload.status_code} {revision_signed_upload.text}"
+            )
+        await admin_update_contract_record(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(signed_revision_case["job"].id),
+            progress_ids=[int(signed_revision_case["job_progress_id"])],
+            contract_review="待修改",
+        )
+        signed_revision_case["detail"]["current_stage"] = "contract_pool"
+        print_detail("signed-contract revision job now has a submitted contract returned for revision")
+
         for case_key, ref_no, draft_file, signed_file, sealed_file, process_updates in [
             (
+                "onboarding_preparation",
+                "ONBOARDING-PREP-2026-004",
+                "Onboarding Preparation 2026 004 Draft Contract.pdf",
+                "candidate-signed-contract-onboarding-preparation.docx",
+                "Onboarding Preparation 2026 004 Company Returned Contract.pdf",
+                {
+                    "onboarding_status": "成功签约",
+                },
+            ),
+            (
                 "task_group_action_required",
-                "TASK-GROUP-2026-003",
-                "Task Group 2026 003 Draft Contract.pdf",
+                "TASK-GROUP-2026-005",
+                "Task Group 2026 005 Draft Contract.pdf",
                 "candidate-signed-contract-task-group.docx",
-                "Task Group 2026 003 Company Returned Contract.pdf",
+                "Task Group 2026 005 Company Returned Contract.pdf",
                 {
                     "onboarding_status": "已发大礼包",
                     "gift_package_sent_at": datetime.now(UTC).date().isoformat(),
@@ -1486,11 +1846,22 @@ async def main() -> None:  # noqa: C901
             ),
             (
                 "successfully_onboarded",
-                "ONBOARDED-2026-004",
-                "Onboarded 2026 004 Draft Contract.pdf",
+                "ONBOARDED-2026-006",
+                "Onboarded 2026 006 Draft Contract.pdf",
                 "candidate-signed-contract-onboarded.docx",
-                "Onboarded 2026 004 Company Returned Contract.pdf",
+                "Onboarded 2026 006 Company Returned Contract.pdf",
                 {
+                    "onboarding_date": datetime.now(UTC).date().isoformat(),
+                },
+            ),
+            (
+                "engagement_ended",
+                "ENGAGEMENT-END-2026-007",
+                "Engagement End 2026 007 Draft Contract.pdf",
+                "candidate-signed-contract-engagement-ended.docx",
+                "Engagement End 2026 007 Company Returned Contract.pdf",
+                {
+                    "onboarding_status": "已发大礼包",
                     "onboarding_date": datetime.now(UTC).date().isoformat(),
                 },
             ),
@@ -1552,6 +1923,61 @@ async def main() -> None:  # noqa: C901
             active_case["detail"]["current_stage"] = "active"
             print_detail(f"{case_key} job now has a completed contract path")
 
+        engagement_ended_case = cases_by_key["engagement_ended"]
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=engagement_ended_case,
+            target_stage="replaced",
+            reason="candidate_portal_demo_engagement_ended",
+        )
+        print_detail("engagement-ended job moved from active to replaced")
+
+        rejected_late_case = cases_by_key["rejected_late_stage"]
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=rejected_late_case,
+            target_stage="screening_passed",
+            reason="Prepare candidate portal late-stage rejection data.",
+        )
+        await admin_update_contract_record(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(rejected_late_case["job"].id),
+            progress_ids=[int(rejected_late_case["job_progress_id"])],
+            agreement_ref_no="REJECT-LATE-2026-008",
+            signing_status="已通知人选签合同",
+            rate="8.10",
+        )
+        await admin_upload_contract_draft(
+            admin_client,
+            access_token=admin_access_token,
+            job_id=int(rejected_late_case["job"].id),
+            progress_id=int(rejected_late_case["job_progress_id"]),
+            file_name="Rejected Late 2026 008 Draft Contract.pdf",
+        )
+        late_signed_upload = await candidate_upload_signed_contract_response(
+            web_client,
+            access_token=access_token,
+            job_id=int(rejected_late_case["job"].id),
+            file_name="candidate-signed-contract-before-rejection.docx",
+        )
+        if late_signed_upload.status_code not in {200, 201}:
+            raise RuntimeError(
+                "Late-stage signed contract upload should succeed, "
+                f"got {late_signed_upload.status_code} {late_signed_upload.text}"
+            )
+        rejected_late_case["detail"]["current_stage"] = "contract_pool"
+        await ensure_admin_stage(
+            admin_client,
+            access_token=admin_access_token,
+            case=rejected_late_case,
+            target_stage="rejected",
+            reason="candidate_portal_demo_rejected_late_stage",
+        )
+        print_detail("late-stage rejection job moved from signed contract to rejected")
+
         rejected_case = cases_by_key["rejected"]
         await ensure_admin_stage(
             admin_client,
@@ -1566,7 +1992,13 @@ async def main() -> None:  # noqa: C901
         print_detail("rejected job moved to rejected and rejection mail task created")
 
         print_step("Step 5/6: verify Applications list and candidate-facing detail APIs")
-        refreshed_items = await fetch_my_applications(web_client, access_token=access_token)
+        refreshed_payload = await fetch_my_applications_page(
+            web_client,
+            access_token=access_token,
+            page_size=100,
+            keyword=CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX,
+        )
+        refreshed_items = list(refreshed_payload.get("items", []))
         refreshed_by_title = {str(item["job_title"]): item for item in refreshed_items}
         expected_titles = {
             str(definition["title"])
@@ -1576,15 +2008,21 @@ async def main() -> None:  # noqa: C901
         missing_titles = expected_titles.difference(refreshed_by_title.keys())
         if missing_titles:
             raise RuntimeError(f"Applications missing titles: {sorted(missing_titles)}")
+        expected_cases = build_expected_candidate_portal_cases()
+        expected_summary = build_expected_candidate_summary(expected_cases)
+        if refreshed_payload.get("summary") != expected_summary:
+            raise RuntimeError(
+                f"Applications summary mismatch: expected={expected_summary}, "
+                f"got={refreshed_payload.get('summary')}"
+            )
         for definition in PORTAL_JOB_DEFINITIONS:
             if not should_auto_apply(definition):
                 continue
             item = refreshed_by_title[str(definition["title"])]
             assert_candidate_demo_item_matches_definition(item, definition)
-            expected_view = definition["expected_candidate_view"]
             print_detail(
                 f"{definition['title']} -> {item['current_stage']} / "
-                f"{expected_view['status_label']} / {expected_view['stage_title']} / {expected_view['action_label']}"
+                f"{item['candidate_status']} / {item['candidate_stage']} / {item['candidate_action']}"
             )
 
         signed_action_detail = await fetch_my_application_detail(
@@ -1656,6 +2094,7 @@ async def main() -> None:  # noqa: C901
         )
         my_contract_titles = {str(item["job_title"]): item for item in my_contracts_payload.get("items", [])}
         expected_contract_titles = {
+            str(cases_by_key["onboarding_preparation"]["job"].title),
             str(cases_by_key["task_group_action_required"]["job"].title),
             str(cases_by_key["successfully_onboarded"]["job"].title),
         }
@@ -1664,7 +2103,9 @@ async def main() -> None:  # noqa: C901
             raise RuntimeError(f"My Contracts missing titles: {sorted(missing_contract_titles)}")
         inactive_contract_titles = {
             str(cases_by_key["signed_contract_action_required"]["job"].title),
+            str(cases_by_key["signed_contract_revision_required"]["job"].title),
             str(cases_by_key["signed_contract_under_review"]["job"].title),
+            str(cases_by_key["engagement_ended"]["job"].title),
         }.intersection(my_contract_titles.keys())
         if inactive_contract_titles:
             raise RuntimeError(
@@ -1678,11 +2119,14 @@ async def main() -> None:  # noqa: C901
             access_token=access_token,
             page=1,
             page_size=2,
+            keyword=CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX,
         )
         if int(paged_payload.get("page", 0)) != 1 or int(paged_payload.get("page_size", 0)) != 2:
             raise RuntimeError(f"Unexpected pagination payload: {paged_payload}")
         if len(paged_payload.get("items", [])) > 2:
             raise RuntimeError("Applications page_size=2 returned more than two items.")
+        if paged_payload.get("summary") != expected_summary:
+            raise RuntimeError("Paged Applications summary should still describe the full filtered result.")
         print_detail(
             f"pagination works: page={paged_payload['page']} page_size={paged_payload['page_size']} "
             f"items={len(paged_payload['items'])} total={paged_payload['total']}"
@@ -1703,24 +2147,30 @@ async def main() -> None:  # noqa: C901
             web_client,
             access_token=access_token,
             needs_action_only=True,
+            keyword=CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX,
         )
         if not needs_action_payload.get("items"):
             raise RuntimeError("Needs-action filter returned no items.")
-        if any(
-            item.get("current_stage")
-            not in {"pending_screening", "assessment_review", "screening_passed", "contract_pool"}
-            for item in needs_action_payload["items"]
-        ):
-            raise RuntimeError("Needs-action filter returned a non-action stage.")
+        if any(not item.get("candidate_action_required") for item in needs_action_payload["items"]):
+            raise RuntimeError("Needs-action filter returned a passive candidate presentation.")
         needs_action_titles = {str(item["job_title"]) for item in needs_action_payload["items"]}
         expected_needs_action_titles = {
-            str(cases_by_key["assessment_action_required"]["job"].title),
-            str(cases_by_key["signed_contract_action_required"]["job"].title),
+            str(cases_by_key[key]["job"].title)
+            for key in get_expected_action_required_case_keys(expected_cases)
         }
-        if expected_needs_action_titles.difference(needs_action_titles):
+        if expected_needs_action_titles != needs_action_titles:
             raise RuntimeError(
-                "Needs-action filter is missing expected workspaces: "
-                f"{sorted(expected_needs_action_titles.difference(needs_action_titles))}"
+                "Needs-action filter mismatch: "
+                f"expected={sorted(expected_needs_action_titles)}, got={sorted(needs_action_titles)}"
+            )
+        expected_action_summary = {
+            **expected_summary,
+            "monitoring": 0,
+        }
+        if needs_action_payload.get("summary") != expected_action_summary:
+            raise RuntimeError(
+                f"Needs-action summary mismatch: expected={expected_action_summary}, "
+                f"got={needs_action_payload.get('summary')}"
             )
         print_detail(f"needs-action filter works: items={len(needs_action_payload['items'])}")
 
@@ -1739,13 +2189,12 @@ async def main() -> None:  # noqa: C901
             if not should_auto_apply(definition):
                 continue
             item = refreshed_by_title[str(definition["title"])]
-            expected_view = definition["expected_candidate_view"]
             print(
                 "  - "
                 f"{definition['title']}: stage={item['current_stage']} "
-                f"status={expected_view['status_label']} "
-                f"step={expected_view['stage_title']} "
-                f"action={expected_view['action_label']}"
+                f"status={item['candidate_status']} "
+                f"step={item['candidate_stage']} "
+                f"action={item['candidate_action']}"
             )
         print("my contracts summary:")
         for title in sorted(expected_contract_titles):
