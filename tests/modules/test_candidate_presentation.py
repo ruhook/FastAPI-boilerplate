@@ -284,6 +284,46 @@ def test_submitted_states_explain_that_review_is_still_pending() -> None:
     assert "review" in contract["candidate_stage_body"].lower()
 
 
+def test_unknown_stage_with_stale_contract_data_falls_back_safely() -> None:
+    result = build_candidate_presentation(
+        current_stage="unexpected_stage",
+        assessment_enabled=True,
+        process_data={},
+        contract_data={"draft_contract_attachment": {"asset_id": 1}},
+    )
+
+    assert (
+        result["candidate_status"],
+        result["candidate_stage"],
+        result["candidate_action"],
+    ) == ("under_review", "application_review", "view_details")
+
+
+def test_assessment_revision_is_actionable_even_when_old_attachment_is_missing() -> None:
+    result = build_candidate_presentation(
+        current_stage="assessment_review",
+        assessment_enabled=True,
+        process_data={"assessment_result": "needs_revision"},
+        contract_data=None,
+    )
+
+    assert result["candidate_stage"] == "assessment_file"
+    assert result["candidate_action"] == "upload_assessment"
+
+
+@pytest.mark.parametrize("stage", ["pending_screening", "active"])
+def test_stale_contract_data_cannot_create_contract_action_in_unrelated_stage(stage: str) -> None:
+    result = build_candidate_presentation(
+        current_stage=stage,
+        assessment_enabled=False,
+        process_data={},
+        contract_data={"draft_contract_attachment": {"asset_id": 1}},
+    )
+
+    assert result["candidate_stage"] == "application_review"
+    assert result["candidate_action"] == "view_details"
+
+
 def test_candidate_presentation_summary_uses_exclusive_buckets() -> None:
     presentations = [
         build_candidate_presentation(

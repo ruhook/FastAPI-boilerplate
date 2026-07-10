@@ -85,6 +85,16 @@ ONBOARDED_BODY = "You have completed the onboarding process and officially joine
 REJECTED_BODY = "This application has been closed at this stage."
 ENGAGEMENT_ENDED_BODY = "This engagement has ended and is no longer active."
 
+SUPPORTED_PROGRESS_STAGES = {
+    "pending_screening",
+    "assessment_review",
+    "screening_passed",
+    "contract_pool",
+    "active",
+    "rejected",
+    "replaced",
+}
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -193,6 +203,14 @@ def build_candidate_presentation(
     contract = contract_data or {}
     normalized_stage = _text(current_stage).lower()
 
+    if normalized_stage not in SUPPORTED_PROGRESS_STAGES:
+        return _build(
+            status="under_review",
+            stage="application_review",
+            action="view_details",
+            body=APPLICATION_REVIEW_BODY,
+        )
+
     if normalized_stage == "replaced":
         final_stage: CandidateStage = (
             "onboarding_completed" if _has_value(process.get("onboarding_date")) else "task_group"
@@ -236,7 +254,9 @@ def build_candidate_presentation(
             body=TASK_GROUP_WAITING_BODY,
         )
 
-    if _has_draft_contract(contract, process) or _has_candidate_signed_contract(contract, process):
+    if normalized_stage in {"screening_passed", "contract_pool"} and (
+        _has_draft_contract(contract, process) or _has_candidate_signed_contract(contract, process)
+    ):
         if not _has_candidate_signed_contract(contract, process) or _needs_contract_revision(contract):
             return _build(
                 status="action_required",
@@ -251,7 +271,7 @@ def build_candidate_presentation(
             body=CONTRACT_REVIEW_BODY,
         )
 
-    if normalized_stage == "assessment_review" and _has_assessment_submission(process):
+    if normalized_stage == "assessment_review":
         if _needs_assessment_revision(process):
             return _build(
                 status="action_required",
@@ -259,12 +279,13 @@ def build_candidate_presentation(
                 action="upload_assessment",
                 body=ASSESSMENT_UPLOAD_BODY,
             )
-        return _build(
-            status="under_review",
-            stage="assessment_file",
-            action="view_status",
-            body=ASSESSMENT_REVIEW_BODY,
-        )
+        if _has_assessment_submission(process):
+            return _build(
+                status="under_review",
+                stage="assessment_file",
+                action="view_status",
+                body=ASSESSMENT_REVIEW_BODY,
+            )
 
     if (
         normalized_stage == "pending_screening"
