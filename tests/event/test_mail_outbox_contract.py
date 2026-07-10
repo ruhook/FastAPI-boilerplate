@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from src.app.event import EventType
@@ -76,6 +78,31 @@ def test_stale_mail_task_recovery_decision(
 def test_mail_task_model_has_processing_lease_columns() -> None:
     assert "processing_started_at" in MailTask.__table__.columns
     assert "processing_lease_expires_at" in MailTask.__table__.columns
+
+
+@pytest.mark.asyncio
+async def test_mail_asset_payload_helpers_offload_sync_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+
+    async def fake_to_thread(function, *args, **kwargs):
+        calls.append(function)
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(mail_task_service.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(mail_task_service, "read_asset_content", lambda asset: b"content")
+    task = SimpleNamespace(attachment_asset_ids=[1])
+    asset = SimpleNamespace(id=1, original_name="resume.pdf", mime_type="application/pdf")
+
+    attachment_resolver = getattr(mail_task_service, "async_resolve_attachment_payloads", None)
+    data_url_builder = getattr(mail_task_service, "async_build_asset_data_url", None)
+    assert attachment_resolver is not None
+    assert data_url_builder is not None
+
+    payloads = await attachment_resolver(task, {1: asset})
+    data_url = await data_url_builder(asset)
+    assert payloads == [("resume.pdf", b"content", "application/pdf")]
+    assert data_url == "data:application/pdf;base64,Y29udGVudA=="
+    assert calls == [mail_task_service._resolve_attachment_payloads, mail_task_service._build_asset_data_url]
     assert (
         mail_task_service.resolve_mail_failure_status(
             current_status=MailTaskStatus.SENDING.value,

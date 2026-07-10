@@ -1,7 +1,9 @@
+import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from fastapi.responses import StreamingResponse
 
 from src.app.admin.api.v1.settings import assets as admin_assets_api
 from src.app.api.v1.assets import ensure_current_user_can_access_asset
@@ -164,6 +166,32 @@ async def test_database_failure_removes_uploaded_content(
 
 
 @pytest.mark.asyncio
+async def test_asset_storage_helpers_offload_sync_functions(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+
+    async def fake_to_thread(function, *args, **kwargs):
+        calls.append(function)
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(asset_service, "store_asset_content", lambda **kwargs: None)
+    monkeypatch.setattr(asset_service, "delete_asset_content", lambda storage_key: None)
+    monkeypatch.setattr(asset_service, "read_asset_content", lambda asset: b"content")
+
+    async_store = getattr(asset_service, "async_store_asset_content", None)
+    async_delete = getattr(asset_service, "async_delete_asset_content", None)
+    async_read = getattr(asset_service, "async_read_asset_content", None)
+    assert async_store is not None
+    assert async_delete is not None
+    assert async_read is not None
+
+    await async_store(storage_key="key", content=b"x", mime_type="text/plain")
+    await async_delete("key")
+    assert await async_read(build_asset()) == b"content"
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
 async def test_batch_zip_uses_configured_file_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -203,3 +231,39 @@ async def test_batch_zip_rejects_aggregate_content_over_limit(
             db=SimpleNamespace(),  # type: ignore[arg-type]
             current_admin={"id": 1, "is_superuser": True},
         )
+
+
+@pytest.mark.asyncio
+async def test_batch_zip_offloads_pdf_conversion_and_archive_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    offloaded_names: list[str] = []
+    real_to_thread = asyncio.to_thread
+
+    async def recording_to_thread(function, *args, **kwargs):
+        offloaded_names.append(getattr(function, "__name__", function.__class__.__name__))
+        return await real_to_thread(function, *args, **kwargs)
+
+    asset = build_asset()
+
+    async def fake_get_asset(_asset_id: int, _db) -> dict:
+        return serialize_asset(asset)
+
+    async def fake_get_content(_asset_id: int, _db) -> tuple[Asset, bytes]:
+        return asset, b"%PDF-1.7\nasset"
+
+    async def allow_access(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "to_thread", recording_to_thread)
+    monkeypatch.setattr(admin_assets_api, "get_asset", fake_get_asset)
+    monkeypatch.setattr(admin_assets_api, "get_asset_content", fake_get_content)
+    monkeypatch.setattr(admin_assets_api, "ensure_current_admin_can_access_asset", allow_access)
+
+    response = await admin_assets_api.download_assets_as_zip(
+        payload=admin_assets_api.AssetBatchDownloadZipPayload(asset_ids=[asset.id], format="pdf"),
+        db=SimpleNamespace(),  # type: ignore[arg-type]
+        current_admin={"id": 1, "is_superuser": True},
+    )
+    assert isinstance(response, StreamingResponse)
+    assert "build_asset_pdf_export" in offloaded_names
+    assert "writestr" in offloaded_names
+    assert "close" in offloaded_names

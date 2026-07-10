@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import Annotated, Any, Literal
@@ -17,7 +18,7 @@ from .....modules.assets.responses import (
     build_download_response,
 )
 from .....modules.assets.schema import AssetRead, AssetUploadPayload
-from .....modules.assets.service import build_asset_pdf_export, get_asset, get_asset_content, upload_asset
+from .....modules.assets.service import async_build_asset_pdf_export, get_asset, get_asset_content, upload_asset
 from ...dependencies import get_current_admin_user
 
 router = APIRouter(prefix="/assets", tags=["admin-assets"])
@@ -98,23 +99,32 @@ async def download_assets_as_zip(
     output = SpooledTemporaryFile(max_size=settings.ASSET_ZIP_SPOOL_MAX_BYTES, mode="w+b")
     used_names: set[str] = set()
     total_content_bytes = 0
+    archive = ZipFile(output, "w", ZIP_DEFLATED)
+    archive_closed = False
     try:
-        with ZipFile(output, "w", ZIP_DEFLATED) as archive:
-            for asset_id in asset_ids:
-                asset_payload = await get_asset(asset_id, db)
-                await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
-                asset, content = await get_asset_content(asset_id, db)
-                if payload.format == "pdf":
-                    content = build_asset_pdf_export(asset, content)
-                    filename = f"{asset.original_name.rsplit('.', 1)[0]}.pdf"
-                else:
-                    filename = asset.original_name
-                total_content_bytes += len(content)
-                if total_content_bytes > settings.ASSET_BATCH_MAX_BYTES:
-                    raise BadRequestException("Selected assets are too large for one archive.")
-                archive.writestr(_safe_zip_member_name(filename, used_names), content)
-        output.seek(0)
+        for asset_id in asset_ids:
+            asset_payload = await get_asset(asset_id, db)
+            await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
+            asset, content = await get_asset_content(asset_id, db)
+            if payload.format == "pdf":
+                content = await async_build_asset_pdf_export(asset, content)
+                filename = f"{asset.original_name.rsplit('.', 1)[0]}.pdf"
+            else:
+                filename = asset.original_name
+            total_content_bytes += len(content)
+            if total_content_bytes > settings.ASSET_BATCH_MAX_BYTES:
+                raise BadRequestException("Selected assets are too large for one archive.")
+            member_name = _safe_zip_member_name(filename, used_names)
+            await asyncio.to_thread(archive.writestr, member_name, content)
+        await asyncio.to_thread(archive.close)
+        archive_closed = True
+        await asyncio.to_thread(output.seek, 0)
     except Exception:
+        if not archive_closed:
+            try:
+                await asyncio.to_thread(archive.close)
+            except Exception:
+                pass
         output.close()
         raise
 
@@ -180,6 +190,6 @@ async def download_asset_as_pdf(
     asset_payload = await get_asset(asset_id, db)
     await ensure_current_admin_can_access_asset(db, asset=asset_payload, current_admin=current_admin)
     asset, content = await get_asset_content(asset_id, db)
-    pdf_bytes = build_asset_pdf_export(asset, content)
+    pdf_bytes = await async_build_asset_pdf_export(asset, content)
     filename = f"{asset.original_name.rsplit('.', 1)[0]}.pdf"
     return build_download_response(pdf_bytes, media_type="application/pdf", filename=filename)

@@ -299,6 +299,13 @@ def _resolve_attachment_payloads(task: MailTask, assets_by_id: dict[int, Any]) -
     return attachment_payloads
 
 
+async def async_resolve_attachment_payloads(
+    task: MailTask,
+    assets_by_id: dict[int, Any],
+) -> list[tuple[str, bytes, str]]:
+    return await asyncio.to_thread(_resolve_attachment_payloads, task, assets_by_id)
+
+
 def _merge_attachment_asset_ids(
     explicit_asset_ids: list[int],
     *,
@@ -332,6 +339,10 @@ def _build_asset_data_url(asset: Any) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+async def async_build_asset_data_url(asset: Any) -> str:
+    return await asyncio.to_thread(_build_asset_data_url, asset)
+
+
 async def _build_mail_signature_html_pair(signature: MailSignature | None, db: AsyncSession) -> tuple[str, str]:
     if signature is None:
         return "", ""
@@ -349,8 +360,8 @@ async def _build_mail_signature_html_pair(signature: MailSignature | None, db: A
 
     stored_avatar_url = serialize_asset(avatar_asset)["preview_url"] if avatar_asset is not None else None
     stored_banner_url = serialize_asset(banner_asset)["preview_url"] if banner_asset is not None else None
-    outbound_avatar_url = _build_asset_data_url(avatar_asset) if avatar_asset is not None else None
-    outbound_banner_url = _build_asset_data_url(banner_asset) if banner_asset is not None else None
+    outbound_avatar_url = await async_build_asset_data_url(avatar_asset) if avatar_asset is not None else None
+    outbound_banner_url = await async_build_asset_data_url(banner_asset) if banner_asset is not None else None
 
     return (
         render_mail_signature_html(signature, avatar_url=stored_avatar_url, banner_url=stored_banner_url),
@@ -779,7 +790,7 @@ async def process_mail_task(task_id: int) -> None:
 
             assets = await ensure_assets_exist(db, asset_ids=task.attachment_asset_ids or [])
             assets_by_id = {asset.id: asset for asset in assets}
-            attachment_payloads = _resolve_attachment_payloads(task, assets_by_id)
+            attachment_payloads = await async_resolve_attachment_payloads(task, assets_by_id)
             if delivery_mode == "preview":
                 provider_message_id = _preview_mail_delivery(
                     account=account,

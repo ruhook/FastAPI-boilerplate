@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
-from .content_policy import classify_asset_content
+from .content_policy import AssetContentPolicy, classify_asset_content
 from .model import Asset
 from .schema import AssetRead, AssetUploadPayload
 
@@ -114,6 +115,27 @@ def read_asset_content(asset: Asset) -> bytes:
     if not path.exists():
         raise NotFoundException("Asset file not found.")
     return path.read_bytes()
+
+
+async def async_store_asset_content(*, storage_key: str, content: bytes, mime_type: str) -> None:
+    await asyncio.to_thread(
+        store_asset_content,
+        storage_key=storage_key,
+        content=content,
+        mime_type=mime_type,
+    )
+
+
+async def async_delete_asset_content(storage_key: str) -> None:
+    await asyncio.to_thread(delete_asset_content, storage_key)
+
+
+async def async_read_asset_content(asset: Asset) -> bytes:
+    return await asyncio.to_thread(read_asset_content, asset)
+
+
+async def async_classify_asset_content(filename: str, content: bytes) -> AssetContentPolicy:
+    return await asyncio.to_thread(classify_asset_content, filename, content)
 
 
 async def read_upload_content_bounded(
@@ -233,9 +255,9 @@ async def upload_asset(
     if not content:
         raise BadRequestException("Uploaded file is empty.")
 
-    policy = classify_asset_content(filename, content)
+    policy = await async_classify_asset_content(filename, content)
     storage_key = _build_asset_storage_key(payload=payload, original_name=filename)
-    store_asset_content(storage_key=storage_key, content=content, mime_type=policy.mime_type)
+    await async_store_asset_content(storage_key=storage_key, content=content, mime_type=policy.mime_type)
 
     asset = Asset(
         type=payload.type,
@@ -254,7 +276,7 @@ async def upload_asset(
         await db.refresh(asset)
     except Exception:
         try:
-            delete_asset_content(storage_key)
+            await async_delete_asset_content(storage_key)
         except Exception:
             logger.exception("Failed to remove orphaned asset content after database failure.")
         raise
@@ -277,13 +299,13 @@ async def create_asset_from_bytes(
             f"Uploaded file is too large. Maximum size is {settings.ASSET_MAX_UPLOAD_BYTES} bytes."
         )
     resolved_name = (original_name or "").strip() or "asset"
-    policy = classify_asset_content(resolved_name, content)
+    policy = await async_classify_asset_content(resolved_name, content)
     if mime_type is not None and mime_type.split(";", 1)[0].strip().lower() != policy.mime_type.split(
         ";", 1
     )[0]:
         raise BadRequestException("Declared asset media type does not match its content.")
     storage_key = _build_asset_storage_key(payload=payload, original_name=resolved_name)
-    store_asset_content(storage_key=storage_key, content=content, mime_type=policy.mime_type)
+    await async_store_asset_content(storage_key=storage_key, content=content, mime_type=policy.mime_type)
     asset_data = {"suffix": policy.suffix}
     if data:
         asset_data.update(data)
@@ -305,7 +327,7 @@ async def create_asset_from_bytes(
         await db.refresh(asset)
     except Exception:
         try:
-            delete_asset_content(storage_key)
+            await async_delete_asset_content(storage_key)
         except Exception:
             logger.exception("Failed to remove orphaned asset content after database failure.")
         raise
@@ -314,7 +336,7 @@ async def create_asset_from_bytes(
 
 async def get_asset_content(asset_id: int, db: AsyncSession) -> tuple[Asset, bytes]:
     asset = await get_asset_model(asset_id, db)
-    return asset, read_asset_content(asset)
+    return asset, await async_read_asset_content(asset)
 
 
 def _escape_pdf_text(value: str) -> str:
@@ -427,6 +449,10 @@ def build_asset_pdf_export(asset: Asset, content: bytes) -> bytes:
             ]
         )
     return _build_simple_pdf(export_lines)
+
+
+async def async_build_asset_pdf_export(asset: Asset, content: bytes) -> bytes:
+    return await asyncio.to_thread(build_asset_pdf_export, asset, content)
 
 
 async def soft_delete_asset(asset_id: int, db: AsyncSession) -> dict[str, str]:
