@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import UploadFile
 from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from ...core.advanced_filter import (
     AdvancedFilterFieldDefinition,
@@ -62,7 +63,6 @@ from ..user.model import User
 from .candidate_presentation import (
     CandidatePresentation,
     build_candidate_presentation,
-    summarize_candidate_presentations,
 )
 from .const import (
     JOB_PROGRESS_ATTACHMENT_ASSET_KEY_MAP,
@@ -1913,38 +1913,66 @@ async def list_candidate_job_applications(
     normalized_stage = _normalize_text(current_stage)
     if normalized_stage:
         conditions.append(JobProgress.current_stage == normalized_stage)
-    result = await db.execute(
-        select(JobProgress, CandidateApplication, Job)
+
+    contract_lookup = aliased(ContractRecord)
+    current_contract = aliased(ContractRecord)
+    current_contract_id = (
+        select(contract_lookup.id)
+        .where(
+            contract_lookup.job_progress_id == JobProgress.id,
+            contract_lookup.is_deleted.is_(False),
+            contract_lookup.is_current.is_(True),
+        )
+        .order_by(contract_lookup.version.desc(), contract_lookup.id.desc())
+        .limit(1)
+        .correlate(JobProgress)
+        .scalar_subquery()
+    )
+    result = await db.stream(
+        select(JobProgress, CandidateApplication, Job, current_contract)
         .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
         .join(Job, Job.id == JobProgress.job_id)
+        .outerjoin(current_contract, current_contract.id == current_contract_id)
         .where(*conditions)
         .order_by(CandidateApplication.submitted_at.desc(), CandidateApplication.id.desc())
+        .execution_options(yield_per=max(page_size, 100))
     )
-    all_rows = result.all()
-    contract_records = await list_current_contract_records_by_progress_ids(
-        progress_ids=[progress.id for progress, _, _ in all_rows],
-        db=db,
-    )
-    annotated_rows = [
-        (
-            progress,
-            application,
-            job,
-            _build_candidate_presentation_for_progress(
-                progress=progress,
-                job=job,
-                contract_record=contract_records.get(progress.id),
-            ),
-        )
-        for progress, application, job in all_rows
-    ]
-    if needs_action_only:
-        annotated_rows = [row for row in annotated_rows if row[3]["candidate_action_required"]]
 
-    total = len(annotated_rows)
-    summary = summarize_candidate_presentations([row[3] for row in annotated_rows])
     start = (page - 1) * page_size
-    rows = annotated_rows[start : start + page_size]
+    end = start + page_size
+    total = 0
+    contract_uploads = 0
+    other_actions = 0
+    rows: list[tuple[JobProgress, CandidateApplication, Job, CandidatePresentation]] = []
+    contract_records: dict[int, ContractRecord] = {}
+    async for progress, application, job, contract_record in result:
+        presentation = _build_candidate_presentation_for_progress(
+            progress=progress,
+            job=job,
+            contract_record=contract_record,
+        )
+        if needs_action_only and not presentation["candidate_action_required"]:
+            continue
+
+        row_index = total
+        total += 1
+        if presentation["candidate_action"] == "upload_contract":
+            contract_uploads += 1
+        elif presentation["candidate_action_required"]:
+            other_actions += 1
+
+        if start <= row_index < end:
+            rows.append((progress, application, job, presentation))
+            if contract_record is not None:
+                contract_records[int(progress.id)] = contract_record
+
+    total_action_required = contract_uploads + other_actions
+    summary = {
+        "contract_uploads": contract_uploads,
+        "other_actions": other_actions,
+        "monitoring": total - total_action_required,
+        "total_action_required": total_action_required,
+    }
     if not rows:
         return CandidateJobApplicationListPage(
             items=[],
