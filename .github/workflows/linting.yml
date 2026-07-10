@@ -23,4 +23,4 @@ jobs:
       run: uv pip install -e ".[dev]"
 
     - name: Run Ruff
-      run: uv run ruff check src
+      run: uv run ruff check --no-fix src tests

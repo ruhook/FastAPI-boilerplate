@@ -65,6 +65,12 @@ cp src/.env.example src/.env
 ```env
 ENVIRONMENT="local"
 
+# 本地虚拟管理员免登录；非 local 环境即使误配也会拒绝启动
+ENABLE_LOCAL_AUTH_BYPASS=true
+
+# 默认不向数据库写入固定开发管理员
+ENABLE_LOCAL_ADMIN_BOOTSTRAP=false
+
 SECRET_KEY="replace-with-a-real-secret"
 
 DATABASE_BACKEND="mysql"
@@ -77,6 +83,18 @@ MYSQL_DB="hr_server"
 REDIS_CACHE_HOST="127.0.0.1"
 REDIS_CACHE_PORT=6379
 ```
+
+`ENABLE_LOCAL_AUTH_BYPASS=true` 时，可以使用用户名 `HaokangImport` 和任意非空密码登录 Admin。它是进程内虚拟超级管理员，不会写入数据库；`/me` 和 refresh 仍可正常使用。关闭该开关后，登录立即回到真实数据库账号校验。
+
+如果确实需要数据库中的固定本地管理员，可以仅在 `ENVIRONMENT=local` 时显式设置 `ENABLE_LOCAL_ADMIN_BOOTSTRAP=true`。这个开关与虚拟免登录相互独立。
+
+本地需要创建或发送邮件账号时，还要生成一个 Fernet key：
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+将输出写入 `src/.env` 的 `MAIL_CREDENTIAL_ENCRYPTION_KEY`。邮件账号的 SMTP 授权码是只写字段：创建/更新时提交，查询时只会看到 `has_auth_secret=true|false`。
 
 ## 数据库初始化
 

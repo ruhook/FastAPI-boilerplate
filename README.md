@@ -173,6 +173,29 @@ Create `src/.env` and set **app**, **database**, **JWT**, and **environment** se
 * Create the first admin user explicitly with `uv run python -m src.scripts.create_first_superuser` and follow the interactive prompts
 * For fast local bootstrap, you can also run `uv run python -m src.scripts.create_first_superuser --default` to create `admin@admin.com / 12345678`
 
+### Security baseline
+
+Production startup fails closed when security-sensitive settings are incomplete. At minimum:
+
+```env
+ENVIRONMENT="production"
+SECRET_KEY="<generate-a-random-value-with-the-command-below>"
+CORS_ORIGINS=["https://admin.example.com","https://app.example.com"]
+CORS_ALLOW_CREDENTIALS=true
+ENABLE_LOCAL_AUTH_BYPASS=false
+ENABLE_LOCAL_ADMIN_BOOTSTRAP=false
+MAIL_CREDENTIAL_ENCRYPTION_KEY="replace-with-a-generated-fernet-key"
+```
+
+Generate both keys once and store them in the deployment secret manager:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Do not change that key without a credential re-encryption procedure: existing SMTP credentials depend on it. Mail-account read APIs expose only `has_auth_secret`; they never return the SMTP authorization code. See [docs/deployment-zh.md](docs/deployment-zh.md) for the migration and credential-rotation rollout.
+
 ## Common tasks
 
 ```bash
