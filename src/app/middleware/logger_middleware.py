@@ -1,4 +1,3 @@
-# app/middleware/request_id.py
 import uuid
 
 import structlog
@@ -6,30 +5,9 @@ from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from ..core.log_redaction import redact_mapping, serialize_request_body_for_log
+
 logger = structlog.get_logger(__name__)
-
-
-async def _serialize_request_body(request: Request) -> str | None:
-    if request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
-        return None
-
-    content_type = (request.headers.get("content-type") or "").lower()
-    try:
-        raw_body = await request.body()
-    except Exception as exc:  # pragma: no cover - defensive logging helper
-        return f"<failed to read request body: {exc}>"
-
-    if not raw_body:
-        return None
-
-    if "application/json" in content_type or "application/x-www-form-urlencoded" in content_type:
-        text = raw_body.decode("utf-8", errors="replace")
-        if len(text) > 4000:
-          return f"{text[:4000]}...(truncated)"
-        return text
-    if "multipart/form-data" in content_type:
-        return "<multipart form-data omitted>"
-    return f"<{content_type or 'body'} omitted>"
 
 
 class LoggerMiddleware(BaseHTTPMiddleware):
@@ -63,9 +41,9 @@ class LoggerMiddleware(BaseHTTPMiddleware):
             logger.warning(
                 "HTTP request returned non-success status",
                 status_code=response.status_code,
-                path_params=dict(request.path_params),
-                query_params=dict(request.query_params),
-                request_body=await _serialize_request_body(request),
+                path_params=redact_mapping(request.path_params),
+                query_params=redact_mapping(request.query_params),
+                request_body=await serialize_request_body_for_log(request),
             )
         response.headers["X-Request-ID"] = request_id
         return response
