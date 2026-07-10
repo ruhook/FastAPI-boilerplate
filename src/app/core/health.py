@@ -1,25 +1,37 @@
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 from redis.asyncio import Redis
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from .config import settings
+from .db.database import async_engine
 
 LOGGER = logging.getLogger(__name__)
 
 
-async def check_database_health(db: AsyncSession) -> bool:
+async def _probe_database() -> None:
+    async with async_engine.connect() as connection:
+        await connection.execute(text("SELECT 1"))
+
+
+async def _run_probe(probe: Callable[[], Awaitable[None]]) -> bool:
     try:
-        await db.execute(text("SELECT 1"))
+        async with asyncio.timeout(settings.HEALTH_CHECK_TIMEOUT_SECONDS):
+            await probe()
         return True
-    except Exception as e:
-        LOGGER.exception(f"Database health check failed with error: {e}")
+    except Exception:
+        LOGGER.exception("Dependency health check failed")
         return False
+
+
+async def check_database_health() -> bool:
+    return await _run_probe(_probe_database)
 
 
 async def check_redis_health(redis: Redis) -> bool:
-    try:
+    async def probe() -> None:
         await redis.ping()
-        return True
-    except Exception as e:
-        LOGGER.exception(f"Redis health check failed with error: {e}")
-        return False
+
+    return await _run_probe(probe)

@@ -89,7 +89,11 @@ async def create_tables() -> None:
 
 # -------------- cache --------------
 async def create_redis_cache_pool() -> None:
-    cache.pool = redis.ConnectionPool.from_url(settings.REDIS_CACHE_URL)
+    cache.pool = redis.ConnectionPool.from_url(
+        settings.REDIS_CACHE_URL,
+        socket_connect_timeout=settings.REDIS_CONNECT_TIMEOUT_SECONDS,
+        socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+    )
     cache.client = redis.Redis.from_pool(cache.pool)  # type: ignore
 
 
