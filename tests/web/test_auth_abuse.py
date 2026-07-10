@@ -137,6 +137,7 @@ async def test_registration_send_code_does_not_reveal_existing_account(
 ) -> None:
     existing, _ = await create_candidate_user(db_session, suffix="enumeration-register", name="Existing")
     redis = FakeRateLimitRedis()
+    monkeypatch.setattr(settings, "CANDIDATE_REGISTER_VERIFICATION_ENABLED", True)
     monkeypatch.setattr(verification_service, "_send_mail_sync", lambda *_args, **_kwargs: None)
     _install_fake_redis(web_app, redis)
     try:
@@ -199,6 +200,7 @@ async def test_non_local_smtp_failure_does_not_leak_exception_text(
 
     redis = FakeRateLimitRedis()
     monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.STAGING)
+    monkeypatch.setattr(settings, "CANDIDATE_REGISTER_VERIFICATION_ENABLED", True)
     monkeypatch.setattr(verification_service, "_send_mail_sync", fail_mail)
     _install_fake_redis(web_app, redis)
     try:

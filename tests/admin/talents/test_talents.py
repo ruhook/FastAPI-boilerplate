@@ -60,6 +60,11 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
     auth_headers = await login_web_user(web_client, username=user.email, password=password)
     first_resume = await create_resume_asset(db_session, suffix=f"{suffix}-first", original_name="bob-first.pdf")
     second_resume = await create_resume_asset(db_session, suffix=f"{suffix}-second", original_name="bob-second.pdf")
+    first_resume.owner_id = user.id
+    first_resume.module = "candidate_application"
+    second_resume.owner_id = user.id
+    second_resume.module = "candidate_application"
+    await db_session.commit()
 
     first_apply_response = await web_client.post(
         f"/api/v1/jobs/{first_job.id}/apply",

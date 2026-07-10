@@ -45,6 +45,11 @@ async def test_admin_cannot_merge_application_from_another_talent_profile(
     second_headers = await login_web_user(web_client, username=second_user.email, password=second_password)
     first_resume = await create_resume_asset(db_session, suffix=f"merge-a-{suffix}", original_name="first.pdf")
     second_resume = await create_resume_asset(db_session, suffix=f"merge-b-{suffix}", original_name="second.pdf")
+    first_resume.owner_id = first_user.id
+    first_resume.module = "candidate_application"
+    second_resume.owner_id = second_user.id
+    second_resume.module = "candidate_application"
+    await db_session.commit()
 
     first_apply_response = await web_client.post(
         f"/api/v1/jobs/{job.id}/apply",

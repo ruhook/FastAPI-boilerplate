@@ -17,6 +17,7 @@ from src.app.modules.admin.mail_task.model import MailTask
 from src.app.modules.assets.model import Asset
 from src.app.modules.contract_record.model import ContractRecord
 from src.app.modules.job.const import JOB_DATA_LANGUAGES_KEY
+from src.app.modules.job.model import Job
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.job_progress.service import list_candidate_job_applications, sync_assessment_sent_at_from_mail_task
 from tests.helpers.talent import (
@@ -945,6 +946,8 @@ async def test_rejected_active_progress_restores_previous_contract_state(
     async with local_session() as setup_session:
         saved = await setup_session.get(JobProgress, progress.id)
         assert saved is not None
+        job = await setup_session.get(Job, saved.job_id)
+        assert job is not None
         resume_result = await setup_session.execute(
             select(Asset).where(Asset.owner_id == progress.user_id).order_by(Asset.id.desc())
         )
@@ -965,6 +968,8 @@ async def test_rejected_active_progress_restores_previous_contract_state(
             job_id=progress.job_id,
             job_progress_id=progress.id,
             job_snapshot_title="Progress Role",
+            service_customer_company_id=int(job.company_id),
+            service_customer_project_id=int(job.project_id),
             contract_status="Active",
             contractor_name="Progress Candidate",
             candidate_signed_contract_asset_id=signed_asset.id,

@@ -270,7 +270,7 @@ async def test_web_me_applications_summary_and_action_filter_use_full_presentati
         ("contract_action", False),
     ]
     application_ids: dict[str, int] = {}
-    jobs: dict[str, object] = {}
+    job_snapshots: dict[str, dict[str, object]] = {}
     for key, assessment_enabled in definitions:
         job = await create_open_job(
             db_session,
@@ -281,7 +281,11 @@ async def test_web_me_applications_summary_and_action_filter_use_full_presentati
             form_fields=fields,
             assessment_enabled=assessment_enabled,
         )
-        jobs[key] = job
+        job_snapshots[key] = {
+            "title": job.title,
+            "company_id": job.company_id,
+            "project_id": job.project_id,
+        }
         apply_response = await web_client.post(
             f"/api/v1/jobs/{job.id}/apply",
             headers=auth_headers,
@@ -300,6 +304,10 @@ async def test_web_me_applications_summary_and_action_filter_use_full_presentati
         assert apply_response.status_code == 200, apply_response.text
         application_ids[key] = int(apply_response.json()["application_id"])
 
+    user_id = int(user.id)
+    user_name = str(user.name)
+    user_email = str(user.email)
+    await db_session.rollback()
     progress_result = await db_session.execute(
         select(JobProgress).where(JobProgress.application_id.in_(application_ids.values()))
     )
@@ -316,24 +324,25 @@ async def test_web_me_applications_summary_and_action_filter_use_full_presentati
 
     contract_progress = progress_by_application_id[application_ids["contract_action"]]
     contract_progress.current_stage = "contract_pool"
-    draft_asset = _contract_asset(suffix=suffix, original_name="summary-draft.docx", owner_id=user.id)
+    draft_asset = _contract_asset(suffix=suffix, original_name="summary-draft.docx", owner_id=user_id)
     db_session.add(draft_asset)
     await db_session.flush()
-    contract_job = jobs["contract_action"]
+    contract_job = job_snapshots["contract_action"]
     db_session.add(
         ContractRecord(
-            user_id=user.id,
-            user_snapshot_name=user.name,
-            user_snapshot_email=user.email,
+            user_id=user_id,
+            user_snapshot_name=user_name,
+            user_snapshot_email=user_email,
             talent_profile_id=contract_progress.talent_profile_id,
             application_id=application_ids["contract_action"],
             job_id=contract_progress.job_id,
             job_progress_id=contract_progress.id,
-            job_snapshot_title=contract_job.title,
-            service_customer_project_id=contract_job.project_id,
+            job_snapshot_title=str(contract_job["title"]),
+            service_customer_company_id=int(contract_job["company_id"]),
+            service_customer_project_id=int(contract_job["project_id"]),
             agreement_ref_no=f"SUMMARY-{suffix}",
             contract_status="Pending Signature",
-            contractor_name=user.name,
+            contractor_name=user_name,
             draft_contract_asset_id=draft_asset.id,
             data={},
         )

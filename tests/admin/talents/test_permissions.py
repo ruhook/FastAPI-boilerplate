@@ -56,6 +56,9 @@ async def test_assessment_reviewer_only_cannot_access_talent_endpoints(
     user, password = await create_candidate_user(db_session, suffix=f"perm{suffix}", name="Permission Candidate")
     web_headers = await login_web_user(web_client, username=user.email, password=password)
     resume = await create_resume_asset(db_session, suffix=f"perm-{suffix}", original_name="permission.pdf")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
 
     apply_response = await web_client.post(
         f"/api/v1/jobs/{job.id}/apply",

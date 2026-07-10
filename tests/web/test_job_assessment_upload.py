@@ -1,4 +1,6 @@
+from io import BytesIO
 from uuid import uuid4
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from httpx import AsyncClient
@@ -20,6 +22,14 @@ from tests.helpers.talent import (
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+
+def _xlsx_content() -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "<Types></Types>")
+        archive.writestr("xl/workbook.xml", "<workbook></workbook>")
+    return buffer.getvalue()
 
 
 async def test_web_candidate_can_upload_assessment_attachment(
@@ -51,6 +61,9 @@ async def test_web_candidate_can_upload_assessment_attachment(
         suffix=f"{suffix}-resume",
         original_name="assessment-resume.pdf",
     )
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
 
     apply_response = await web_client.post(
         f"/api/v1/jobs/{job.id}/apply",
@@ -70,14 +83,25 @@ async def test_web_candidate_can_upload_assessment_attachment(
     assert apply_response.status_code == 200, apply_response.text
     application_payload = apply_response.json()
 
+    async with local_session() as invitation_session:
+        progress_result = await invitation_session.execute(
+            select(JobProgress).where(JobProgress.application_id == application_payload["application_id"])
+        )
+        invited_progress = progress_result.scalar_one()
+        invited_progress.data = {
+            **(invited_progress.data or {}),
+            "assessment_invited_at": "2026-07-10T08:00:00+00:00",
+        }
+        await invitation_session.commit()
+
     upload_response = await web_client.post(
         f"/api/v1/jobs/{job.id}/assessment/upload",
         headers=auth_headers,
         files={
             "file": (
-                "assessment-answer.pdf",
-                b"%PDF-1.4\n% demo assessment\n",
-                "application/pdf",
+                "assessment-answer.xlsx",
+                _xlsx_content(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
     )
@@ -88,8 +112,8 @@ async def test_web_candidate_can_upload_assessment_attachment(
     assert upload_payload["job_id"] == job.id
     assert upload_payload["application_id"] == application_payload["application_id"]
     assert upload_payload["current_stage"] == "assessment_review"
-    assert upload_payload["assessment_asset"]["original_name"] == "assessment-answer.pdf"
-    assert upload_payload["process_data"]["assessment_attachment"] == "assessment-answer.pdf"
+    assert upload_payload["assessment_asset"]["original_name"] == "assessment-answer.xlsx"
+    assert upload_payload["process_data"]["assessment_attachment"] == "assessment-answer.xlsx"
     assert upload_payload["process_data"]["assessment_attachment_asset_id"] == upload_payload["assessment_asset"]["id"]
     assert (
         upload_payload["process_assets"]["assessment_attachment"]["asset_id"]
@@ -101,7 +125,7 @@ async def test_web_candidate_can_upload_assessment_attachment(
         headers=auth_headers,
     )
     assert asset_read_response.status_code == 200, asset_read_response.text
-    assert asset_read_response.json()["original_name"] == "assessment-answer.pdf"
+    assert asset_read_response.json()["original_name"] == "assessment-answer.xlsx"
 
     async with local_session() as assertion_session:
         progress_result = await assertion_session.execute(
@@ -109,7 +133,7 @@ async def test_web_candidate_can_upload_assessment_attachment(
         )
         progress = progress_result.scalar_one()
         assert progress.current_stage == "assessment_review"
-        assert progress.data["assessment_attachment"] == "assessment-answer.pdf"
+        assert progress.data["assessment_attachment"] == "assessment-answer.xlsx"
         assert progress.data["assessment_attachment_asset_id"] == upload_payload["assessment_asset"]["id"]
         assert progress.data["assessment_submitted_at"]
 
@@ -127,6 +151,7 @@ async def test_web_candidate_can_upload_assessment_attachment(
             "candidate_application_submitted",
             "talent_profile_initial_auto_merge",
             "job_progress_created",
+            "job_progress_stage_mail_task_skipped",
             "job_progress_stage_changed",
             "job_progress_assessment_submitted",
         ]

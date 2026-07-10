@@ -30,11 +30,21 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
     client: AsyncClient,
     db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
+    superadmin_credentials: dict[str, str | int],
 ) -> None:
     template = await create_form_template(
         db_session,
         suffix="job-company",
         fields=build_form_fields(),
+    )
+    dependency_job = await create_open_job(
+        db_session,
+        suffix="job-company-dependencies",
+        title="Job Company Dependency Fixture",
+        company_name="T-Maxx",
+        owner_admin_user_id=int(superadmin_credentials["id"]),
+        form_template_id=template.id,
+        form_fields=build_form_fields(),
     )
 
     create_response = await client.post(
@@ -42,7 +52,9 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
         headers=admin_auth_headers,
         json={
             "title": "Portuguese QA Reviewer",
-            "company": "T-Maxx",
+            "company_id": dependency_job.company_id,
+            "project_id": dependency_job.project_id,
+            "referral_bonus_model_id": dependency_job.referral_bonus_model_id,
             "country": "Brazil",
             "status": "在招",
             "work_mode": "Remote",
@@ -96,7 +108,6 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
         f"/api/v1/jobs/{job_id}",
         headers=admin_auth_headers,
         json={
-            "company": "T-Maxx Updated",
             "compensation_min": None,
             "compensation_max": None,
             "show_compensation": False,
@@ -105,7 +116,7 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
     )
     assert update_response.status_code == 200, update_response.text
     updated_payload = update_response.json()
-    assert updated_payload["company"] == "T-Maxx Updated"
+    assert updated_payload["company"] == "T-Maxx"
     assert updated_payload["compensation_min"] is None
     assert updated_payload["compensation_max"] is None
     assert updated_payload["show_compensation"] is False
@@ -113,7 +124,7 @@ async def test_superadmin_can_create_list_detail_and_update_job_with_company(
     filtered_list_response = await client.get(
         "/api/v1/jobs",
         headers=admin_auth_headers,
-        params={"company": "T-Maxx Updated"},
+        params={"company_id": dependency_job.company_id},
     )
     assert filtered_list_response.status_code == 200, filtered_list_response.text
     filtered_payload = filtered_list_response.json()
@@ -315,6 +326,9 @@ async def test_superadmin_can_read_job_progress_list(
     user, password = await create_candidate_user(db_session, suffix="jobprogress", name="Progress Admin Candidate")
     auth_headers = await login_web_user(web_client, username=user.email, password=password)
     resume = await create_resume_asset(db_session, suffix="job-progress")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
 
     apply_response = await web_client.post(
         f"/api/v1/jobs/{job.id}/apply",
@@ -416,7 +430,7 @@ async def test_auto_screening_match_creates_assessment_mail_task_and_stays_pendi
         assessment_enabled=True,
         automation_rules=build_automation_rules(
             field_key="education_status",
-            operator="equals",
+            operator="eq",
             value="Bachelor’s degree (completed)",
         ),
     )
@@ -433,6 +447,9 @@ async def test_auto_screening_match_creates_assessment_mail_task_and_stays_pendi
     )
     auth_headers = await login_web_user(web_client, username=user.email, password=password)
     resume = await create_resume_asset(db_session, suffix="assessment-mail")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
 
     apply_response = await web_client.post(
         f"/api/v1/jobs/{job.id}/apply",
@@ -460,7 +477,9 @@ async def test_auto_screening_match_creates_assessment_mail_task_and_stays_pendi
     progress_item = progress_response.json()["items"][0]
     assert progress_item["current_stage"] == "pending_screening"
 
-    task_result = await db_session.execute(select(MailTask).where(MailTask.account_id == account.id))
+    account_id = int(account.id)
+    await db_session.rollback()
+    task_result = await db_session.execute(select(MailTask).where(MailTask.account_id == account_id))
     mail_task = task_result.scalar_one_or_none()
     assert mail_task is not None
     assert mail_task.template_id == template_record.id
