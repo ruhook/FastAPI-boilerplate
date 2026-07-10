@@ -21,7 +21,7 @@ from ....event import EventType, send_event
 from ...assets.service import ensure_assets_exist, read_asset_content, serialize_asset
 from ..admin_user.model import AdminUser
 from ..mail_account.model import MailAccount
-from ..mail_account.service import get_mail_account_model
+from ..mail_account.service import get_mail_account_model, resolve_mail_account_auth_secret
 from ..mail_signature.model import MailSignature
 from ..mail_signature.service import get_mail_signature_model, render_mail_signature_html
 from ..mail_task.const import (
@@ -508,6 +508,7 @@ def _send_mail_via_smtp(
 
     smtp_context = ssl.create_default_context()
     recipients = to_headers + cc_headers + bcc_headers
+    auth_secret = resolve_mail_account_auth_secret(account)
 
     logger.info(
         "Sending mail task via SMTP",
@@ -526,7 +527,7 @@ def _send_mail_via_smtp(
         with smtplib.SMTP_SSL(account.smtp_host, account.smtp_port, context=smtp_context, timeout=30) as server:
             if settings.ENVIRONMENT.value == "local":
                 server.set_debuglevel(1)
-            server.login(account.smtp_username, account.auth_secret)
+            server.login(account.smtp_username, auth_secret)
             server.send_message(message, to_addrs=recipients)
     else:
         with smtplib.SMTP(account.smtp_host, account.smtp_port, timeout=30) as server:
@@ -534,7 +535,7 @@ def _send_mail_via_smtp(
                 server.set_debuglevel(1)
             if account.security_mode == "starttls":
                 server.starttls(context=smtp_context)
-            server.login(account.smtp_username, account.auth_secret)
+            server.login(account.smtp_username, auth_secret)
             server.send_message(message, to_addrs=recipients)
 
     return provider_message_id

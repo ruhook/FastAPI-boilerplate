@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ....core.credential_crypto import decrypt_credential, encrypt_credential
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
 from ...assets.model import Asset
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
@@ -24,7 +25,7 @@ def serialize_mail_account(account: MailAccount) -> dict[str, Any]:
         smtp_host=account.smtp_host,
         smtp_port=account.smtp_port,
         security_mode=account.security_mode,
-        auth_secret=account.auth_secret,
+        has_auth_secret=bool(account.auth_secret_encrypted or account.auth_secret),
         status=account.status,
         note=account.note,
         verified_at=account.verified_at,
@@ -33,6 +34,16 @@ def serialize_mail_account(account: MailAccount) -> dict[str, Any]:
         updated_at=account.updated_at,
         data=account.data or {},
     ).model_dump()
+
+
+def resolve_mail_account_auth_secret(account: MailAccount) -> str:
+    encrypted = (account.auth_secret_encrypted or "").strip()
+    if encrypted:
+        return decrypt_credential(encrypted)
+    legacy = (account.auth_secret or "").strip()
+    if legacy:
+        return legacy
+    raise ValueError("Mail account authentication credential is not configured.")
 
 
 async def list_mail_accounts(db: AsyncSession, *, admin_user_id: int) -> list[dict[str, Any]]:
@@ -81,7 +92,8 @@ async def create_mail_account(payload: MailAccountCreate, db: AsyncSession, *, a
         smtp_host=smtp_host,
         smtp_port=smtp_port,
         security_mode=security_mode,
-        auth_secret=payload.auth_secret,
+        auth_secret=None,
+        auth_secret_encrypted=encrypt_credential(payload.auth_secret),
         status=payload.status,
         note=payload.note,
         data={},
@@ -105,7 +117,9 @@ async def get_mail_account(account_id: int, db: AsyncSession, *, admin_user_id: 
     return serialize_mail_account(account)
 
 
-async def update_mail_account(account_id: int, payload: MailAccountUpdate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
+async def update_mail_account(
+    account_id: int, payload: MailAccountUpdate, db: AsyncSession, *, admin_user_id: int
+) -> dict[str, Any]:
     account = await get_mail_account_model(account_id, db, admin_user_id=admin_user_id)
     provided_fields = payload.model_fields_set
 
@@ -131,7 +145,8 @@ async def update_mail_account(account_id: int, payload: MailAccountUpdate, db: A
         account.security_mode = security_mode
 
     if "auth_secret" in provided_fields and payload.auth_secret is not None:
-        account.auth_secret = payload.auth_secret
+        account.auth_secret = None
+        account.auth_secret_encrypted = encrypt_credential(payload.auth_secret)
 
     if "status" in provided_fields and payload.status is not None:
         account.status = payload.status

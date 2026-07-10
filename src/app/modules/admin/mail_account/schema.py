@@ -3,10 +3,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ....core.schemas import PersistentDeletion, TimestampSchema
 from .const import (
-    MailAccountProvider,
     MAIL_ACCOUNT_PROVIDER_PRESETS,
+    MailAccountProvider,
     MailAccountStatus,
 )
 
@@ -21,11 +20,10 @@ def _normalize_text(value: str) -> str:
 class MailAccountBase(BaseModel):
     email: str = Field(min_length=1, max_length=255)
     provider: str = Field(min_length=1, max_length=32)
-    auth_secret: str = Field(min_length=1, max_length=255)
     status: str = Field(default=MailAccountStatus.PENDING.value, min_length=1, max_length=16)
     note: str | None = Field(default=None, max_length=500)
 
-    @field_validator("email", "auth_secret")
+    @field_validator("email")
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         return _normalize_text(value)
@@ -61,6 +59,7 @@ class MailAccountRead(MailAccountBase):
     smtp_port: int
     security_mode: str = Field(max_length=16)
     provider_label: str
+    has_auth_secret: bool
     verified_at: datetime | None = None
     last_tested_at: datetime | None = None
     created_at: datetime
@@ -71,6 +70,13 @@ class MailAccountRead(MailAccountBase):
 class MailAccountCreate(MailAccountBase):
     model_config = ConfigDict(extra="forbid")
 
+    auth_secret: str = Field(min_length=1, max_length=255)
+
+    @field_validator("auth_secret")
+    @classmethod
+    def normalize_auth_secret(cls, value: str) -> str:
+        return _normalize_text(value)
+
 
 class MailAccountCreateInternal(BaseModel):
     admin_user_id: int | None = None
@@ -80,7 +86,8 @@ class MailAccountCreateInternal(BaseModel):
     smtp_host: str
     smtp_port: int
     security_mode: str
-    auth_secret: str
+    auth_secret: str | None = None
+    auth_secret_encrypted: str | None = None
     status: str
     note: str | None = None
     verified_at: datetime | None = None
@@ -140,6 +147,7 @@ class MailAccountUpdateInternal(BaseModel):
     smtp_port: int | None = None
     security_mode: str | None = None
     auth_secret: str | None = None
+    auth_secret_encrypted: str | None = None
     status: str | None = None
     note: str | None = None
     last_tested_at: datetime | None = None

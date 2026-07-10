@@ -10,6 +10,7 @@ from httpx import ASGITransport
 from sqlalchemy import or_, select
 
 from ..app.core.config import settings
+from ..app.core.credential_crypto import encrypt_credential
 from ..app.core.db.database import async_engine, local_session
 from ..app.core.security import get_password_hash
 from ..app.main_web import app as web_app
@@ -65,7 +66,6 @@ DEFAULT_CANDIDATE_EMAIL = "progress.demo.candidate@example.com"
 DEFAULT_CANDIDATE_PASSWORD = "Candidate123!"
 DEFAULT_DEMO_MAIL_ACCOUNT_EMAIL = "da@t-maxx.cc"
 DEFAULT_DEMO_MAIL_ACCOUNT_PROVIDER = MailAccountProvider.FEISHU.value
-DEFAULT_DEMO_MAIL_ACCOUNT_AUTH_SECRET = "aV9hWPYD8MPNXEWS"
 LEGACY_DEMO_MAIL_ACCOUNT_EMAIL = "flow-assessment@example.com"
 DEFAULT_SUPERADMIN_NAME = "Admin"
 DEFAULT_SUPERADMIN_USERNAME = "admin"
@@ -82,7 +82,12 @@ def get_demo_mail_account_provider() -> str:
 
 
 def get_demo_mail_account_auth_secret() -> str:
-    return settings.CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET.get_secret_value().strip() or DEFAULT_DEMO_MAIL_ACCOUNT_AUTH_SECRET
+    auth_secret = settings.CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET.get_secret_value().strip()
+    if not auth_secret:
+        raise RuntimeError(
+            "CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET must be configured before seeding mail demo data."
+        )
+    return auth_secret
 
 
 def parse_args() -> argparse.Namespace:
@@ -377,6 +382,7 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
         provider = get_demo_mail_account_provider()
         preset = MAIL_ACCOUNT_PROVIDER_PRESETS[provider]
         auth_secret = get_demo_mail_account_auth_secret()
+        auth_secret_encrypted = encrypt_credential(auth_secret)
         account_result = await session.execute(
             select(MailAccount).where(
                 MailAccount.admin_user_id == admin_user_id,
@@ -394,7 +400,8 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
                 smtp_host=str(preset["smtp_host"]),
                 smtp_port=int(preset["smtp_port"]),
                 security_mode=str(preset["security_mode"]),
-                auth_secret=auth_secret,
+                auth_secret=None,
+                auth_secret_encrypted=auth_secret_encrypted,
                 status=MailAccountStatus.ENABLED.value,
                 note="Seeded for job progress assessment demo.",
             )
@@ -407,7 +414,8 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
             account.smtp_host = str(preset["smtp_host"])
             account.smtp_port = int(preset["smtp_port"])
             account.security_mode = str(preset["security_mode"])
-            account.auth_secret = auth_secret
+            account.auth_secret = None
+            account.auth_secret_encrypted = auth_secret_encrypted
             account.status = MailAccountStatus.ENABLED.value
 
         category_result = await session.execute(
@@ -494,6 +502,7 @@ async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str,
         provider = get_demo_mail_account_provider()
         preset = MAIL_ACCOUNT_PROVIDER_PRESETS[provider]
         auth_secret = get_demo_mail_account_auth_secret()
+        auth_secret_encrypted = encrypt_credential(auth_secret)
         account_result = await session.execute(
             select(MailAccount).where(
                 MailAccount.admin_user_id == admin_user_id,
@@ -511,7 +520,8 @@ async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str,
                 smtp_host=str(preset["smtp_host"]),
                 smtp_port=int(preset["smtp_port"]),
                 security_mode=str(preset["security_mode"]),
-                auth_secret=auth_secret,
+                auth_secret=None,
+                auth_secret_encrypted=auth_secret_encrypted,
                 status=MailAccountStatus.ENABLED.value,
                 note="Seeded for job progress rejection demo.",
             )
@@ -524,7 +534,8 @@ async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str,
             account.smtp_host = str(preset["smtp_host"])
             account.smtp_port = int(preset["smtp_port"])
             account.security_mode = str(preset["security_mode"])
-            account.auth_secret = auth_secret
+            account.auth_secret = None
+            account.auth_secret_encrypted = auth_secret_encrypted
             account.status = MailAccountStatus.ENABLED.value
 
         category_result = await session.execute(
