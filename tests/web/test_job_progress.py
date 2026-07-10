@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import pytest
@@ -14,6 +14,8 @@ from src.app.modules.admin.admin_user.model import AdminUser
 from src.app.modules.admin.mail_account.model import MailAccount
 from src.app.modules.admin.mail_task.const import MAIL_TASK_DATA_RENDER_CONTEXT_KEY, MailTaskStatus
 from src.app.modules.admin.mail_task.model import MailTask
+from src.app.modules.assets.model import Asset
+from src.app.modules.contract_record.model import ContractRecord
 from src.app.modules.job.const import JOB_DATA_LANGUAGES_KEY
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.job_progress.service import list_candidate_job_applications, sync_assessment_sent_at_from_mail_task
@@ -883,6 +885,138 @@ async def test_rejected_progress_restore_rejects_mismatched_or_missing_source_st
         json={"progress_ids": [progress.id], "target_stage": "pending_screening"},
     )
     assert missing_response.status_code == 400
+
+
+async def test_rejected_progress_restores_to_recorded_contract_pool_stage(
+    admin_client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    _, progress, _ = await _submit_application_for_progress(
+        web_client,
+        db_session,
+        superadmin_credentials,
+        assessment_enabled=False,
+        automation_rules={"combinator": "and", "rules": []},
+        education_status="Bachelor's degree (completed)",
+    )
+
+    async with local_session() as setup_session:
+        saved = await setup_session.get(JobProgress, progress.id)
+        assert saved is not None
+        saved.current_stage = "contract_pool"
+        saved.data = {**(saved.data or {}), "onboarding_status": "可发合同"}
+        await setup_session.commit()
+
+    reject_response = await admin_client.post(
+        f"/api/v1/jobs/{progress.job_id}/progress/stage",
+        headers=admin_auth_headers,
+        json={"progress_ids": [progress.id], "target_stage": "rejected"},
+    )
+    assert reject_response.status_code == 200, reject_response.text
+
+    restore_response = await admin_client.post(
+        f"/api/v1/jobs/{progress.job_id}/progress/stage",
+        headers=admin_auth_headers,
+        json={"progress_ids": [progress.id], "target_stage": "contract_pool"},
+    )
+    assert restore_response.status_code == 200, restore_response.text
+
+    async with local_session() as assertion_session:
+        saved = await assertion_session.get(JobProgress, progress.id)
+        assert saved is not None
+        assert saved.current_stage == "contract_pool"
+        assert saved.data["onboarding_status"] == "可发合同"
+        assert "rejected_from_stage" not in saved.data
+
+
+async def test_rejected_active_progress_restores_previous_contract_state(
+    admin_client: AsyncClient,
+    admin_auth_headers: dict[str, str],
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    application_payload, progress, _ = await _submit_application_for_progress(
+        web_client,
+        db_session,
+        superadmin_credentials,
+        assessment_enabled=False,
+        automation_rules={"combinator": "and", "rules": []},
+        education_status="Bachelor's degree (completed)",
+    )
+
+    async with local_session() as setup_session:
+        saved = await setup_session.get(JobProgress, progress.id)
+        assert saved is not None
+        resume_result = await setup_session.execute(
+            select(Asset).where(Asset.owner_id == progress.user_id).order_by(Asset.id.desc())
+        )
+        signed_asset = resume_result.scalars().first()
+        assert signed_asset is not None
+        saved.current_stage = "active"
+        saved.data = {
+            **(saved.data or {}),
+            "onboarding_status": "已发大礼包",
+            "gift_package_sent_at": "2026-07-10T08:00:00Z",
+        }
+        contract = ContractRecord(
+            user_id=progress.user_id,
+            user_snapshot_name="Progress Candidate",
+            user_snapshot_email="progress@example.com",
+            talent_profile_id=progress.talent_profile_id,
+            application_id=int(application_payload["application_id"]),
+            job_id=progress.job_id,
+            job_progress_id=progress.id,
+            job_snapshot_title="Progress Role",
+            contract_status="Active",
+            contractor_name="Progress Candidate",
+            candidate_signed_contract_asset_id=signed_asset.id,
+            end_date=date(2027, 1, 31),
+            data={"contract_review": "审核通过"},
+        )
+        setup_session.add(contract)
+        await setup_session.commit()
+        contract_id = int(contract.id)
+
+    reject_response = await admin_client.post(
+        f"/api/v1/jobs/{progress.job_id}/progress/stage",
+        headers=admin_auth_headers,
+        json={"progress_ids": [progress.id], "target_stage": "rejected"},
+    )
+    assert reject_response.status_code == 200, reject_response.text
+
+    async with local_session() as rejected_session:
+        rejected_progress = await rejected_session.get(JobProgress, progress.id)
+        rejected_contract = await rejected_session.get(ContractRecord, contract_id)
+        assert rejected_progress is not None
+        assert rejected_contract is not None
+        assert rejected_progress.data["rejected_from_stage"] == "active"
+        assert rejected_progress.data["rejected_contract_previous_status"] == "Active"
+        assert rejected_progress.data["rejected_contract_previous_end_date"] == "2027-01-31"
+        assert rejected_contract.contract_status == "Terminated"
+
+    restore_response = await admin_client.post(
+        f"/api/v1/jobs/{progress.job_id}/progress/stage",
+        headers=admin_auth_headers,
+        json={"progress_ids": [progress.id], "target_stage": "active"},
+    )
+    assert restore_response.status_code == 200, restore_response.text
+
+    async with local_session() as assertion_session:
+        restored_progress = await assertion_session.get(JobProgress, progress.id)
+        restored_contract = await assertion_session.get(ContractRecord, contract_id)
+        assert restored_progress is not None
+        assert restored_contract is not None
+        assert restored_progress.current_stage == "active"
+        assert restored_progress.data["onboarding_status"] == "已发大礼包"
+        assert "rejected_from_stage" not in restored_progress.data
+        assert "rejected_contract_previous_status" not in restored_progress.data
+        assert "rejected_contract_previous_end_date" not in restored_progress.data
+        assert restored_contract.contract_status == "Active"
+        assert restored_contract.end_date == date(2027, 1, 31)
 
 
 async def test_successful_assessment_mail_task_syncs_sent_at_to_progress(

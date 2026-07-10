@@ -53,6 +53,8 @@ class JobProgressDataKey(StrEnum):
     GIFT_PACKAGE_SENT_AT = "gift_package_sent_at"
     JOB_LANGUAGES = "job_languages"
     REJECTED_FROM_STAGE = "rejected_from_stage"
+    REJECTED_CONTRACT_PREVIOUS_STATUS = "rejected_contract_previous_status"
+    REJECTED_CONTRACT_PREVIOUS_END_DATE = "rejected_contract_previous_end_date"
     REPLACEMENT_REASON = "replacement_reason"
     NOTE = "note"
 
@@ -249,6 +251,8 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
         RecruitmentStage.PENDING_SCREENING,
         RecruitmentStage.ASSESSMENT_REVIEW,
         RecruitmentStage.SCREENING_PASSED,
+        RecruitmentStage.CONTRACT_POOL,
+        RecruitmentStage.ACTIVE,
     ),
     RecruitmentStage.REPLACED: (
         RecruitmentStage.PENDING_SCREENING,
