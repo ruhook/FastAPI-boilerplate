@@ -1,6 +1,9 @@
 import pytest
 
-from src.app.modules.job_progress.candidate_presentation import build_candidate_presentation
+from src.app.modules.job_progress.candidate_presentation import (
+    build_candidate_presentation,
+    summarize_candidate_presentations,
+)
 
 pytestmark = pytest.mark.no_database_cleanup
 
@@ -258,3 +261,33 @@ def test_submitted_states_explain_that_review_is_still_pending() -> None:
     assert "review" in assessment["candidate_stage_body"].lower()
     assert "submitted" in contract["candidate_stage_body"].lower()
     assert "review" in contract["candidate_stage_body"].lower()
+
+
+def test_candidate_presentation_summary_uses_exclusive_buckets() -> None:
+    presentations = [
+        build_candidate_presentation(
+            current_stage="contract_pool",
+            assessment_enabled=False,
+            process_data={},
+            contract_data={"draft_contract_attachment": {"asset_id": 1}},
+        ),
+        build_candidate_presentation(
+            current_stage="screening_passed",
+            assessment_enabled=False,
+            process_data={"onboarding_status": "已发砍价"},
+            contract_data=None,
+        ),
+        build_candidate_presentation(
+            current_stage="pending_screening",
+            assessment_enabled=False,
+            process_data={},
+            contract_data=None,
+        ),
+    ]
+
+    assert summarize_candidate_presentations(presentations) == {
+        "contract_uploads": 1,
+        "other_actions": 1,
+        "monitoring": 1,
+        "total_action_required": 2,
+    }

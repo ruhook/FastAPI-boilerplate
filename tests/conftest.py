@@ -20,6 +20,7 @@ from src.app.modules.admin.admin_audit_log.model import AdminAuditLog
 from src.app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from src.app.modules.admin.admin_user.model import AdminUser
 from src.app.modules.admin.form_template.model import AdminFormTemplate
+from src.app.modules.admin.internal_notification.model import AdminInternalNotification
 from src.app.modules.admin.mail_account.model import MailAccount
 from src.app.modules.admin.mail_signature.model import MailSignature
 from src.app.modules.admin.mail_task.model import MailTask
@@ -29,6 +30,7 @@ from src.app.modules.admin.role.model import Role
 from src.app.modules.assets.model import Asset
 from src.app.modules.candidate_application.model import CandidateApplication
 from src.app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from src.app.modules.candidate_internal_notification.model import CandidateInternalNotification
 from src.app.modules.contract_record.model import ContractRecord
 from src.app.modules.job.model import Job
 from src.app.modules.job_progress.model import JobProgress
@@ -94,6 +96,8 @@ def _env_flag(name: str) -> bool:
 
 async def _clear_tables() -> None:
     async with local_session() as session:
+        await session.execute(delete(CandidateInternalNotification))
+        await session.execute(delete(AdminInternalNotification))
         await session.execute(delete(PaymentRecord))
         await session.execute(delete(ProjectTimesheetRecord))
         await session.execute(delete(ReferralRecord))

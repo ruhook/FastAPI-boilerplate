@@ -37,6 +37,13 @@ class CandidatePresentation(TypedDict):
     candidate_action_label: str
 
 
+class CandidatePresentationSummary(TypedDict):
+    contract_uploads: int
+    other_actions: int
+    monitoring: int
+    total_action_required: int
+
+
 STATUS_LABELS: dict[CandidateStatus, str] = {
     "under_review": "Under Review",
     "action_required": "Action Required",
@@ -277,3 +284,23 @@ def build_candidate_presentation(
         action="view_details",
         body=APPLICATION_REVIEW_BODY,
     )
+
+
+def summarize_candidate_presentations(
+    presentations: list[CandidatePresentation],
+) -> CandidatePresentationSummary:
+    contract_uploads = sum(
+        presentation["candidate_action"] == "upload_contract" for presentation in presentations
+    )
+    other_actions = sum(
+        presentation["candidate_action_required"]
+        and presentation["candidate_action"] != "upload_contract"
+        for presentation in presentations
+    )
+    total_action_required = contract_uploads + other_actions
+    return {
+        "contract_uploads": contract_uploads,
+        "other_actions": other_actions,
+        "monitoring": len(presentations) - total_action_required,
+        "total_action_required": total_action_required,
+    }

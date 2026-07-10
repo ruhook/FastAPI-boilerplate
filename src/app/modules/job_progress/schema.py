@@ -274,7 +274,18 @@ class CandidateJobApplicationListItemRead(BaseModel):
     candidate_visible_stage_label: str
     screening_mode: str
     applied_at: datetime
+    country: str
+    country_label: str | None = None
+    work_mode: str
     assessment_enabled: bool
+    candidate_status: str
+    candidate_stage: str
+    candidate_action: str
+    candidate_action_required: bool
+    candidate_status_label: str
+    candidate_stage_title: str
+    candidate_stage_body: str
+    candidate_action_label: str
     application_snapshot: dict[str, Any] = Field(default_factory=dict)
     application_assets: dict[str, Any] = Field(default_factory=dict)
     process_data: dict[str, Any] = Field(default_factory=dict)
@@ -282,11 +293,19 @@ class CandidateJobApplicationListItemRead(BaseModel):
     contract_record_data: ContractRecordDataRead | None = None
 
 
+class CandidateJobApplicationSummaryRead(BaseModel):
+    contract_uploads: int = 0
+    other_actions: int = 0
+    monitoring: int = 0
+    total_action_required: int = 0
+
+
 class CandidateJobApplicationListPage(BaseModel):
     items: list[CandidateJobApplicationListItemRead]
     total: int
     page: int
     page_size: int
+    summary: CandidateJobApplicationSummaryRead = Field(default_factory=CandidateJobApplicationSummaryRead)
 
 
 class CandidateContractListItemRead(BaseModel):
@@ -333,6 +352,14 @@ class CandidateJobApplicationDetailRead(BaseModel):
     compensation_unit: str
     compensation_label: str
     assessment_enabled: bool
+    candidate_status: str
+    candidate_stage: str
+    candidate_action: str
+    candidate_action_required: bool
+    candidate_status_label: str
+    candidate_stage_title: str
+    candidate_stage_body: str
+    candidate_action_label: str
     application_snapshot: dict[str, Any] = Field(default_factory=dict)
     application_assets: dict[str, Any] = Field(default_factory=dict)
     process_data: dict[str, Any] = Field(default_factory=dict)
