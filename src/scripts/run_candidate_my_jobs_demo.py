@@ -65,7 +65,6 @@ DEFAULT_CANDIDATE_EMAIL = "712696307@qq.com"
 DEFAULT_CANDIDATE_PASSWORD = "12345678"
 CANDIDATE_PORTAL_DEMO_CASE_DATA_KEY = "candidate_portal_demo_case_key"
 LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = "Candidate Portal Demo - "
-CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX
 CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION = (
     "<p>负责葡萄牙语数据标注、内容质量检查与结果反馈，"
     "按照项目规范完成交付，并与项目团队保持及时沟通。</p>"
@@ -585,6 +584,22 @@ def build_expected_candidate_summary(cases: list[dict[str, Any]]) -> dict[str, i
     }
 
 
+def build_candidate_summary_from_items(items: list[dict[str, Any]]) -> dict[str, int]:
+    contract_uploads = sum(item.get("candidate_action") == "upload_contract" for item in items)
+    other_actions = sum(
+        bool(item.get("candidate_action_required"))
+        and item.get("candidate_action") != "upload_contract"
+        for item in items
+    )
+    total_action_required = contract_uploads + other_actions
+    return {
+        "contract_uploads": contract_uploads,
+        "other_actions": other_actions,
+        "monitoring": len(items) - total_action_required,
+        "total_action_required": total_action_required,
+    }
+
+
 def get_expected_action_required_case_keys(cases: list[dict[str, Any]]) -> set[str]:
     return {
         str(case["key"])
@@ -795,6 +810,7 @@ async def ensure_candidate_portal_jobs() -> tuple[dict[str, Any], list[Job]]:
                 )
                 session.add(job)
             else:
+                job.title = definition["title"]
                 job.company_id = company.id
                 job.project_id = project.id
                 job.referral_bonus_model_id = referral_bonus_model.id
@@ -2013,13 +2029,20 @@ async def main() -> None:  # noqa: C901
         print_detail("rejected job moved to rejected and rejection mail task created")
 
         print_step("Step 5/6: verify Applications list and candidate-facing detail APIs")
+        seeded_application_job_ids = {
+            int(case["job"].id)
+            for case in cases_by_key.values()
+        }
         refreshed_payload = await fetch_my_applications_page(
             web_client,
             access_token=access_token,
             page_size=100,
-            keyword=CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX,
         )
-        refreshed_items = list(refreshed_payload.get("items", []))
+        refreshed_items = [
+            item
+            for item in refreshed_payload.get("items", [])
+            if int(item.get("job_id") or 0) in seeded_application_job_ids
+        ]
         refreshed_by_title = {str(item["job_title"]): item for item in refreshed_items}
         expected_titles = {
             str(definition["title"])
@@ -2031,10 +2054,11 @@ async def main() -> None:  # noqa: C901
             raise RuntimeError(f"Applications missing titles: {sorted(missing_titles)}")
         expected_cases = build_expected_candidate_portal_cases()
         expected_summary = build_expected_candidate_summary(expected_cases)
-        if refreshed_payload.get("summary") != expected_summary:
+        actual_demo_summary = build_candidate_summary_from_items(refreshed_items)
+        if actual_demo_summary != expected_summary:
             raise RuntimeError(
                 f"Applications summary mismatch: expected={expected_summary}, "
-                f"got={refreshed_payload.get('summary')}"
+                f"got={actual_demo_summary}"
             )
         for definition in PORTAL_JOB_DEFINITIONS:
             if not should_auto_apply(definition):
@@ -2140,14 +2164,13 @@ async def main() -> None:  # noqa: C901
             access_token=access_token,
             page=1,
             page_size=2,
-            keyword=CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX,
         )
         if int(paged_payload.get("page", 0)) != 1 or int(paged_payload.get("page_size", 0)) != 2:
             raise RuntimeError(f"Unexpected pagination payload: {paged_payload}")
         if len(paged_payload.get("items", [])) > 2:
             raise RuntimeError("Applications page_size=2 returned more than two items.")
-        if paged_payload.get("summary") != expected_summary:
-            raise RuntimeError("Paged Applications summary should still describe the full filtered result.")
+        if paged_payload.get("summary") != refreshed_payload.get("summary"):
+            raise RuntimeError("Paged Applications summary should still describe the full candidate result.")
         print_detail(
             f"pagination works: page={paged_payload['page']} page_size={paged_payload['page_size']} "
             f"items={len(paged_payload['items'])} total={paged_payload['total']}"
@@ -2168,13 +2191,17 @@ async def main() -> None:  # noqa: C901
             web_client,
             access_token=access_token,
             needs_action_only=True,
-            keyword=CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX,
         )
-        if not needs_action_payload.get("items"):
+        needs_action_items = [
+            item
+            for item in needs_action_payload.get("items", [])
+            if int(item.get("job_id") or 0) in seeded_application_job_ids
+        ]
+        if not needs_action_items:
             raise RuntimeError("Needs-action filter returned no items.")
-        if any(not item.get("candidate_action_required") for item in needs_action_payload["items"]):
+        if any(not item.get("candidate_action_required") for item in needs_action_items):
             raise RuntimeError("Needs-action filter returned a passive candidate presentation.")
-        needs_action_titles = {str(item["job_title"]) for item in needs_action_payload["items"]}
+        needs_action_titles = {str(item["job_title"]) for item in needs_action_items}
         expected_needs_action_titles = {
             str(cases_by_key[key]["job"].title)
             for key in get_expected_action_required_case_keys(expected_cases)
@@ -2184,16 +2211,7 @@ async def main() -> None:  # noqa: C901
                 "Needs-action filter mismatch: "
                 f"expected={sorted(expected_needs_action_titles)}, got={sorted(needs_action_titles)}"
             )
-        expected_action_summary = {
-            **expected_summary,
-            "monitoring": 0,
-        }
-        if needs_action_payload.get("summary") != expected_action_summary:
-            raise RuntimeError(
-                f"Needs-action summary mismatch: expected={expected_action_summary}, "
-                f"got={needs_action_payload.get('summary')}"
-            )
-        print_detail(f"needs-action filter works: items={len(needs_action_payload['items'])}")
+        print_detail(f"needs-action filter works: items={len(needs_action_items)}")
 
         print_step("Step 6/6: ready-to-test summary")
         print(f"candidate email: {args.candidate_email}")

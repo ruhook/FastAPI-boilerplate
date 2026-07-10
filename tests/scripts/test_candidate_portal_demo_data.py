@@ -95,6 +95,26 @@ def test_candidate_portal_demo_expected_summary_and_action_set_are_exact() -> No
     }
 
 
+def test_candidate_portal_demo_builds_summary_from_filtered_api_items() -> None:
+    cases = run_candidate_my_jobs_demo.build_expected_candidate_portal_cases()
+    items = [
+        {
+            "candidate_action": case["expected_candidate_view"]["candidate_action"],
+            "candidate_action_required": case["expected_candidate_view"][
+                "candidate_action_required"
+            ],
+        }
+        for case in cases
+    ]
+
+    assert run_candidate_my_jobs_demo.build_candidate_summary_from_items(items) == {
+        "contract_uploads": 2,
+        "other_actions": 4,
+        "monitoring": 9,
+        "total_action_required": 6,
+    }
+
+
 def test_candidate_portal_demo_has_one_manual_fresh_apply_job() -> None:
     manual_definitions = [
         definition
