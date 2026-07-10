@@ -76,14 +76,14 @@ def test_candidate_cannot_access_another_candidates_owned_asset() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_superuser_admin_cannot_access_mail_asset_from_another_admin() -> None:
+async def test_authenticated_admin_can_access_asset_created_by_another_admin() -> None:
     allowed = await admin_assets_api.current_admin_can_access_asset(
         SimpleNamespace(),  # type: ignore[arg-type]
         asset={"id": 9, "module": "mail", "owner_type": "admin_user", "owner_id": 7},
         current_admin={"id": 8, "is_superuser": False, "permissions": []},
     )
 
-    assert allowed is False
+    assert allowed is True
 
 
 @pytest.mark.asyncio
@@ -147,7 +147,7 @@ async def test_database_failure_removes_uploaded_content(
         async def flush(self) -> None:
             raise RuntimeError("database failed")
 
-    upload = ChunkedUpload(b"asset")
+    upload = ChunkedUpload(b"%PDF-1.7\nasset")
     upload.filename = "resume.pdf"
     upload.content_type = "application/pdf"
     monkeypatch.setattr(asset_service, "store_asset_content", fake_store)

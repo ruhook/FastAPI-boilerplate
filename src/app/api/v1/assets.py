@@ -1,5 +1,4 @@
 from typing import Annotated, Any
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from fastapi.responses import Response
@@ -8,18 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import NotFoundException
+from ...modules.assets.responses import build_asset_response
 from ...modules.assets.schema import AssetRead, AssetUploadPayload
 from ...modules.assets.service import get_asset, get_asset_content, upload_asset
 from ...modules.job_progress.const import JobProgressDataKey
 from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/assets", tags=["web-assets"])
-
-
-def build_content_disposition(disposition: str, filename: str) -> str:
-    ascii_fallback = "".join(char if ord(char) < 128 else "_" for char in filename) or "download"
-    encoded_filename = quote(filename, safe="")
-    return f"{disposition}; filename={ascii_fallback!r}; filename*=UTF-8''{encoded_filename}"
 
 
 def ensure_current_user_can_access_asset(asset: dict[str, Any], current_user_id: int) -> None:
@@ -166,9 +160,7 @@ async def preview_user_asset(
         },
         current_user_id=int(current_user["id"]),
     )
-    response = Response(content=content, media_type=asset.mime_type)
-    response.headers["Content-Disposition"] = build_content_disposition("inline", asset.original_name)
-    return response
+    return build_asset_response(asset, content, preview=True)
 
 
 @router.get("/{asset_id}/download")
@@ -187,6 +179,4 @@ async def download_user_asset(
         },
         current_user_id=int(current_user["id"]),
     )
-    response = Response(content=content, media_type=asset.mime_type)
-    response.headers["Content-Disposition"] = build_content_disposition("attachment", asset.original_name)
-    return response
+    return build_asset_response(asset, content, preview=False)

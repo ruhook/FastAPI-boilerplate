@@ -1,5 +1,4 @@
 import logging
-import mimetypes
 import re
 from datetime import UTC, datetime
 from io import BytesIO
@@ -16,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
+from .content_policy import classify_asset_content
 from .model import Asset
 from .schema import AssetRead, AssetUploadPayload
 
@@ -233,11 +233,10 @@ async def upload_asset(
     if not content:
         raise BadRequestException("Uploaded file is empty.")
 
-    mime_type = upload.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    policy = classify_asset_content(filename, content)
     storage_key = _build_asset_storage_key(payload=payload, original_name=filename)
-    store_asset_content(storage_key=storage_key, content=content, mime_type=mime_type)
+    store_asset_content(storage_key=storage_key, content=content, mime_type=policy.mime_type)
 
-    suffix = Path(filename).suffix
     asset = Asset(
         type=payload.type,
         module=payload.module,
@@ -245,9 +244,9 @@ async def upload_asset(
         owner_id=payload.owner_id,
         original_name=filename,
         storage_key=storage_key,
-        mime_type=mime_type,
+        mime_type=policy.mime_type,
         file_size=len(content),
-        data={"suffix": suffix.lstrip(".").lower()},
+        data={"suffix": policy.suffix},
     )
     try:
         db.add(asset)
@@ -278,10 +277,14 @@ async def create_asset_from_bytes(
             f"Uploaded file is too large. Maximum size is {settings.ASSET_MAX_UPLOAD_BYTES} bytes."
         )
     resolved_name = (original_name or "").strip() or "asset"
-    resolved_mime_type = mime_type or mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
+    policy = classify_asset_content(resolved_name, content)
+    if mime_type is not None and mime_type.split(";", 1)[0].strip().lower() != policy.mime_type.split(
+        ";", 1
+    )[0]:
+        raise BadRequestException("Declared asset media type does not match its content.")
     storage_key = _build_asset_storage_key(payload=payload, original_name=resolved_name)
-    store_asset_content(storage_key=storage_key, content=content, mime_type=resolved_mime_type)
-    asset_data = {"suffix": Path(resolved_name).suffix.lstrip(".").lower()}
+    store_asset_content(storage_key=storage_key, content=content, mime_type=policy.mime_type)
+    asset_data = {"suffix": policy.suffix}
     if data:
         asset_data.update(data)
 
@@ -292,7 +295,7 @@ async def create_asset_from_bytes(
         owner_id=payload.owner_id,
         original_name=resolved_name,
         storage_key=storage_key,
-        mime_type=resolved_mime_type,
+        mime_type=policy.mime_type,
         file_size=len(content),
         data=asset_data,
     )
