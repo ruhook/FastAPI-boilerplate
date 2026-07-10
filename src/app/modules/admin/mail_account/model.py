@@ -17,7 +17,6 @@ class MailAccount(DataBackedSoftDeleteEntityMixin, Base):
     smtp_host: Mapped[str] = mapped_column(String(255), nullable=False)
     smtp_port: Mapped[int] = mapped_column(Integer, nullable=False)
     security_mode: Mapped[str] = mapped_column(String(16), nullable=False)
-    auth_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
     auth_secret_encrypted: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, index=True, server_default=text("'pending'"))
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)

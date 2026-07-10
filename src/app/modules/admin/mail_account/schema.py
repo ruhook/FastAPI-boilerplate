@@ -86,7 +86,6 @@ class MailAccountCreateInternal(BaseModel):
     smtp_host: str
     smtp_port: int
     security_mode: str
-    auth_secret: str | None = None
     auth_secret_encrypted: str | None = None
     status: str
     note: str | None = None
@@ -146,7 +145,6 @@ class MailAccountUpdateInternal(BaseModel):
     smtp_host: str | None = None
     smtp_port: int | None = None
     security_mode: str | None = None
-    auth_secret: str | None = None
     auth_secret_encrypted: str | None = None
     status: str | None = None
     note: str | None = None

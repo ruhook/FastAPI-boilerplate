@@ -1042,7 +1042,7 @@ async def test_successful_assessment_mail_task_syncs_sent_at_to_progress(
             smtp_host="smtp.qq.com",
             smtp_port=587,
             security_mode="starttls",
-            auth_secret="smtp-auth-code",
+            auth_secret_encrypted=None,
             status="enabled",
             data={},
         )
@@ -1107,7 +1107,7 @@ async def test_successful_assessment_mail_task_syncs_sent_at_by_marked_mail_task
             smtp_host="smtp.qq.com",
             smtp_port=587,
             security_mode="starttls",
-            auth_secret="smtp-auth-code",
+            auth_secret_encrypted=None,
             status="enabled",
             data={},
         )

@@ -8,6 +8,18 @@ from src.app.core.config import settings
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
+@pytest.mark.no_database_cleanup
+async def test_web_application_registers_one_logout_route() -> None:
+    from src.app.main_web import app
+
+    routes = [
+        route
+        for route in app.routes
+        if route.path == "/api/v1/logout" and route.methods == {"POST"}
+    ]
+    assert len(routes) == 1
+
+
 async def test_web_register_login_me_refresh_and_logout_flow(
     web_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

@@ -45,7 +45,6 @@ class FakeSession:
 
 def build_account(
     *,
-    auth_secret: str | None,
     auth_secret_encrypted: str | None,
 ) -> MailAccount:
     account = MailAccount(
@@ -56,7 +55,6 @@ def build_account(
         smtp_host="smtp.qq.com",
         smtp_port=465,
         security_mode="ssl",
-        auth_secret=auth_secret,
         status="enabled",
         note=None,
         data={},
@@ -67,20 +65,16 @@ def build_account(
     return account
 
 
-@pytest.mark.parametrize(
-    ("legacy", "encrypted", "expected"),
-    [
-        ("legacy-secret", None, True),
-        (None, "v1:ciphertext", True),
-        (None, None, False),
-    ],
-)
+def test_mail_account_model_has_no_plaintext_secret_column() -> None:
+    assert "auth_secret" not in MailAccount.__table__.columns
+
+
+@pytest.mark.parametrize(("encrypted", "expected"), [("v1:ciphertext", True), (None, False)])
 def test_serialized_mail_account_only_exposes_secret_presence(
-    legacy: str | None,
     encrypted: str | None,
     expected: bool,
 ) -> None:
-    serialized = serialize_mail_account(build_account(auth_secret=legacy, auth_secret_encrypted=encrypted))
+    serialized = serialize_mail_account(build_account(auth_secret_encrypted=encrypted))
 
     assert serialized["has_auth_secret"] is expected
     assert "auth_secret" not in serialized
@@ -93,17 +87,10 @@ def test_resolver_prefers_encrypted_credentials(
     key = Fernet.generate_key().decode()
     monkeypatch.setattr(settings, "MAIL_CREDENTIAL_ENCRYPTION_KEY", SecretStr(key))
     account = build_account(
-        auth_secret="stale-legacy-secret",
         auth_secret_encrypted=encrypt_credential("encrypted-secret", key),
     )
 
     assert resolve_mail_account_auth_secret(account) == "encrypted-secret"
-
-
-def test_resolver_temporarily_supports_legacy_plaintext() -> None:
-    account = build_account(auth_secret="legacy-secret", auth_secret_encrypted=None)
-
-    assert resolve_mail_account_auth_secret(account) == "legacy-secret"
 
 
 def test_resolver_never_falls_back_when_encrypted_value_is_invalid(
@@ -115,7 +102,6 @@ def test_resolver_never_falls_back_when_encrypted_value_is_invalid(
         SecretStr(Fernet.generate_key().decode()),
     )
     account = build_account(
-        auth_secret="legacy-secret",
         auth_secret_encrypted="v1:tampered",
     )
 
@@ -124,7 +110,7 @@ def test_resolver_never_falls_back_when_encrypted_value_is_invalid(
 
 
 def test_resolver_rejects_account_without_credentials() -> None:
-    account = build_account(auth_secret=None, auth_secret_encrypted=None)
+    account = build_account(auth_secret_encrypted=None)
 
     with pytest.raises(ValueError, match="not configured"):
         resolve_mail_account_auth_secret(account)
@@ -154,7 +140,6 @@ async def test_create_service_only_persists_encrypted_secret(
     )
 
     assert session.added is not None
-    assert session.added.auth_secret is None
     assert session.added.auth_secret_encrypted.startswith("v1:")
     assert "smtp-secret" not in session.added.auth_secret_encrypted
     assert response["has_auth_secret"] is True
@@ -162,12 +147,12 @@ async def test_create_service_only_persists_encrypted_secret(
 
 
 @pytest.mark.asyncio
-async def test_update_service_replaces_legacy_secret_with_ciphertext(
+async def test_update_service_replaces_encrypted_secret_with_new_ciphertext(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     key = Fernet.generate_key().decode()
     monkeypatch.setattr(settings, "MAIL_CREDENTIAL_ENCRYPTION_KEY", SecretStr(key))
-    account = build_account(auth_secret="legacy-secret", auth_secret_encrypted=None)
+    account = build_account(auth_secret_encrypted=encrypt_credential("old-secret", key))
 
     async def return_account(*args: object, **kwargs: object) -> MailAccount:
         return account
@@ -186,7 +171,6 @@ async def test_update_service_replaces_legacy_secret_with_ciphertext(
         admin_user_id=1,
     )
 
-    assert account.auth_secret is None
     assert account.auth_secret_encrypted.startswith("v1:")
     assert decrypt_credential(account.auth_secret_encrypted, key) == "replacement-secret"
     assert response["has_auth_secret"] is True

@@ -400,7 +400,6 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
                 smtp_host=str(preset["smtp_host"]),
                 smtp_port=int(preset["smtp_port"]),
                 security_mode=str(preset["security_mode"]),
-                auth_secret=None,
                 auth_secret_encrypted=auth_secret_encrypted,
                 status=MailAccountStatus.ENABLED.value,
                 note="Seeded for job progress assessment demo.",
@@ -414,7 +413,6 @@ async def ensure_assessment_mail_dependencies(*, admin_user_id: int) -> dict[str
             account.smtp_host = str(preset["smtp_host"])
             account.smtp_port = int(preset["smtp_port"])
             account.security_mode = str(preset["security_mode"])
-            account.auth_secret = None
             account.auth_secret_encrypted = auth_secret_encrypted
             account.status = MailAccountStatus.ENABLED.value
 
@@ -520,7 +518,6 @@ async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str,
                 smtp_host=str(preset["smtp_host"]),
                 smtp_port=int(preset["smtp_port"]),
                 security_mode=str(preset["security_mode"]),
-                auth_secret=None,
                 auth_secret_encrypted=auth_secret_encrypted,
                 status=MailAccountStatus.ENABLED.value,
                 note="Seeded for job progress rejection demo.",
@@ -534,7 +531,6 @@ async def ensure_rejection_mail_dependencies(*, admin_user_id: int) -> dict[str,
             account.smtp_host = str(preset["smtp_host"])
             account.smtp_port = int(preset["smtp_port"])
             account.security_mode = str(preset["security_mode"])
-            account.auth_secret = None
             account.auth_secret_encrypted = auth_secret_encrypted
             account.status = MailAccountStatus.ENABLED.value
 

@@ -249,26 +249,22 @@ sudo supervisorctl restart hr-admin
 
 ## 11. 推荐发布流程
 
-首次发布 SMTP 加密改造时，按以下顺序执行，使新旧明文数据在兼容窗口内平滑切换：
+发布前必须配置并持久化 `MAIL_CREDENTIAL_ENCRYPTION_KEY`。邮件账号只支持加密凭据，不读取数据库明文字段；没有密文凭据的账号需要通过管理端重新录入授权码。
 
 ```bash
 cd /srv/hr-server
 git pull
 uv sync
 
-# 先配置并持久化 MAIL_CREDENTIAL_ENCRYPTION_KEY，再升级表结构
+# 配置并持久化 MAIL_CREDENTIAL_ENCRYPTION_KEY 后升级表结构
 cd src && uv run alembic upgrade head
 cd ..
 
-# 先让能够同时读取新密文和旧明文的新版本生效
 sudo supervisorctl restart hr-web
 sudo supervisorctl restart hr-admin
-
-# 将存量 SMTP 明文加密并清空旧列；输出仅包含 migrated/skipped 数量
-uv run python -m src.scripts.encrypt_mail_account_credentials
 ```
 
-如果存在独立事件/邮件 worker，也必须先升级并重启到新版本，再运行加密命令。迁移命令可以重跑：已经有密文或没有旧明文的记录会跳过。执行后请验证发信链路，并妥善备份 `MAIL_CREDENTIAL_ENCRYPTION_KEY`；丢失该 key 时，现有 SMTP 凭据无法恢复，只能重新录入。
+事件/邮件 worker 也必须升级并重启到同一版本。执行后请验证发信链路，并妥善备份 `MAIL_CREDENTIAL_ENCRYPTION_KEY`；丢失该 key 时，现有 SMTP 凭据无法恢复，只能重新录入。
 
 `20260710_000041` 会新增账户 token version 和服务端 refresh session 表。新版本拒绝旧的用户名型 JWT，因此这次发布后 Web/Admin 用户都需要重新登录一次，这是预期的安全切换。发布前应告知使用方，并确认前端会保存 refresh 返回的新值，而不是继续复用旧 refresh token。
 

@@ -39,7 +39,6 @@ async def test_superadmin_can_create_update_list_and_delete_mail_account(
         persisted_account = (
             await session.execute(select(MailAccount).where(MailAccount.id == account_id))
         ).scalar_one()
-        assert persisted_account.auth_secret is None
         assert persisted_account.auth_secret_encrypted.startswith("v1:")
         assert "smtp-auth-code" not in persisted_account.auth_secret_encrypted
 
@@ -83,7 +82,6 @@ async def test_superadmin_can_create_update_list_and_delete_mail_account(
         persisted_account = (
             await session.execute(select(MailAccount).where(MailAccount.id == account_id))
         ).scalar_one()
-        assert persisted_account.auth_secret is None
         assert "updated-smtp-auth-code" not in persisted_account.auth_secret_encrypted
 
     variables_response = await client.get("/api/v1/mail/variables", headers=admin_auth_headers)

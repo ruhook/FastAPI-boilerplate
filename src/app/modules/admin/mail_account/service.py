@@ -25,7 +25,7 @@ def serialize_mail_account(account: MailAccount) -> dict[str, Any]:
         smtp_host=account.smtp_host,
         smtp_port=account.smtp_port,
         security_mode=account.security_mode,
-        has_auth_secret=bool(account.auth_secret_encrypted or account.auth_secret),
+        has_auth_secret=bool(account.auth_secret_encrypted),
         status=account.status,
         note=account.note,
         verified_at=account.verified_at,
@@ -38,12 +38,9 @@ def serialize_mail_account(account: MailAccount) -> dict[str, Any]:
 
 def resolve_mail_account_auth_secret(account: MailAccount) -> str:
     encrypted = (account.auth_secret_encrypted or "").strip()
-    if encrypted:
-        return decrypt_credential(encrypted)
-    legacy = (account.auth_secret or "").strip()
-    if legacy:
-        return legacy
-    raise ValueError("Mail account authentication credential is not configured.")
+    if not encrypted:
+        raise ValueError("Mail account authentication credential is not configured.")
+    return decrypt_credential(encrypted)
 
 
 async def list_mail_accounts(db: AsyncSession, *, admin_user_id: int) -> list[dict[str, Any]]:
@@ -92,7 +89,6 @@ async def create_mail_account(payload: MailAccountCreate, db: AsyncSession, *, a
         smtp_host=smtp_host,
         smtp_port=smtp_port,
         security_mode=security_mode,
-        auth_secret=None,
         auth_secret_encrypted=encrypt_credential(payload.auth_secret),
         status=payload.status,
         note=payload.note,
@@ -145,7 +141,6 @@ async def update_mail_account(
         account.security_mode = security_mode
 
     if "auth_secret" in provided_fields and payload.auth_secret is not None:
-        account.auth_secret = None
         account.auth_secret_encrypted = encrypt_credential(payload.auth_secret)
 
     if "status" in provided_fields and payload.status is not None:

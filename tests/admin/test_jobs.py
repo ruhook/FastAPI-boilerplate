@@ -384,7 +384,7 @@ async def test_auto_screening_match_creates_assessment_mail_task_and_stays_pendi
         smtp_host="smtp.qq.com",
         smtp_port=587,
         security_mode="starttls",
-        auth_secret="smtp-auth-code",
+        auth_secret_encrypted=None,
         status="enabled",
         data={},
     )
