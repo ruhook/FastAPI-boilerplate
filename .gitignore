@@ -102,6 +102,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+!deploy/env/
+!deploy/env/*.example
 
 # Spyder project settings
 .spyderproject
@@ -145,4 +147,3 @@ src/.env
 
 # Don't ignore files inside of script folder:
 !scripts/*
-

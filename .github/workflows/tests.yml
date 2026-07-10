@@ -67,15 +67,12 @@ jobs:
     - name: Install uv
       run: pip install uv
 
-    - name: Create venv
-      run: uv venv
-
-    - name: Install package with dev dependencies
-      run: uv pip install -e ".[dev]"
+    - name: Sync locked dependencies
+      run: uv sync --frozen --all-extras --all-groups
 
     - name: Upgrade disposable database
-      run: uv run alembic upgrade head
+      run: uv run --frozen alembic upgrade head
       working-directory: src
 
     - name: Run tests
-      run: uv run pytest
+      run: uv run --frozen pytest

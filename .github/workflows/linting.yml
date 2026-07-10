@@ -16,11 +16,8 @@ jobs:
     - name: Install uv
       run: pip install uv
 
-    - name: Create venv
-      run: uv venv
-
-    - name: Install package with dev dependencies
-      run: uv pip install -e ".[dev]"
+    - name: Sync locked dependencies
+      run: uv sync --frozen --all-extras --all-groups
 
     - name: Run Ruff
-      run: uv run ruff check --no-fix src tests
+      run: uv run --frozen ruff check --no-fix src tests

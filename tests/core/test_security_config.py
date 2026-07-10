@@ -143,6 +143,22 @@ def test_event_shutdown_timeout_accepts_positive_subsecond_value() -> None:
     assert configured.EVENT_CONSUMER_SHUTDOWN_TIMEOUT_SECONDS == 0.5
 
 
+@pytest.mark.parametrize(
+    "setting_name",
+    [
+        "HEALTH_CHECK_TIMEOUT_SECONDS",
+        "REDIS_CONNECT_TIMEOUT_SECONDS",
+        "REDIS_SOCKET_TIMEOUT_SECONDS",
+        "MAIL_TASK_PROCESSING_LEASE_SECONDS",
+        "MAIL_TASK_RECOVERY_INTERVAL_SECONDS",
+        "MAIL_TASK_RECOVERY_BATCH_SIZE",
+    ],
+)
+def test_foundation_runtime_limits_must_be_positive(setting_name: str) -> None:
+    with pytest.raises(ValidationError, match=setting_name):
+        Settings(_env_file=None, ENVIRONMENT="local", **{setting_name: 0})
+
+
 def test_production_requires_mail_credential_encryption_key() -> None:
     with pytest.raises(ValidationError, match="MAIL_CREDENTIAL_ENCRYPTION_KEY"):
         production_settings(MAIL_CREDENTIAL_ENCRYPTION_KEY="")

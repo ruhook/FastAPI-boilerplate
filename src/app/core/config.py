@@ -142,6 +142,8 @@ class TestSettings(BaseSettings):
 class RedisCacheSettings(BaseSettings):
     REDIS_CACHE_HOST: str = "localhost"
     REDIS_CACHE_PORT: int = 6379
+    REDIS_CONNECT_TIMEOUT_SECONDS: float = 2.0
+    REDIS_SOCKET_TIMEOUT_SECONDS: float = 2.0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -186,6 +188,16 @@ class MailDeliverySettings(BaseSettings):
 
 class MailCredentialSettings(BaseSettings):
     MAIL_CREDENTIAL_ENCRYPTION_KEY: SecretStr = SecretStr("")
+
+
+class MailTaskRecoverySettings(BaseSettings):
+    MAIL_TASK_PROCESSING_LEASE_SECONDS: int = 120
+    MAIL_TASK_RECOVERY_INTERVAL_SECONDS: float = 30.0
+    MAIL_TASK_RECOVERY_BATCH_SIZE: int = 50
+
+
+class HealthSettings(BaseSettings):
+    HEALTH_CHECK_TIMEOUT_SECONDS: float = 2.0
 
 
 class LocalDevelopmentSettings(BaseSettings):
@@ -273,6 +285,8 @@ class Settings(
     EventSettings,
     MailDeliverySettings,
     MailCredentialSettings,
+    MailTaskRecoverySettings,
+    HealthSettings,
     LocalDevelopmentSettings,
     CandidateRegisterVerificationSettings,
     AssetStorageSettings,
@@ -310,6 +324,12 @@ class Settings(
             "EVENT_DEAD_LETTER_MAXLEN",
             "EVENT_DEAD_LETTER_RAW_MAX_CHARS",
             "EVENT_DEAD_LETTER_ERROR_MAX_CHARS",
+            "HEALTH_CHECK_TIMEOUT_SECONDS",
+            "REDIS_CONNECT_TIMEOUT_SECONDS",
+            "REDIS_SOCKET_TIMEOUT_SECONDS",
+            "MAIL_TASK_PROCESSING_LEASE_SECONDS",
+            "MAIL_TASK_RECOVERY_INTERVAL_SECONDS",
+            "MAIL_TASK_RECOVERY_BATCH_SIZE",
         )
         for setting_name in positive_setting_names:
             if getattr(self, setting_name) <= 0:
