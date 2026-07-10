@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import json
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -11,6 +12,8 @@ from typing import Any
 import redis.asyncio as redis
 
 from ..core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -37,7 +40,9 @@ class AsyncMQClient:
         self._fetcher_task: asyncio.Task[None] | None = None
         self._redis: redis.Redis | None = None
 
-    def subscribe(self, func: Callable[[dict[str, Any]], Awaitable[None]]) -> Callable[[dict[str, Any]], Awaitable[None]]:
+    def subscribe(
+        self, func: Callable[[dict[str, Any]], Awaitable[None]]
+    ) -> Callable[[dict[str, Any]], Awaitable[None]]:
         self._handler = func
 
         @functools.wraps(func)
@@ -70,13 +75,13 @@ class AsyncMQClient:
         while not self._stop_event.is_set():
             try:
                 msg = await asyncio.wait_for(self._local_queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             try:
-                await self._handler(msg.data)
-            finally:
-                await self._ack(msg)
+                await self._handle_message(msg)
+            except Exception:
+                logger.exception("Event handler failed; message left pending", extra={"message_id": msg.id})
 
         await self._cleanup()
 
@@ -97,6 +102,10 @@ class AsyncMQClient:
                 await asyncio.sleep(1)
 
     async def _get_item(self, redis_client: redis.Redis, block_time: int = 1000) -> Message | None:
+        claimed = await self._claim_stale_item(redis_client)
+        if claimed is not None:
+            return claimed
+
         recv_data = await redis_client.xreadgroup(
             self._group,
             self._consumer_id,
@@ -109,7 +118,29 @@ class AsyncMQClient:
             return None
 
         _, messages = recv_data[0]
-        msg_id, msg = messages[0]
+        return self._decode_message(messages[0], redis_client)
+
+    async def _claim_stale_item(self, redis_client: redis.Redis) -> Message | None:
+        try:
+            claimed = await redis_client.xautoclaim(
+                self._queue,
+                self._group,
+                self._consumer_id,
+                min_idle_time=settings.EVENT_PENDING_IDLE_MS,
+                start_id="0-0",
+                count=1,
+            )
+        except redis.ResponseError:
+            return None
+
+        messages = claimed[1] if len(claimed) > 1 else []
+        if not messages:
+            return None
+        return self._decode_message(messages[0], redis_client)
+
+    @staticmethod
+    def _decode_message(raw_message: tuple[str, dict[str, Any]], redis_client: redis.Redis) -> Message:
+        msg_id, msg = raw_message
         payload = msg.get("json", "{}")
         return Message(
             id=msg_id,
@@ -119,6 +150,12 @@ class AsyncMQClient:
 
     async def _ack(self, msg: Message) -> None:
         await msg.redis_client.xack(self._queue, self._group, msg.id)
+
+    async def _handle_message(self, msg: Message) -> None:
+        if self._handler is None:
+            raise ValueError("Handler function is required. Use @mq.subscribe.")
+        await self._handler(msg.data)
+        await self._ack(msg)
 
     async def _cleanup(self) -> None:
         if self._fetcher_task:

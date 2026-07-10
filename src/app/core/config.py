@@ -154,6 +154,10 @@ class EventSettings(BaseSettings):
     EVENT_CONSUMER_GROUP: str = "hr_event_consumer"
     EVENT_CONSUMER_CONCURRENCY: int = 3
     EVENT_STATS_INTERVAL: int = 30
+    EVENT_PENDING_IDLE_MS: int = 60_000
+    EVENT_OUTBOX_BATCH_SIZE: int = 50
+    EVENT_OUTBOX_LEASE_SECONDS: int = 60
+    EVENT_OUTBOX_POLL_SECONDS: float = 1.0
 
 
 class MailDeliverySettings(BaseSettings):

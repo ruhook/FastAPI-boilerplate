@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....core.config import settings
 from ....core.db.database import local_session
 from ....core.exceptions.http_exceptions import NotFoundException
-from ....event import EventType, send_event
+from ....event import EventType
+from ....event.outbox import enqueue_event
 from ...assets.service import ensure_assets_exist, read_asset_content, serialize_asset
 from ..admin_user.model import AdminUser
 from ..mail_account.model import MailAccount
@@ -45,6 +46,12 @@ def _get_mail_delivery_mode() -> str:
     if configured in {"smtp", "preview"}:
         return configured
     return "smtp"
+
+
+def resolve_mail_failure_status(*, current_status: str, delivery_mode: str) -> str:
+    if current_status == MailTaskStatus.SENDING.value and delivery_mode == "smtp":
+        return MailTaskStatus.DELIVERY_UNKNOWN.value
+    return MailTaskStatus.FAILED.value
 
 
 def serialize_mail_task(
@@ -541,29 +548,20 @@ def _send_mail_via_smtp(
     return provider_message_id
 
 
-async def dispatch_mail_task_created_event(
+async def enqueue_mail_task_created_event(
     mail_task_id: int,
     db: AsyncSession,
     *,
     admin_user_id: int,
 ) -> None:
-    try:
-        await send_event(
-            EventType.MAIL_TASK_CREATED,
-            {
-                "mail_task_id": mail_task_id,
-                "admin_user_id": admin_user_id,
-            },
-        )
-    except Exception as exc:
-        task = await db.get(MailTask, mail_task_id)
-        if task is None:
-            raise
-        task.status = MailTaskStatus.FAILED.value
-        task.error_message = f"Failed to dispatch mail task event: {exc}"
-        task.updated_at = datetime.now(UTC)
-        await db.commit()
-        await db.refresh(task)
+    await enqueue_event(
+        db,
+        EventType.MAIL_TASK_CREATED,
+        {
+            "mail_task_id": mail_task_id,
+            "admin_user_id": admin_user_id,
+        },
+    )
 
 
 async def create_mail_task(
@@ -571,8 +569,6 @@ async def create_mail_task(
     db: AsyncSession,
     *,
     admin_user_id: int,
-    commit: bool = True,
-    dispatch_event: bool = True,
 ) -> dict[str, Any]:
     account = await get_mail_account_model(payload.account_id, db, admin_user_id=admin_user_id)
     template: MailTemplate | None = None
@@ -609,12 +605,7 @@ async def create_mail_task(
     db.add(task)
     await db.flush()
     await db.refresh(task)
-
-    if commit:
-        await db.commit()
-        await db.refresh(task)
-        if dispatch_event:
-            await dispatch_mail_task_created_event(task.id, db, admin_user_id=admin_user_id)
+    await enqueue_mail_task_created_event(task.id, db, admin_user_id=admin_user_id)
 
     return serialize_mail_task(task, account=account, template=template, signature=signature)
 
@@ -672,30 +663,19 @@ async def resend_mail_task(task_id: int, db: AsyncSession, *, admin_user_id: int
     db.add(retry_task)
     await db.flush()
     await db.refresh(retry_task)
-    await db.commit()
-    await db.refresh(retry_task)
-
-    try:
-        await send_event(
-            EventType.MAIL_TASK_CREATED,
-            {
-                "mail_task_id": retry_task.id,
-                "admin_user_id": admin_user_id,
-            },
-        )
-    except Exception as exc:
-        retry_task.status = MailTaskStatus.FAILED.value
-        retry_task.error_message = f"Failed to dispatch mail task event: {exc}"
-        retry_task.updated_at = datetime.now(UTC)
-        await db.commit()
-        await db.refresh(retry_task)
+    await enqueue_mail_task_created_event(retry_task.id, db, admin_user_id=admin_user_id)
 
     return serialize_mail_task(retry_task, account=account, template=template, signature=signature)
 
 
 async def process_mail_task(task_id: int) -> None:
     async with local_session() as db:
-        task = await get_mail_task_model(task_id, db)
+        task_result = await db.execute(
+            select(MailTask).where(MailTask.id == task_id).with_for_update()
+        )
+        task = task_result.scalar_one_or_none()
+        if task is None:
+            raise NotFoundException("Mail task not found.")
         logger.info(
             "Begin processing mail task",
             extra={
@@ -756,6 +736,7 @@ async def process_mail_task(task_id: int) -> None:
             await db.commit()
             return
 
+        delivery_mode = _get_mail_delivery_mode()
         try:
             render_context = build_mail_render_context(task, account=account, template=template, signature=signature)
             final_subject = render_template_text(task.subject, render_context)
@@ -776,7 +757,7 @@ async def process_mail_task(task_id: int) -> None:
             assets = await ensure_assets_exist(db, asset_ids=task.attachment_asset_ids or [])
             assets_by_id = {asset.id: asset for asset in assets}
             attachment_payloads = _resolve_attachment_payloads(task, assets_by_id)
-            if _get_mail_delivery_mode() == "preview":
+            if delivery_mode == "preview":
                 provider_message_id = _preview_mail_delivery(
                     account=account,
                     task=task,
@@ -820,7 +801,10 @@ async def process_mail_task(task_id: int) -> None:
                     "to_recipients": task.to_recipients or [],
                 },
             )
-            task.status = MailTaskStatus.FAILED.value
-            task.error_message = f"{type(exc).__name__}: {exc}"
+            task.status = resolve_mail_failure_status(
+                current_status=task.status,
+                delivery_mode=delivery_mode,
+            )
+            task.error_message = type(exc).__name__
             task.updated_at = datetime.now(UTC)
             await db.commit()

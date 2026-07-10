@@ -6,8 +6,11 @@ from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any
 
-
 logger = logging.getLogger(__name__)
+
+
+class UnhandledEventError(ValueError):
+    """Raised when an event cannot be routed to a handler."""
 
 
 class AsyncEventManager:
@@ -24,7 +27,9 @@ class AsyncEventManager:
     def set_mq_client(self, mq_client: Any) -> None:
         self._mq_client = mq_client
 
-    def register_handler(self, ev_type: Enum | str, handler: Callable[[dict[str, Any]], Awaitable[None] | None]) -> None:
+    def register_handler(
+        self, ev_type: Enum | str, handler: Callable[[dict[str, Any]], Awaitable[None] | None]
+    ) -> None:
         type_name = ev_type.value if isinstance(ev_type, Enum) else str(ev_type)
         self._handlers.setdefault(type_name, []).append(handler)
         logger.info("Registered event handler", extra={"event_type": type_name, "handler": handler.__name__})
@@ -36,27 +41,22 @@ class AsyncEventManager:
     async def _receive(self, msg: dict[str, Any]) -> None:
         ev_type = msg.get("type")
         if not ev_type:
-            logger.warning("Event message missing type", extra={"message": msg})
-            return
+            raise UnhandledEventError("Event message is missing its type.")
 
         handlers = self._handlers.get(ev_type)
         if not handlers:
-            logger.warning("No handler registered for event", extra={"event_type": ev_type})
-            return
+            raise UnhandledEventError(f"No handler registered for event type: {ev_type}")
 
         for handler in handlers:
             func_name = handler.__name__
             self._last_func = func_name
             start_time = time.time() * 1000
 
-            try:
-                result = handler(msg)
-                if asyncio.iscoroutine(result):
-                    await result
-                duration = int(time.time() * 1000 - start_time)
-                self._update_stats(func_name, duration)
-            except Exception:
-                logger.exception("Process event error", extra={"event_type": ev_type, "handler": func_name})
+            result = handler(msg)
+            if asyncio.iscoroutine(result):
+                await result
+            duration = int(time.time() * 1000 - start_time)
+            self._update_stats(func_name, duration)
 
     def _update_stats(self, func_name: str, duration: int) -> None:
         stats = self._stats.setdefault(func_name, {"count": 0, "time": 0, "max_time": 0})
@@ -69,7 +69,7 @@ class AsyncEventManager:
         while not self._stop_event.is_set():
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self._stats_interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
             if self._stop_event.is_set():

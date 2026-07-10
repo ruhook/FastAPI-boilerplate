@@ -8,6 +8,7 @@ class MailTaskStatus(StrEnum):
     RETRYING = "retrying"
     SENT = "sent"
     FAILED = "failed"
+    DELIVERY_UNKNOWN = "delivery_unknown"
 
 
 MAIL_TASK_STATUS_CN_NAME_MAP = {
@@ -17,6 +18,7 @@ MAIL_TASK_STATUS_CN_NAME_MAP = {
     MailTaskStatus.RETRYING.value: "重试中",
     MailTaskStatus.SENT.value: "已发送",
     MailTaskStatus.FAILED.value: "发送失败",
+    MailTaskStatus.DELIVERY_UNKNOWN.value: "发送结果待确认",
 }
 
 MAIL_TASK_DATA_RENDER_CONTEXT_KEY = "render_context"

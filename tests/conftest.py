@@ -33,6 +33,7 @@ from src.app.modules.candidate_application.model import CandidateApplication
 from src.app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
 from src.app.modules.candidate_internal_notification.model import CandidateInternalNotification
 from src.app.modules.contract_record.model import ContractRecord
+from src.app.modules.event_outbox.model import EventOutbox
 from src.app.modules.job.model import Job
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.operation_log.model import OperationLog
@@ -98,6 +99,7 @@ def _env_flag(name: str) -> bool:
 async def _clear_tables() -> None:
     async with local_session() as session:
         await session.execute(delete(AuthRefreshSession))
+        await session.execute(delete(EventOutbox))
         await session.execute(delete(CandidateInternalNotification))
         await session.execute(delete(AdminInternalNotification))
         await session.execute(delete(PaymentRecord))

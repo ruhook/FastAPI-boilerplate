@@ -198,6 +198,8 @@ Do not change that key without a credential re-encryption procedure: existing SM
 
 Normal Web/Admin access tokens expire after 15 minutes and carry the immutable account id plus account token version. Refresh tokens are single-use opaque values; only their SHA-256 hashes are stored, and each refresh rotates the token. Password reset/change, Admin disable/delete, logout, and detected refresh replay revoke server-side sessions. Deploying this contract intentionally requires all existing users to log in once again.
 
+Mail-task events use a transactional database outbox: creating the task and recording its event now commit together. The event process dispatches leased outbox rows to Redis with a stable event id, retries publication with bounded backoff, reclaims stale Redis pending messages, and ACKs only after every handler succeeds. SMTP failures after the sending boundary become `delivery_unknown` for operator review instead of being blindly retried.
+
 ## Common tasks
 
 ```bash

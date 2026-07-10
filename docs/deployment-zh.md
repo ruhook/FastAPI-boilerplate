@@ -259,6 +259,8 @@ uv run python -m src.scripts.encrypt_mail_account_credentials
 
 `20260710_000041` 会新增账户 token version 和服务端 refresh session 表。新版本拒绝旧的用户名型 JWT，因此这次发布后 Web/Admin 用户都需要重新登录一次，这是预期的安全切换。发布前应告知使用方，并确认前端会保存 refresh 返回的新值，而不是继续复用旧 refresh token。
 
+`20260710_000042` 会新增 `event_outbox`。邮件任务与待发布事件在同一个数据库事务中提交，`event_consumer.py` 同时负责 outbox 派发和 Redis 消费；因此生产环境必须持续托管这个进程。Redis 发布失败会按退避重试，超过上限的行保留为 `failed`，需要运维查询和人工重试。`delivery_unknown` 邮件表示 SMTP 发送结果不确定，确认收件情况前不要自动重发。
+
 ## 12. 建议
 
 - `web` 和 `admin` 建议走不同域名或至少不同子路径/端口

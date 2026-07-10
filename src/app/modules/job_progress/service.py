@@ -26,7 +26,7 @@ from ..admin.internal_notification.service import create_admin_internal_notifica
 from ..admin.mail_task.const import MAIL_TASK_DATA_RENDER_CONTEXT_KEY, MailTaskStatus
 from ..admin.mail_task.model import MailTask
 from ..admin.mail_task.schema import MailRecipient, MailTaskCreate
-from ..admin.mail_task.service import create_mail_task, dispatch_mail_task_created_event
+from ..admin.mail_task.service import create_mail_task
 from ..admin.mail_template.service import get_mail_template_model
 from ..assets.model import Asset
 from ..assets.schema import AssetUploadPayload
@@ -3412,8 +3412,6 @@ async def notify_job_progress_sign_contract(
             ),
             db,
             admin_user_id=admin_user_id,
-            commit=False,
-            dispatch_event=False,
         )
         mail_task_id = int(task.get("id") or 0)
         if mail_task_id:
@@ -3466,9 +3464,6 @@ async def notify_job_progress_sign_contract(
         asset_map = {int(asset.id): serialize_asset(asset) for asset in asset_result.scalars().all()}
 
     await db.flush()
-    await db.commit()
-    for mail_task_id in mail_task_ids:
-        await dispatch_mail_task_created_event(mail_task_id, db, admin_user_id=admin_user_id)
 
     return JobProgressNotifySignContractResponse(
         updated_count=len(progress_items),

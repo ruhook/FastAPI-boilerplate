@@ -28,6 +28,7 @@ from ..modules.assets.model import Asset
 from ..modules.auth_refresh_session.model import AuthRefreshSession
 from ..modules.candidate_application.model import CandidateApplication
 from ..modules.candidate_application_field_value.model import CandidateApplicationFieldValue
+from ..modules.event_outbox.model import EventOutbox
 from ..modules.job.model import Job
 from ..modules.job_progress.model import JobProgress
 from ..modules.operation_log.model import OperationLog
@@ -62,6 +63,7 @@ REGISTERED_MODELS = (
     MailAccount,
     Asset,
     AuthRefreshSession,
+    EventOutbox,
     MailTemplateCategory,
     MailTemplate,
     MailSignature,
