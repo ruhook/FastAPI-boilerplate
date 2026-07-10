@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.db.database import Base
 from app.modules.admin.admin_audit_log.model import AdminAuditLog
 from app.modules.admin.admin_user.model import AdminUser
+from app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from app.modules.admin.dictionary.model import AdminDictionary
 from app.modules.admin.form_template.model import AdminFormTemplate
 from app.modules.admin.internal_notification.model import AdminInternalNotification
@@ -19,7 +20,6 @@ from app.modules.admin.mail_task.model import MailTask
 from app.modules.admin.mail_template.model import MailTemplate
 from app.modules.admin.mail_template_category.model import MailTemplateCategory
 from app.modules.admin.role.model import Role
-from app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from app.modules.assets.model import Asset
 from app.modules.candidate_application.model import CandidateApplication
 from app.modules.candidate_application_field_value.model import CandidateApplicationFieldValue
@@ -29,8 +29,8 @@ from app.modules.job.model import Job
 from app.modules.operation_log.model import OperationLog
 from app.modules.payment_record.model import PaymentRecord
 from app.modules.project_timesheet_record.model import ProjectTimesheetRecord
-from app.modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
 from app.modules.referral.model import ReferralRecord
+from app.modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
 from app.modules.talent_profile.model import TalentProfile
 from app.modules.talent_profile_merge_log.model import TalentProfileMergeLog
 from app.modules.user.model import User

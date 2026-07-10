@@ -83,8 +83,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("account_id", "parent_id", "name", name="uq_mail_template_category_scope_name"),
     )
-    op.create_index(op.f("ix_mail_template_category_account_id"), "mail_template_category", ["account_id"], unique=False)
-    op.create_index(op.f("ix_mail_template_category_is_deleted"), "mail_template_category", ["is_deleted"], unique=False)
+    op.create_index(
+        op.f("ix_mail_template_category_account_id"), "mail_template_category", ["account_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_mail_template_category_is_deleted"), "mail_template_category", ["is_deleted"], unique=False
+    )
     op.create_index(op.f("ix_mail_template_category_parent_id"), "mail_template_category", ["parent_id"], unique=False)
 
     op.create_table(

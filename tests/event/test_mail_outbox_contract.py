@@ -38,15 +38,24 @@ async def test_mail_task_event_is_enqueued_on_caller_transaction(
 
 
 def test_ambiguous_smtp_failure_is_not_automatically_retryable() -> None:
-    assert mail_task_service.resolve_mail_failure_status(
-        current_status=MailTaskStatus.SENDING.value,
-        delivery_mode="smtp",
-    ) == MailTaskStatus.DELIVERY_UNKNOWN.value
-    assert mail_task_service.resolve_mail_failure_status(
-        current_status=MailTaskStatus.RENDERING.value,
-        delivery_mode="smtp",
-    ) == MailTaskStatus.FAILED.value
-    assert mail_task_service.resolve_mail_failure_status(
-        current_status=MailTaskStatus.SENDING.value,
-        delivery_mode="preview",
-    ) == MailTaskStatus.FAILED.value
+    assert (
+        mail_task_service.resolve_mail_failure_status(
+            current_status=MailTaskStatus.SENDING.value,
+            delivery_mode="smtp",
+        )
+        == MailTaskStatus.DELIVERY_UNKNOWN.value
+    )
+    assert (
+        mail_task_service.resolve_mail_failure_status(
+            current_status=MailTaskStatus.RENDERING.value,
+            delivery_mode="smtp",
+        )
+        == MailTaskStatus.FAILED.value
+    )
+    assert (
+        mail_task_service.resolve_mail_failure_status(
+            current_status=MailTaskStatus.SENDING.value,
+            delivery_mode="preview",
+        )
+        == MailTaskStatus.FAILED.value
+    )

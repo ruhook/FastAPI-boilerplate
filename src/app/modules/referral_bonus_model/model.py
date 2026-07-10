@@ -88,4 +88,3 @@ class UserReferralProfile(DataBackedSoftDeleteEntityMixin, Base):
         nullable=True,
         index=True,
     )
-

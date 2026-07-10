@@ -54,9 +54,7 @@ async def authenticate_user(username_or_email: str, password: str, db) -> dict[s
     return db_user
 
 
-async def authenticate_admin_user(
-    username_or_email: str, password: str, db
-) -> dict[str, Any] | Literal[False]:
+async def authenticate_admin_user(username_or_email: str, password: str, db) -> dict[str, Any] | Literal[False]:
     if "@" in username_or_email:
         db_user = await crud_admin_users.get(db=db, email=username_or_email, is_deleted=False)
     else:

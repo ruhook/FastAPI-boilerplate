@@ -23,7 +23,6 @@ from .shared import (
     timestamp_tag,
 )
 
-
 DEFAULT_CANDIDATE_FRONTEND_URL = "http://127.0.0.1:3002"
 DEFAULT_ADMIN_FRONTEND_URL = "http://127.0.0.1:3001"
 
@@ -122,7 +121,9 @@ async def main_async() -> int:
         from playwright.async_api import TimeoutError as PlaywrightTimeoutError
         from playwright.async_api import async_playwright
     except ModuleNotFoundError as exc:
-        raise RuntimeError("Playwright is required for this suite. Run `uv add --dev playwright` and `uv run playwright install chromium`.") from exc
+        raise RuntimeError(
+            "Playwright is required for this suite. Run `uv add --dev playwright` and `uv run playwright install chromium`."
+        ) from exc
 
     seed_summary = load_latest_seed_summary()
     paths = seed_summary.get("manual_review_paths", {})
@@ -172,13 +173,14 @@ async def main_async() -> int:
             ("/settings", "candidate_settings", False),
         ]:
             await candidate_page.goto(f"{candidate_origin}{path}", wait_until="domcontentloaded", timeout=25_000)
-            results.append(await assert_page_health(candidate_page, label=label, allow_horizontal_overflow=guard_overflow))
+            results.append(
+                await assert_page_health(candidate_page, label=label, allow_horizontal_overflow=guard_overflow)
+            )
         await candidate_context.close()
 
         admin_context = await browser.new_context(viewport={"width": 1440, "height": 960}, accept_downloads=True)
         await admin_context.add_init_script(
-            "window.localStorage.setItem('hr-admin-auth-session', "
-            f"{json.dumps(json.dumps(admin_session))});"
+            f"window.localStorage.setItem('hr-admin-auth-session', {json.dumps(json.dumps(admin_session))});"
         )
         admin_page = await admin_context.new_page()
         admin_page.on(

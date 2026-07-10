@@ -6,9 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_user
-from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ...core.db.database import async_get_db
+from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ...modules.assets.schema import AssetRead
 from ...modules.assets.service import ensure_assets_belong_to_owner, get_asset
 from ...modules.job_progress.schema import (
@@ -17,17 +16,18 @@ from ...modules.job_progress.schema import (
     CandidateJobApplicationListPage,
 )
 from ...modules.job_progress.service import (
-    list_candidate_contracts,
     get_candidate_job_application_detail,
+    list_candidate_contracts,
     list_candidate_job_applications,
 )
-from ...modules.project_timesheet_record.schema import CandidateTimesheetWorkspaceRead
-from ...modules.project_timesheet_record.service import list_candidate_timesheet_workspace
 from ...modules.payment_record.schema import CandidateEarningsListPage
 from ...modules.payment_record.service import list_payment_records_for_candidate
+from ...modules.project_timesheet_record.schema import CandidateTimesheetWorkspaceRead
+from ...modules.project_timesheet_record.service import list_candidate_timesheet_workspace
 from ...modules.referral.schema import CandidateReferralDashboardRead
 from ...modules.referral.service import get_candidate_referral_dashboard
 from ...modules.user.model import User
+from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/me", tags=["web-me"])
 
@@ -209,9 +209,8 @@ async def update_my_payment_settings(
         next_payment_info["bank_card_number"] = payload.bank_card_number or ""
     if "id_attachment_asset_id" in payload.model_fields_set:
         current_id_attachment_asset_id = next_payment_info.get("id_attachment_asset_id")
-        if (
-            current_id_attachment_asset_id not in (None, "", 0)
-            and str(current_id_attachment_asset_id) != str(payload.id_attachment_asset_id)
+        if current_id_attachment_asset_id not in (None, "", 0) and str(current_id_attachment_asset_id) != str(
+            payload.id_attachment_asset_id
         ):
             raise BadRequestException("ID document has already been submitted and cannot be changed.")
         next_payment_info["id_attachment_asset_id"] = payload.id_attachment_asset_id

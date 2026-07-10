@@ -548,9 +548,7 @@ async def import_payload(args: argparse.Namespace) -> dict[str, Any]:
         "candidates_in_payload": len(candidates),
         "timesheets_in_payload": len(timesheets),
         "team_leaders_in_payload": len(leader_rates),
-        "payload_anomalies": {
-            key: len(value) for key, value in (payload.get("anomalies") or {}).items()
-        },
+        "payload_anomalies": {key: len(value) for key, value in (payload.get("anomalies") or {}).items()},
         "skipped_timesheets": skipped_timesheets[:20],
         "skipped_timesheet_count": len(skipped_timesheets),
     }

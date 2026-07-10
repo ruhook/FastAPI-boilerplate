@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import json
 import base64
+import json
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import httpx
-
 
 CURRENT_FILE = Path(__file__).resolve()
 HR_SERVER_ROOT = CURRENT_FILE.parents[3]
@@ -296,9 +295,7 @@ def build_minimal_pdf_bytes(text: str = "V2 PDF smoke test") -> bytes:
     body.extend(b"0000000000 65535 f \n")
     for offset in offsets[1:]:
         body.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    body.extend(
-        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
-    )
+    body.extend(f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii"))
     return bytes(body)
 
 
@@ -330,9 +327,7 @@ def build_minimal_xlsx_bytes(
         cells: list[str] = []
         for column_index, cell_value in enumerate(row_values, start=1):
             cell_ref = f"{_xlsx_column_name(column_index)}{row_index}"
-            cells.append(
-                f'<c r="{cell_ref}" t="inlineStr"><is><t>{escape(str(cell_value))}</t></is></c>'
-            )
+            cells.append(f'<c r="{cell_ref}" t="inlineStr"><is><t>{escape(str(cell_value))}</t></is></c>')
         sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
 
     buffer = BytesIO()

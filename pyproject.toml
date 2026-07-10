@@ -93,6 +93,15 @@ ignore = [
     "F401", # unused import
     "F403", # star imports
 ]
+"src/app/modules/admin/mail_signature/service.py" = [
+    "E501", # HTML fragments are intentionally kept as stable literal output
+]
+"src/app/modules/user/register_verification_service.py" = [
+    "E501", # email HTML lines are intentionally kept as stable literal output
+]
+"src/scripts/**/*.py" = [
+    "E501", # operational scripts contain long diagnostic and fixture strings
+]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 24

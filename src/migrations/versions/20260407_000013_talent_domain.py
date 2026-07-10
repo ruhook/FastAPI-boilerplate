@@ -7,9 +7,8 @@ Create Date: 2026-04-07 12:30:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260407_000013"
 down_revision: str | None = "20260406_000012"
@@ -25,9 +24,13 @@ def upgrade() -> None:
         sa.Column("form_template_id", sa.Integer(), nullable=True),
         sa.Column("job_snapshot_title", sa.String(length=160), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "submitted_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("data", sa.JSON(), nullable=False),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
@@ -39,9 +42,13 @@ def upgrade() -> None:
     )
     op.create_index(op.f("ix_candidate_application_user_id"), "candidate_application", ["user_id"], unique=False)
     op.create_index(op.f("ix_candidate_application_job_id"), "candidate_application", ["job_id"], unique=False)
-    op.create_index(op.f("ix_candidate_application_form_template_id"), "candidate_application", ["form_template_id"], unique=False)
+    op.create_index(
+        op.f("ix_candidate_application_form_template_id"), "candidate_application", ["form_template_id"], unique=False
+    )
     op.create_index(op.f("ix_candidate_application_status"), "candidate_application", ["status"], unique=False)
-    op.create_index(op.f("ix_candidate_application_submitted_at"), "candidate_application", ["submitted_at"], unique=False)
+    op.create_index(
+        op.f("ix_candidate_application_submitted_at"), "candidate_application", ["submitted_at"], unique=False
+    )
 
     op.create_table(
         "talent_profile",
@@ -61,7 +68,9 @@ def upgrade() -> None:
         sa.Column("merge_strategy", sa.String(length=32), nullable=True),
         sa.Column("last_merged_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("data", sa.JSON(), nullable=False),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
@@ -80,9 +89,13 @@ def upgrade() -> None:
     op.create_index(op.f("ix_talent_profile_nationality"), "talent_profile", ["nationality"], unique=False)
     op.create_index(op.f("ix_talent_profile_location"), "talent_profile", ["location"], unique=False)
     op.create_index(op.f("ix_talent_profile_resume_asset_id"), "talent_profile", ["resume_asset_id"], unique=False)
-    op.create_index(op.f("ix_talent_profile_latest_applied_job_id"), "talent_profile", ["latest_applied_job_id"], unique=False)
+    op.create_index(
+        op.f("ix_talent_profile_latest_applied_job_id"), "talent_profile", ["latest_applied_job_id"], unique=False
+    )
     op.create_index(op.f("ix_talent_profile_latest_applied_at"), "talent_profile", ["latest_applied_at"], unique=False)
-    op.create_index(op.f("ix_talent_profile_source_application_id"), "talent_profile", ["source_application_id"], unique=False)
+    op.create_index(
+        op.f("ix_talent_profile_source_application_id"), "talent_profile", ["source_application_id"], unique=False
+    )
     op.create_index(op.f("ix_talent_profile_merge_strategy"), "talent_profile", ["merge_strategy"], unique=False)
 
     op.create_table(
@@ -97,7 +110,9 @@ def upgrade() -> None:
         sa.Column("asset_id", sa.Integer(), nullable=True),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["application_id"], ["candidate_application.id"]),
         sa.ForeignKeyConstraint(["asset_id"], ["asset.id"]),
@@ -136,16 +151,30 @@ def upgrade() -> None:
         sa.Column("merge_strategy", sa.String(length=32), nullable=False),
         sa.Column("merged_fields", sa.JSON(), nullable=False),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["application_id"], ["candidate_application.id"]),
         sa.ForeignKeyConstraint(["operator_admin_user_id"], ["admin_user.id"]),
         sa.ForeignKeyConstraint(["talent_profile_id"], ["talent_profile.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_talent_profile_merge_log_talent_profile_id"), "talent_profile_merge_log", ["talent_profile_id"], unique=False)
-    op.create_index(op.f("ix_talent_profile_merge_log_application_id"), "talent_profile_merge_log", ["application_id"], unique=False)
-    op.create_index(op.f("ix_talent_profile_merge_log_operator_admin_user_id"), "talent_profile_merge_log", ["operator_admin_user_id"], unique=False)
+    op.create_index(
+        op.f("ix_talent_profile_merge_log_talent_profile_id"),
+        "talent_profile_merge_log",
+        ["talent_profile_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_talent_profile_merge_log_application_id"), "talent_profile_merge_log", ["application_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_talent_profile_merge_log_operator_admin_user_id"),
+        "talent_profile_merge_log",
+        ["operator_admin_user_id"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
@@ -155,9 +184,15 @@ def downgrade() -> None:
     op.drop_table("talent_profile_merge_log")
 
     op.drop_index(op.f("ix_candidate_application_field_value_asset_id"), table_name="candidate_application_field_value")
-    op.drop_index(op.f("ix_candidate_application_field_value_catalog_key"), table_name="candidate_application_field_value")
-    op.drop_index(op.f("ix_candidate_application_field_value_field_key"), table_name="candidate_application_field_value")
-    op.drop_index(op.f("ix_candidate_application_field_value_application_id"), table_name="candidate_application_field_value")
+    op.drop_index(
+        op.f("ix_candidate_application_field_value_catalog_key"), table_name="candidate_application_field_value"
+    )
+    op.drop_index(
+        op.f("ix_candidate_application_field_value_field_key"), table_name="candidate_application_field_value"
+    )
+    op.drop_index(
+        op.f("ix_candidate_application_field_value_application_id"), table_name="candidate_application_field_value"
+    )
     op.drop_table("candidate_application_field_value")
 
     op.drop_index(op.f("ix_talent_profile_merge_strategy"), table_name="talent_profile")

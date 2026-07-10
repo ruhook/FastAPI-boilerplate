@@ -28,11 +28,7 @@ def _index_exists(table_name: str, index_name: str) -> bool:
 
 def _foreign_key_exists(table_name: str, constraint_name: str) -> bool:
     inspector = sa.inspect(op.get_bind())
-    return constraint_name in {
-        item["name"]
-        for item in inspector.get_foreign_keys(table_name)
-        if item.get("name")
-    }
+    return constraint_name in {item["name"] for item in inspector.get_foreign_keys(table_name) if item.get("name")}
 
 
 def upgrade() -> None:

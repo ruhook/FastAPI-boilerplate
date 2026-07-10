@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
-from ...dependencies import get_current_admin_superuser
 from .....modules.admin.role.const import PERMISSION_CATALOG
+from ...dependencies import get_current_admin_superuser
 
 router = APIRouter(prefix="/permissions", tags=["admin-permissions"])
 

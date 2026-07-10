@@ -7,7 +7,6 @@ from sqlalchemy import select
 from src.app.core.db.database import local_session
 from src.app.modules.assets.model import Asset
 from src.app.modules.job_progress.model import JobProgress
-
 from tests.helpers.talent import (
     build_application_items,
     build_automation_rules,
@@ -19,7 +18,6 @@ from tests.helpers.talent import (
     fetch_operation_logs,
     login_web_user,
 )
-
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -93,7 +91,10 @@ async def test_web_candidate_can_upload_assessment_attachment(
     assert upload_payload["assessment_asset"]["original_name"] == "assessment-answer.pdf"
     assert upload_payload["process_data"]["assessment_attachment"] == "assessment-answer.pdf"
     assert upload_payload["process_data"]["assessment_attachment_asset_id"] == upload_payload["assessment_asset"]["id"]
-    assert upload_payload["process_assets"]["assessment_attachment"]["asset_id"] == upload_payload["assessment_asset"]["id"]
+    assert (
+        upload_payload["process_assets"]["assessment_attachment"]["asset_id"]
+        == upload_payload["assessment_asset"]["id"]
+    )
 
     asset_read_response = await web_client.get(
         f"/api/v1/assets/{upload_payload['assessment_asset']['id']}",

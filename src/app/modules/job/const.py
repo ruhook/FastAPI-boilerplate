@@ -11,6 +11,7 @@ class JobWorkMode(StrEnum):
     REMOTE = "Remote"
     ONSITE = "Onsite"
 
+
 JOB_DATA_COLLABORATORS_KEY = "collaborators"
 JOB_DATA_HIGHLIGHTS_KEY = "highlights"
 JOB_DATA_FORM_FIELDS_KEY = "form_fields"

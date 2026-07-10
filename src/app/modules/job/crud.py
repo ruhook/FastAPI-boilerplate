@@ -12,4 +12,3 @@ CRUDJob = FastCRUD[
     JobRead,
 ]
 crud_jobs = CRUDJob(Job)
-

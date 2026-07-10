@@ -3,10 +3,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_admin_user, require_any_admin_permission
 from ....core.db.database import async_get_db
 from ....modules.admin.dashboard.schema import AdminDashboardMetricsRead, DashboardRange
 from ....modules.admin.dashboard.service import get_admin_dashboard_metrics
+from ..dependencies import get_current_admin_user, require_any_admin_permission
 
 router = APIRouter(prefix="/dashboard", tags=["admin-dashboard"])
 

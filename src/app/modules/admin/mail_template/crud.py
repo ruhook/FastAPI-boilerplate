@@ -18,4 +18,3 @@ CRUDMailTemplate = FastCRUD[
     MailTemplateRead,
 ]
 crud_mail_templates = CRUDMailTemplate(MailTemplate)
-

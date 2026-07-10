@@ -1,5 +1,4 @@
-from decimal import Decimal, ROUND_HALF_UP
-
+from decimal import ROUND_HALF_UP, Decimal
 
 CONTRACT_STATUS_PENDING_ACTIVATION = "Pending Activation"
 CONTRACT_STATUS_ACTIVE = "Active"

@@ -842,9 +842,7 @@ async def update_job(
             _get_admin_display_name(next_owner_admin_user)
             if next_owner_admin_user is not None
             else (job.data or {}).get("owner_name")
-        ) or str(
-            current_admin.get("name") or current_admin.get("username") or ""
-        )
+        ) or str(current_admin.get("name") or current_admin.get("username") or "")
 
     next_data = _merge_job_data(job.data or {}, payload, owner_name=next_owner_name)
     if payload.assessment_config is not None:

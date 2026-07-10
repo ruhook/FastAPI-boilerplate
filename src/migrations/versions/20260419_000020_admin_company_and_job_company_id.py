@@ -7,9 +7,8 @@ Create Date: 2026-04-19 16:20:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260419_000020"
 down_revision: str | None = "20260410_000019"
@@ -24,8 +23,12 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("logo_asset_id", sa.Integer(), nullable=True),
         sa.Column("data", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("current_timestamp(0)")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("current_timestamp(0)")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("current_timestamp(0)")
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("current_timestamp(0)")
+        ),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("0")),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),

@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 
-from .companies import router as companies_router
 from .accounts import router as accounts_router
 from .candidate_fields import router as candidate_fields_router
+from .companies import router as companies_router
 from .dictionaries import router as dictionaries_router
 from .form_templates import router as form_templates_router
 from .permissions import router as permissions_router

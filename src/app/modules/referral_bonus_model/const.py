@@ -95,4 +95,3 @@ def calculate_referral_bonus_reward(
     if cap > 0:
         reward = min(reward, cap)
     return quantize_bonus_decimal(reward)
-

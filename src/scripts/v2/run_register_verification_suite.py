@@ -91,7 +91,9 @@ async def main_async() -> int:
                 )
 
             wrong_key = await seed_verification_code(redis, email=email, code=valid_code)
-            wrong_response = await client.post("/user/register", json=build_register_payload(email=email, code=wrong_code))
+            wrong_response = await client.post(
+                "/user/register", json=build_register_payload(email=email, code=wrong_code)
+            )
             assert_status(wrong_response, {422}, "Register with wrong verification code should fail")
             checks.append({"name": "register_wrong_code", "status_code": wrong_response.status_code})
 
@@ -101,10 +103,18 @@ async def main_async() -> int:
             checks.append({"name": "wrong_code_attempt_count_incremented", "cache_key": wrong_key})
 
             success_key = await seed_verification_code(redis, email=email, code=valid_code)
-            success_response = await client.post("/user/register", json=build_register_payload(email=email, code=valid_code))
+            success_response = await client.post(
+                "/user/register", json=build_register_payload(email=email, code=valid_code)
+            )
             assert_status(success_response, {201}, "Register with valid verification code should succeed")
             created_user = success_response.json()
-            checks.append({"name": "register_valid_code", "status_code": success_response.status_code, "user_id": created_user.get("id")})
+            checks.append(
+                {
+                    "name": "register_valid_code",
+                    "status_code": success_response.status_code,
+                    "user_id": created_user.get("id"),
+                }
+            )
 
             if await redis.get(success_key):
                 raise AssertionError("Verification code cache was not cleared after successful registration.")
@@ -121,11 +131,17 @@ async def main_async() -> int:
             checks.append({"name": "login_after_register", "token_type": token_payload.get("token_type")})
 
             await seed_verification_code(redis, email=email, code=valid_code)
-            duplicate_response = await client.post("/user/register", json=build_register_payload(email=email, code=valid_code))
+            duplicate_response = await client.post(
+                "/user/register", json=build_register_payload(email=email, code=valid_code)
+            )
             assert_status(duplicate_response, {409, 422}, "Duplicate verified registration should fail")
             if "already registered" not in duplicate_response.text:
-                raise AssertionError(f"Duplicate register did not return an email-exists error: {duplicate_response.text}")
-            checks.append({"name": "duplicate_verified_register_blocked", "status_code": duplicate_response.status_code})
+                raise AssertionError(
+                    f"Duplicate register did not return an email-exists error: {duplicate_response.text}"
+                )
+            checks.append(
+                {"name": "duplicate_verified_register_blocked", "status_code": duplicate_response.status_code}
+            )
     finally:
         await redis.aclose()
 

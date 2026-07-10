@@ -100,20 +100,14 @@ RECRUITMENT_STAGE_ENTRY_RULES: dict[RecruitmentStage, tuple[str, ...]] = {
         "测试题回收阶段中，评审通过的人选会进入筛选通过。",
         "待筛选名单中的人选也可以由运营人工流转到筛选通过。",
     ),
-    RecruitmentStage.CONTRACT_POOL: (
-        "筛选通过阶段的人选开始推进签约时，进入合同库。",
-    ),
-    RecruitmentStage.ACTIVE: (
-        "合同库阶段完成人员签约并确认入职后，进入在职。",
-    ),
+    RecruitmentStage.CONTRACT_POOL: ("筛选通过阶段的人选开始推进签约时，进入合同库。",),
+    RecruitmentStage.ACTIVE: ("合同库阶段完成人员签约并确认入职后，进入在职。",),
     RecruitmentStage.REJECTED: (
         "自动筛选未通过的人选会保留在待筛选名单，等待人工判断。",
         "测试题回收阶段执行自动化时，测试结果不通过的人选会进入淘汰。",
         "待筛选名单、测试题回收、筛选通过、合同库、在职等阶段的人选都可以被人工移入淘汰。",
     ),
-    RecruitmentStage.REPLACED: (
-        "仅当在职阶段的人选被标记为汰换状态时，进入汰换。",
-    ),
+    RecruitmentStage.REPLACED: ("仅当在职阶段的人选被标记为汰换状态时，进入汰换。",),
 }
 
 
@@ -254,9 +248,7 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
         RecruitmentStage.CONTRACT_POOL,
         RecruitmentStage.ACTIVE,
     ),
-    RecruitmentStage.REPLACED: (
-        RecruitmentStage.PENDING_SCREENING,
-    ),
+    RecruitmentStage.REPLACED: (RecruitmentStage.PENDING_SCREENING,),
 }
 
 
@@ -273,9 +265,7 @@ def get_allowed_recruitment_stage_transitions(
     transitions = list(RECRUITMENT_STAGE_TRANSITIONS.get(current, ()))
     if current == RecruitmentStage.PENDING_SCREENING:
         if assessment_enabled:
-            return (
-                RecruitmentStage.REJECTED,
-            )
+            return (RecruitmentStage.REJECTED,)
         return (
             RecruitmentStage.SCREENING_PASSED,
             RecruitmentStage.REJECTED,

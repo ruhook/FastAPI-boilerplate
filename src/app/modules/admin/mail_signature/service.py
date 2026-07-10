@@ -41,14 +41,20 @@ def render_mail_signature_html(signature: MailSignature, *, avatar_url: str | No
 
     link_lines = []
     if primary_email:
-        link_lines.append(f'<div><a href="mailto:{primary_email}" style="color:#165dff;text-decoration:none;">{primary_email}</a></div>')
+        link_lines.append(
+            f'<div><a href="mailto:{primary_email}" style="color:#165dff;text-decoration:none;">{primary_email}</a></div>'
+        )
     if secondary_email:
-        link_lines.append(f'<div><a href="mailto:{secondary_email}" style="color:#165dff;text-decoration:none;">{secondary_email}</a></div>')
+        link_lines.append(
+            f'<div><a href="mailto:{secondary_email}" style="color:#165dff;text-decoration:none;">{secondary_email}</a></div>'
+        )
     if website:
         link_lines.append(f'<div><a href="{website}" style="color:#165dff;text-decoration:none;">{website}</a></div>')
     if linkedin_label:
         href = linkedin_url or "#"
-        link_lines.append(f'<div><a href="{href}" style="color:#165dff;text-decoration:none;">{linkedin_label}</a></div>')
+        link_lines.append(
+            f'<div><a href="{href}" style="color:#165dff;text-decoration:none;">{linkedin_label}</a></div>'
+        )
 
     return (
         '<table cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;font-family:Arial,sans-serif;color:#1f2937;">'
@@ -68,8 +74,12 @@ def render_mail_signature_html(signature: MailSignature, *, avatar_url: str | No
     )
 
 
-async def _load_signature_assets(signature: MailSignature, db: AsyncSession) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    asset_ids = [asset_id for asset_id in [signature.avatar_asset_id, signature.banner_asset_id] if asset_id is not None]
+async def _load_signature_assets(
+    signature: MailSignature, db: AsyncSession
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    asset_ids = [
+        asset_id for asset_id in [signature.avatar_asset_id, signature.banner_asset_id] if asset_id is not None
+    ]
     if not asset_ids:
         return None, None
     assets = await ensure_assets_exist(db, asset_ids=asset_ids)
@@ -149,7 +159,9 @@ async def _validate_signature_assets(
     await ensure_assets_belong_to_owner(db, owner_type="admin_user", owner_id=admin_user_id, asset_ids=asset_ids)
 
 
-async def create_mail_signature(payload: MailSignatureCreate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
+async def create_mail_signature(
+    payload: MailSignatureCreate, db: AsyncSession, *, admin_user_id: int
+) -> dict[str, Any]:
     existing = await db.execute(
         select(MailSignature).where(
             MailSignature.admin_user_id == admin_user_id,
@@ -198,7 +210,9 @@ async def get_mail_signature(signature_id: int, db: AsyncSession, *, admin_user_
     return await serialize_mail_signature(signature, db)
 
 
-async def update_mail_signature(signature_id: int, payload: MailSignatureUpdate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
+async def update_mail_signature(
+    signature_id: int, payload: MailSignatureUpdate, db: AsyncSession, *, admin_user_id: int
+) -> dict[str, Any]:
     signature = await get_mail_signature_model(signature_id, db, admin_user_id=admin_user_id)
     provided_fields = payload.model_fields_set
     if payload.name and payload.name != signature.name:

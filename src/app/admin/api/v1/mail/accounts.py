@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.mail_account.schema import MailAccountCreate, MailAccountRead, MailAccountUpdate
 from .....modules.admin.mail_account.service import (
@@ -13,6 +12,7 @@ from .....modules.admin.mail_account.service import (
     list_mail_accounts,
     update_mail_account,
 )
+from ...dependencies import get_current_admin_user, require_admin_permission
 
 router = APIRouter(prefix="/accounts")
 
@@ -25,7 +25,9 @@ async def read_mail_accounts(
     return await list_mail_accounts(db, admin_user_id=int(current_admin["id"]))
 
 
-@router.post("", response_model=MailAccountRead, status_code=201, dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.post(
+    "", response_model=MailAccountRead, status_code=201, dependencies=[Depends(require_admin_permission("邮件与模板"))]
+)
 async def create_mail_account_endpoint(
     payload: MailAccountCreate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
@@ -34,7 +36,9 @@ async def create_mail_account_endpoint(
     return await create_mail_account(payload, db, admin_user_id=int(current_admin["id"]))
 
 
-@router.get("/{account_id}", response_model=MailAccountRead, dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.get(
+    "/{account_id}", response_model=MailAccountRead, dependencies=[Depends(require_admin_permission("邮件与模板"))]
+)
 async def read_mail_account(
     account_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
@@ -43,7 +47,9 @@ async def read_mail_account(
     return await get_mail_account(account_id, db, admin_user_id=int(current_admin["id"]))
 
 
-@router.patch("/{account_id}", response_model=MailAccountRead, dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.patch(
+    "/{account_id}", response_model=MailAccountRead, dependencies=[Depends(require_admin_permission("邮件与模板"))]
+)
 async def update_mail_account_endpoint(
     account_id: int,
     payload: MailAccountUpdate,

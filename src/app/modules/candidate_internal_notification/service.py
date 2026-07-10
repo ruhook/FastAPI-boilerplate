@@ -79,9 +79,7 @@ async def list_candidate_internal_notifications(
     unread_count = int(
         (
             await db.execute(
-                select(func.count())
-                .select_from(CandidateInternalNotification)
-                .where(*base_filters, *unread_filter)
+                select(func.count()).select_from(CandidateInternalNotification).where(*base_filters, *unread_filter)
             )
         ).scalar_one()
         or 0

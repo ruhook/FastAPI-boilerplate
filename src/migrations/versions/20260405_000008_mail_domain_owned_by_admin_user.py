@@ -40,13 +40,17 @@ def _drop_index_if_exists(table_name: str, index_name: str) -> None:
 def upgrade() -> None:
     op.add_column("mail_account", sa.Column("admin_user_id", sa.Integer(), nullable=True))
     op.create_index("ix_mail_account_admin_user_id", "mail_account", ["admin_user_id"], unique=False)
-    op.create_foreign_key("fk_mail_account_admin_user_id_admin_user", "mail_account", "admin_user", ["admin_user_id"], ["id"])
+    op.create_foreign_key(
+        "fk_mail_account_admin_user_id_admin_user", "mail_account", "admin_user", ["admin_user_id"], ["id"]
+    )
     _drop_index_if_exists("mail_account", "ix_mail_account_email")
     op.create_index("ix_mail_account_email", "mail_account", ["email"], unique=False)
     op.create_unique_constraint("uq_mail_account_admin_user_email", "mail_account", ["admin_user_id", "email"])
 
     op.add_column("mail_template_category", sa.Column("admin_user_id", sa.Integer(), nullable=True))
-    op.create_index("ix_mail_template_category_admin_user_id", "mail_template_category", ["admin_user_id"], unique=False)
+    op.create_index(
+        "ix_mail_template_category_admin_user_id", "mail_template_category", ["admin_user_id"], unique=False
+    )
     op.create_foreign_key(
         "fk_mail_template_category_admin_user_id_admin_user",
         "mail_template_category",
@@ -63,13 +67,17 @@ def upgrade() -> None:
 
     op.add_column("mail_template", sa.Column("admin_user_id", sa.Integer(), nullable=True))
     op.create_index("ix_mail_template_admin_user_id", "mail_template", ["admin_user_id"], unique=False)
-    op.create_foreign_key("fk_mail_template_admin_user_id_admin_user", "mail_template", "admin_user", ["admin_user_id"], ["id"])
+    op.create_foreign_key(
+        "fk_mail_template_admin_user_id_admin_user", "mail_template", "admin_user", ["admin_user_id"], ["id"]
+    )
     _drop_constraint_if_exists("mail_template", "uq_mail_template_name", "unique")
     op.create_unique_constraint("uq_mail_template_admin_user_name", "mail_template", ["admin_user_id", "name"])
 
     op.add_column("mail_signature", sa.Column("admin_user_id", sa.Integer(), nullable=True))
     op.create_index("ix_mail_signature_admin_user_id", "mail_signature", ["admin_user_id"], unique=False)
-    op.create_foreign_key("fk_mail_signature_admin_user_id_admin_user", "mail_signature", "admin_user", ["admin_user_id"], ["id"])
+    op.create_foreign_key(
+        "fk_mail_signature_admin_user_id_admin_user", "mail_signature", "admin_user", ["admin_user_id"], ["id"]
+    )
     _drop_constraint_if_exists("mail_signature", "uq_mail_signature_name", "unique")
     op.create_unique_constraint("uq_mail_signature_admin_user_name", "mail_signature", ["admin_user_id", "name"])
 
@@ -88,7 +96,9 @@ def downgrade() -> None:
     op.create_unique_constraint("uq_mail_template_name", "mail_template", ["name"])
 
     _drop_constraint_if_exists("mail_template_category", "uq_mail_template_category_admin_user_scope_name", "unique")
-    _drop_constraint_if_exists("mail_template_category", "fk_mail_template_category_admin_user_id_admin_user", "foreignkey")
+    _drop_constraint_if_exists(
+        "mail_template_category", "fk_mail_template_category_admin_user_id_admin_user", "foreignkey"
+    )
     _drop_index_if_exists("mail_template_category", "ix_mail_template_category_admin_user_id")
     op.drop_column("mail_template_category", "admin_user_id")
 

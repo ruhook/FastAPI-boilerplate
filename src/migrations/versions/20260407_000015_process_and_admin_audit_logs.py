@@ -7,9 +7,8 @@ Create Date: 2026-04-07 22:30:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260407_000015"
 down_revision: str | None = "20260407_000014"
@@ -47,7 +46,9 @@ def upgrade() -> None:
         sa.Column("target_type", sa.String(length=64), nullable=True),
         sa.Column("target_id", sa.Integer(), nullable=True),
         sa.Column("data", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.ForeignKeyConstraint(["admin_user_id"], ["admin_user.id"]),
         sa.PrimaryKeyConstraint("id"),

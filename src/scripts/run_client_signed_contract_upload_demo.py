@@ -22,7 +22,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Web API base URL.")
     parser.add_argument("--email", default=DEFAULT_EMAIL, help="Candidate email.")
     parser.add_argument("--password", default=DEFAULT_PASSWORD, help="Candidate password.")
-    parser.add_argument("--job-id", type=int, default=None, help="Target job id. Defaults to latest contract pool record.")
+    parser.add_argument(
+        "--job-id", type=int, default=None, help="Target job id. Defaults to latest contract pool record."
+    )
     parser.add_argument("--file-name", default=DEFAULT_FILE_NAME, help="Uploaded file name.")
     parser.add_argument(
         "--note",
@@ -60,9 +62,7 @@ async def resolve_target_job_id(*, email: str, requested_job_id: int | None) -> 
         progress = progress_result.scalar_one_or_none()
         if progress is None:
             if requested_job_id is not None:
-                raise RuntimeError(
-                    f"No contract pool record found for candidate {email} on job {requested_job_id}."
-                )
+                raise RuntimeError(f"No contract pool record found for candidate {email} on job {requested_job_id}.")
             raise RuntimeError(f"No contract pool record found for candidate {email}.")
 
         print(

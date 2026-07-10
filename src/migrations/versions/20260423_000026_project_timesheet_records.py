@@ -7,9 +7,8 @@ Create Date: 2026-04-23 23:15:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260423_000026"
 down_revision: str | None = "20260423_000025"
@@ -68,20 +67,67 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
-    op.create_index(op.f("ix_project_timesheet_record_company_id"), "project_timesheet_record", ["company_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_project_id"), "project_timesheet_record", ["project_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_sub_project_name"), "project_timesheet_record", ["sub_project_name"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_work_date"), "project_timesheet_record", ["work_date"], unique=False)
+    op.create_index(
+        op.f("ix_project_timesheet_record_company_id"), "project_timesheet_record", ["company_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_project_id"), "project_timesheet_record", ["project_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_sub_project_name"),
+        "project_timesheet_record",
+        ["sub_project_name"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_work_date"), "project_timesheet_record", ["work_date"], unique=False
+    )
     op.create_index(op.f("ix_project_timesheet_record_user_id"), "project_timesheet_record", ["user_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_talent_profile_id"), "project_timesheet_record", ["talent_profile_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_contract_record_id"), "project_timesheet_record", ["contract_record_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_user_name_snapshot"), "project_timesheet_record", ["user_name_snapshot"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_user_email_snapshot"), "project_timesheet_record", ["user_email_snapshot"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_language"), "project_timesheet_record", ["language"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_work_type"), "project_timesheet_record", ["work_type"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_created_by_admin_user_id"), "project_timesheet_record", ["created_by_admin_user_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_updated_by_admin_user_id"), "project_timesheet_record", ["updated_by_admin_user_id"], unique=False)
-    op.create_index(op.f("ix_project_timesheet_record_is_deleted"), "project_timesheet_record", ["is_deleted"], unique=False)
+    op.create_index(
+        op.f("ix_project_timesheet_record_talent_profile_id"),
+        "project_timesheet_record",
+        ["talent_profile_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_contract_record_id"),
+        "project_timesheet_record",
+        ["contract_record_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_user_name_snapshot"),
+        "project_timesheet_record",
+        ["user_name_snapshot"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_user_email_snapshot"),
+        "project_timesheet_record",
+        ["user_email_snapshot"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_language"), "project_timesheet_record", ["language"], unique=False
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_work_type"), "project_timesheet_record", ["work_type"], unique=False
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_created_by_admin_user_id"),
+        "project_timesheet_record",
+        ["created_by_admin_user_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_updated_by_admin_user_id"),
+        "project_timesheet_record",
+        ["updated_by_admin_user_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_project_timesheet_record_is_deleted"), "project_timesheet_record", ["is_deleted"], unique=False
+    )
 
 
 def downgrade() -> None:

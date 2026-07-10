@@ -200,9 +200,7 @@ async def list_public_jobs(
     if country:
         conditions.append(Job.country == country)
 
-    total_result = await db.execute(
-        select(func.count()).select_from(Job).where(*conditions)
-    )
+    total_result = await db.execute(select(func.count()).select_from(Job).where(*conditions))
     total = int(total_result.scalar() or 0)
 
     result = await db.execute(
@@ -214,10 +212,7 @@ async def list_public_jobs(
     )
     rows = result.scalars().all()
     return WebJobListPage(
-        items=[
-            _serialize_job_list_item(job, country_label_map=country_label_map)
-            for job in rows
-        ],
+        items=[_serialize_job_list_item(job, country_label_map=country_label_map) for job in rows],
         total=total,
         page=page,
         page_size=page_size,
@@ -230,8 +225,7 @@ async def get_public_job(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, Any]:
     result = await db.execute(
-        select(Job)
-        .where(
+        select(Job).where(
             Job.id == job_id,
             Job.is_deleted.is_(False),
             Job.status == JobStatus.OPEN.value,

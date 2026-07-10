@@ -9,9 +9,7 @@ from ...core.db.database import Base
 
 class EventOutbox(Base):
     __tablename__ = "event_outbox"
-    __table_args__ = (
-        Index("ix_event_outbox_dispatch", "status", "available_at", "lease_expires_at"),
-    )
+    __table_args__ = (Index("ix_event_outbox_dispatch", "status", "available_at", "lease_expires_at"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     event_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)

@@ -4,6 +4,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ....core.schemas import PersistentDeletion, TimestampSchema
+
+
 def _normalize_text(value: str) -> str:
     normalized = value.strip()
     if not normalized:

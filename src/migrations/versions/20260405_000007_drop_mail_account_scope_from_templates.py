@@ -59,8 +59,12 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.add_column("mail_template_category", sa.Column("account_id", sa.Integer(), nullable=True))
     op.create_index("ix_mail_template_category_account_id", "mail_template_category", ["account_id"], unique=False)
-    op.create_foreign_key("mail_template_category_ibfk_1", "mail_template_category", "mail_account", ["account_id"], ["id"])
-    op.create_unique_constraint("uq_mail_template_category_scope_name", "mail_template_category", ["account_id", "parent_id", "name"])
+    op.create_foreign_key(
+        "mail_template_category_ibfk_1", "mail_template_category", "mail_account", ["account_id"], ["id"]
+    )
+    op.create_unique_constraint(
+        "uq_mail_template_category_scope_name", "mail_template_category", ["account_id", "parent_id", "name"]
+    )
 
     _drop_constraint_if_exists("mail_template", "uq_mail_template_name", "unique")
     op.add_column("mail_template", sa.Column("account_id", sa.Integer(), nullable=True))

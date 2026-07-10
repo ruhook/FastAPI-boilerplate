@@ -18,4 +18,3 @@ CRUDMailSignature = FastCRUD[
     MailSignatureRead,
 ]
 crud_mail_signatures = CRUDMailSignature(MailSignature)
-

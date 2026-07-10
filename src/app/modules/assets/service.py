@@ -380,9 +380,7 @@ def _build_simple_pdf(lines: list[str]) -> bytes:
     body.extend(b"0000000000 65535 f \n")
     for offset in offsets[1:]:
         body.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    body.extend(
-        f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
-    )
+    body.extend(f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii"))
     return bytes(body)
 
 

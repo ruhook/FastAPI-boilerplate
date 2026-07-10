@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
-from ...dependencies import require_admin_permission
 from .....modules.admin.mail_template.const import MAIL_VARIABLE_CATALOG
+from ...dependencies import require_admin_permission
 
 router = APIRouter(prefix="/variables")
 

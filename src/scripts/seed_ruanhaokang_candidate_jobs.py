@@ -82,8 +82,7 @@ STAGE_CASES: list[dict[str, Any]] = [
         "languages": ["Portuguese"],
         "assessment_enabled": True,
         "description": (
-            "<h3>Screening Passed Demo</h3>"
-            "<p>Seeded role used to show a candidate approved by screening.</p>"
+            "<h3>Screening Passed Demo</h3><p>Seeded role used to show a candidate approved by screening.</p>"
         ),
     },
     {
@@ -92,8 +91,7 @@ STAGE_CASES: list[dict[str, Any]] = [
         "country": "Mexico",
         "languages": ["Spanish"],
         "description": (
-            "<h3>Contract Pool Demo</h3>"
-            "<p>Seeded role used to show a candidate in the contract workflow.</p>"
+            "<h3>Contract Pool Demo</h3><p>Seeded role used to show a candidate in the contract workflow.</p>"
         ),
     },
     {
@@ -102,8 +100,7 @@ STAGE_CASES: list[dict[str, Any]] = [
         "country": "United States",
         "languages": ["English"],
         "description": (
-            "<h3>Active Demo</h3>"
-            "<p>Seeded role used to show a candidate who has successfully onboarded.</p>"
+            "<h3>Active Demo</h3><p>Seeded role used to show a candidate who has successfully onboarded.</p>"
         ),
     },
     {
@@ -113,8 +110,7 @@ STAGE_CASES: list[dict[str, Any]] = [
         "languages": ["Portuguese"],
         "assessment_enabled": True,
         "description": (
-            "<h3>Rejected Demo</h3>"
-            "<p>Seeded role used to show a candidate rejected from the assessment stage.</p>"
+            "<h3>Rejected Demo</h3><p>Seeded role used to show a candidate rejected from the assessment stage.</p>"
         ),
     },
     {
@@ -123,8 +119,7 @@ STAGE_CASES: list[dict[str, Any]] = [
         "country": "United States",
         "languages": ["English"],
         "description": (
-            "<h3>Replaced Demo</h3>"
-            "<p>Seeded role used to show a candidate replaced after becoming active.</p>"
+            "<h3>Replaced Demo</h3><p>Seeded role used to show a candidate replaced after becoming active.</p>"
         ),
     },
 ]

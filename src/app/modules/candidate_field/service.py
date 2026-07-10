@@ -1,5 +1,3 @@
-from typing import Any
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,18 +66,14 @@ async def hydrate_candidate_field_options(
     dictionary_ids = sorted(
         {
             dictionary_id
-            for dictionary_id in (
-                _normalize_dictionary_id(field.get("dictionaryId")) for field in form_fields
-            )
+            for dictionary_id in (_normalize_dictionary_id(field.get("dictionaryId")) for field in form_fields)
             if dictionary_id is not None
         }
     )
     dictionary_keys = sorted(
         {
             dictionary_key
-            for dictionary_key in (
-                _normalize_dictionary_key(field.get("dictionary_key")) for field in form_fields
-            )
+            for dictionary_key in (_normalize_dictionary_key(field.get("dictionary_key")) for field in form_fields)
             if dictionary_key is not None
         }
     )

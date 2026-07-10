@@ -51,11 +51,7 @@ def validate_permissions(permissions: list[str]) -> list[str]:
 
 def normalize_effective_role_permissions(permissions: Iterable[str] | None) -> list[str]:
     return deduplicate_permissions(
-        [
-            permission
-            for permission in (permissions or [])
-            if permission in CONFIGURABLE_ADMIN_PERMISSIONS
-        ]
+        [permission for permission in (permissions or []) if permission in CONFIGURABLE_ADMIN_PERMISSIONS]
     )
 
 

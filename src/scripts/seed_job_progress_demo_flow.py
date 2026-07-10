@@ -805,9 +805,15 @@ async def seed_admin_and_jobs() -> tuple[dict[str, Any], list[Job]]:
                 form_template_id=form_template.id,
                 form_fields=form_fields,
                 definition=definition,
-                assessment_mail_account_id=assessment_mail_ids["mail_account_id"] if definition["assessment_enabled"] else None,
-                assessment_mail_template_id=assessment_mail_ids["mail_template_id"] if definition["assessment_enabled"] else None,
-                assessment_mail_signature_id=assessment_mail_ids["mail_signature_id"] if definition["assessment_enabled"] else None,
+                assessment_mail_account_id=assessment_mail_ids["mail_account_id"]
+                if definition["assessment_enabled"]
+                else None,
+                assessment_mail_template_id=assessment_mail_ids["mail_template_id"]
+                if definition["assessment_enabled"]
+                else None,
+                assessment_mail_signature_id=assessment_mail_ids["mail_signature_id"]
+                if definition["assessment_enabled"]
+                else None,
                 rejection_mail_account_id=rejection_mail_ids["mail_account_id"] if rejection_enabled else None,
                 rejection_mail_template_id=rejection_mail_ids["mail_template_id"] if rejection_enabled else None,
                 rejection_mail_signature_id=rejection_mail_ids["mail_signature_id"] if rejection_enabled else None,
@@ -1009,7 +1015,9 @@ async def main() -> None:
                         "company_name": definition["company_name"],
                         "compensation_unit": job.compensation_unit,
                         "assessment_enabled": job.assessment_enabled,
-                        "automation_rules_enabled": bool((job.data or {}).get(JOB_DATA_AUTOMATION_RULES_KEY, {}).get("rules")),
+                        "automation_rules_enabled": bool(
+                            (job.data or {}).get(JOB_DATA_AUTOMATION_RULES_KEY, {}).get("rules")
+                        ),
                         "contract_example_seeded": bool((job.data or {}).get(JOB_DATA_CONTRACT_EXAMPLE_KEY)),
                         "application_id": apply_payload["application_id"],
                         "talent_profile_id": apply_payload["talent_profile_id"],

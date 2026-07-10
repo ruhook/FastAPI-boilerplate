@@ -53,12 +53,7 @@ async def get_admin_dashboard_metrics(
         JobProgress.entered_stage_at >= period_start,
     ]
     assessment_count = int(
-        (
-            await db.execute(
-                select(func.count(JobProgress.id)).where(*assessment_filters)
-            )
-        ).scalar_one()
-        or 0
+        (await db.execute(select(func.count(JobProgress.id)).where(*assessment_filters))).scalar_one() or 0
     )
 
     successful_signings_count = int(

@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_admin_user
 from ....core.db.database import async_get_db
 from ....modules.admin.internal_notification.schema import (
     AdminInternalNotificationListPage,
@@ -15,6 +14,7 @@ from ....modules.admin.internal_notification.service import (
     mark_admin_internal_notification_read,
     mark_all_admin_internal_notifications_read,
 )
+from ..dependencies import get_current_admin_user
 
 router = APIRouter(prefix="/notifications", tags=["admin-notifications"])
 

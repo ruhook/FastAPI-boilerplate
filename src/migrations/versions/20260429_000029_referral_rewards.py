@@ -7,9 +7,8 @@ Create Date: 2026-04-29 10:30:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260429_000029"
 down_revision: str | None = "20260428_000028"
@@ -28,7 +27,9 @@ def upgrade() -> None:
         sa.Column("referred_snapshot_name", sa.String(length=120), nullable=True),
         sa.Column("referred_snapshot_email", sa.String(length=120), nullable=True),
         sa.Column("source_referral_code", sa.String(length=64), nullable=True),
-        sa.Column("paid_reward_amount", sa.Numeric(precision=10, scale=2), nullable=False, server_default=sa.text("0.00")),
+        sa.Column(
+            "paid_reward_amount", sa.Numeric(precision=10, scale=2), nullable=False, server_default=sa.text("0.00")
+        ),
         sa.Column("payout_status", sa.String(length=32), nullable=False, server_default="tracking"),
         sa.Column("last_paid_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_paid_by_admin_user_id", sa.Integer(), nullable=True),
@@ -63,11 +64,21 @@ def upgrade() -> None:
         ["referred_talent_profile_id"],
         unique=False,
     )
-    op.create_index(op.f("ix_referral_record_referrer_snapshot_name"), "referral_record", ["referrer_snapshot_name"], unique=False)
-    op.create_index(op.f("ix_referral_record_referrer_snapshot_email"), "referral_record", ["referrer_snapshot_email"], unique=False)
-    op.create_index(op.f("ix_referral_record_referred_snapshot_name"), "referral_record", ["referred_snapshot_name"], unique=False)
-    op.create_index(op.f("ix_referral_record_referred_snapshot_email"), "referral_record", ["referred_snapshot_email"], unique=False)
-    op.create_index(op.f("ix_referral_record_source_referral_code"), "referral_record", ["source_referral_code"], unique=False)
+    op.create_index(
+        op.f("ix_referral_record_referrer_snapshot_name"), "referral_record", ["referrer_snapshot_name"], unique=False
+    )
+    op.create_index(
+        op.f("ix_referral_record_referrer_snapshot_email"), "referral_record", ["referrer_snapshot_email"], unique=False
+    )
+    op.create_index(
+        op.f("ix_referral_record_referred_snapshot_name"), "referral_record", ["referred_snapshot_name"], unique=False
+    )
+    op.create_index(
+        op.f("ix_referral_record_referred_snapshot_email"), "referral_record", ["referred_snapshot_email"], unique=False
+    )
+    op.create_index(
+        op.f("ix_referral_record_source_referral_code"), "referral_record", ["source_referral_code"], unique=False
+    )
     op.create_index(op.f("ix_referral_record_payout_status"), "referral_record", ["payout_status"], unique=False)
     op.create_index(op.f("ix_referral_record_last_paid_at"), "referral_record", ["last_paid_at"], unique=False)
     op.create_index(
@@ -93,4 +104,3 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_referral_record_referred_user_id"), table_name="referral_record")
     op.drop_index(op.f("ix_referral_record_referrer_user_id"), table_name="referral_record")
     op.drop_table("referral_record")
-

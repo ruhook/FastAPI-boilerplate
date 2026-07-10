@@ -7,9 +7,8 @@ Create Date: 2026-04-10 11:20:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260410_000019"
 down_revision: str | None = "20260409_000018"
@@ -29,8 +28,12 @@ def upgrade() -> None:
         sa.Column("is_read", sa.Boolean(), nullable=False, server_default=sa.text("0")),
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("data", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("current_timestamp(0)")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("current_timestamp(0)")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("current_timestamp(0)")
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("current_timestamp(0)")
+        ),
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.ForeignKeyConstraint(["recipient_admin_user_id"], ["admin_user.id"]),
         sa.ForeignKeyConstraint(["sender_admin_user_id"], ["admin_user.id"]),
@@ -73,5 +76,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_admin_internal_notification_is_read"), table_name="admin_internal_notification")
     op.drop_index(op.f("ix_admin_internal_notification_category"), table_name="admin_internal_notification")
     op.drop_index(op.f("ix_admin_internal_notification_sender_admin_user_id"), table_name="admin_internal_notification")
-    op.drop_index(op.f("ix_admin_internal_notification_recipient_admin_user_id"), table_name="admin_internal_notification")
+    op.drop_index(
+        op.f("ix_admin_internal_notification_recipient_admin_user_id"), table_name="admin_internal_notification"
+    )
     op.drop_table("admin_internal_notification")

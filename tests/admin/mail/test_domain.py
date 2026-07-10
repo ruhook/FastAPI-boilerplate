@@ -23,10 +23,7 @@ async def test_render_template_text_replaces_encoded_template_links() -> None:
         {"assessment_link": "https://test.primnota.com/assessments/abc"},
     )
 
-    assert (
-        rendered
-        == '<a href="https://test.primnota.com/assessments/abc" target="_blank">支持变量-测试题链接</a>'
-    )
+    assert rendered == '<a href="https://test.primnota.com/assessments/abc" target="_blank">支持变量-测试题链接</a>'
 
 
 @pytest.mark.no_database_cleanup

@@ -74,11 +74,7 @@ def _build_message(email: str, code: str, *, purpose: str = "register") -> Email
         else settings.CANDIDATE_REGISTER_VERIFICATION_SUBJECT.strip() or "Your verification code"
     )
     ttl_minutes = max(1, settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS // 60)
-    plain_action = (
-        "reset your Primnota password"
-        if is_password_reset
-        else "finish creating your account"
-    )
+    plain_action = "reset your Primnota password" if is_password_reset else "finish creating your account"
     eyebrow = "Password Reset" if is_password_reset else "Account Verification"
     pill = "Secure Password Reset" if is_password_reset else "Secure Sign Up"
     title = "Reset your password" if is_password_reset else "Your verification code"
@@ -236,7 +232,9 @@ async def send_register_verification_code(
             debug_verification_code=verification_code,
         )
 
-    return VerificationSendResult(cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS))
+    return VerificationSendResult(
+        cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+    )
 
 
 async def send_password_reset_verification_code(
@@ -299,7 +297,9 @@ async def send_password_reset_verification_code(
             debug_verification_code=verification_code,
         )
 
-    return VerificationSendResult(cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS))
+    return VerificationSendResult(
+        cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+    )
 
 
 async def _verify_verification_code(
@@ -343,7 +343,9 @@ async def _verify_verification_code(
     if ttl and ttl > 0:
         await redis.set(cache_key, json.dumps(payload), ex=ttl)
     else:
-        await redis.set(cache_key, json.dumps(payload), ex=int(settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS))
+        await redis.set(
+            cache_key, json.dumps(payload), ex=int(settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS)
+        )
     raise UnprocessableEntityException(f"Verification code is incorrect. {remaining_attempts} attempt(s) remaining.")
 
 

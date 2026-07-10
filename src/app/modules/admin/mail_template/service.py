@@ -70,7 +70,9 @@ async def _serialize_template_with_assets(
     return serialize_mail_template(template, attachment_payloads, owner_scope=owner_scope, owner_name=owner_name)
 
 
-async def list_mail_templates(db: AsyncSession, *, admin_user_id: int, include_public: bool = False) -> list[dict[str, Any]]:
+async def list_mail_templates(
+    db: AsyncSession, *, admin_user_id: int, include_public: bool = False
+) -> list[dict[str, Any]]:
     visibility_filters = [MailTemplate.admin_user_id == admin_user_id]
     if include_public:
         visibility_filters.append(AdminUser.is_superuser.is_(True))
@@ -163,7 +165,9 @@ async def get_mail_template(template_id: int, db: AsyncSession, *, admin_user_id
     return await _serialize_template_with_assets(template, db, admin_user_id=admin_user_id)
 
 
-async def update_mail_template(template_id: int, payload: MailTemplateUpdate, db: AsyncSession, *, admin_user_id: int) -> dict[str, Any]:
+async def update_mail_template(
+    template_id: int, payload: MailTemplateUpdate, db: AsyncSession, *, admin_user_id: int
+) -> dict[str, Any]:
     template = await get_mail_template_model(template_id, db, admin_user_id=admin_user_id)
 
     if payload.category_id is not None:
@@ -189,7 +193,9 @@ async def update_mail_template(template_id: int, payload: MailTemplateUpdate, db
         template.body_html = payload.body_html
     if payload.attachments is not None:
         attachment_ids = [item.asset_id for item in payload.attachments]
-        await ensure_assets_belong_to_owner(db, owner_type="admin_user", owner_id=admin_user_id, asset_ids=attachment_ids)
+        await ensure_assets_belong_to_owner(
+            db, owner_type="admin_user", owner_id=admin_user_id, asset_ids=attachment_ids
+        )
         template.attachments = [{"asset_id": asset_id} for asset_id in attachment_ids]
 
     template.updated_at = datetime.now(UTC)

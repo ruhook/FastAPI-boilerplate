@@ -302,9 +302,7 @@ async def test_web_second_application_updates_latest_job_without_overwriting_ini
         assert merge_logs[0].application_id == first_apply["application_id"]
 
         progress_result = await assertion_session.execute(
-            select(JobProgress)
-            .where(JobProgress.user_id == user.id)
-            .order_by(JobProgress.id.asc())
+            select(JobProgress).where(JobProgress.user_id == user.id).order_by(JobProgress.id.asc())
         )
         progresses = list(progress_result.scalars().all())
         assert len(progresses) == 2

@@ -113,4 +113,3 @@ class ReferralBonusModelRead(BaseModel):
     created_at: datetime
     updated_at: datetime | None = None
     data: dict[str, Any] = Field(default_factory=dict)
-

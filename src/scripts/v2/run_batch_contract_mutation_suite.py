@@ -42,7 +42,6 @@ from .shared import (
     timestamp_tag,
 )
 
-
 DEFAULT_BATCH_PASSWORD = "Candidate123!"
 DEFAULT_BATCH_SIZE = 3
 
@@ -91,9 +90,7 @@ def match_files_by_contract_number(
 
     for progress_id, contract_number in contract_numbers.items():
         normalized_contract_number = normalize_match_text(contract_number)
-        matched_files = [
-            item for item in normalized_files if normalized_contract_number in item["normalized_name"]
-        ]
+        matched_files = [item for item in normalized_files if normalized_contract_number in item["normalized_name"]]
         if len(matched_files) != 1:
             if matched_files:
                 ambiguous.append(contract_number)
@@ -221,9 +218,7 @@ async def get_progress_items_for_users(
     user_ids: set[int],
 ) -> list[dict[str, Any]]:
     progress_payload = await fetch_json(admin_client, "GET", f"/v1/jobs/{job_id}/progress", headers=headers)
-    items = [
-        item for item in progress_payload.get("items", []) if int(item.get("user_id") or 0) in user_ids
-    ]
+    items = [item for item in progress_payload.get("items", []) if int(item.get("user_id") or 0) in user_ids]
     if len(items) != len(user_ids):
         found_user_ids = {int(item.get("user_id") or 0) for item in items}
         raise AssertionError(f"Missing progress rows for user ids: {sorted(user_ids - found_user_ids)}")
@@ -250,10 +245,13 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
     job_id = int(setup["job"]["id"])
     user_ids = {int(item["user_id"]) for item in setup["candidates"]}
 
-    async with httpx.AsyncClient(base_url=args.admin_base_url.rstrip("/"), timeout=45.0) as admin_client, httpx.AsyncClient(
-        base_url=args.web_base_url.rstrip("/"),
-        timeout=45.0,
-    ) as web_client:
+    async with (
+        httpx.AsyncClient(base_url=args.admin_base_url.rstrip("/"), timeout=45.0) as admin_client,
+        httpx.AsyncClient(
+            base_url=args.web_base_url.rstrip("/"),
+            timeout=45.0,
+        ) as web_client,
+    ):
         admin_token = await login_admin(
             admin_client,
             username_or_email=DEFAULT_FLOW_ADMIN_USERNAME,
@@ -358,12 +356,19 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
                 "render_context": {"suite": "batch_contract_v2"},
             },
         )
-        assert_true(int(notify_payload.get("updated_count") or 0) == len(progress_ids), "Notify updated_count mismatch.")
-        assert_true(len(notify_payload.get("mail_task_ids") or []) == len(progress_ids), "Notify should create one mail task per candidate.")
+        assert_true(
+            int(notify_payload.get("updated_count") or 0) == len(progress_ids), "Notify updated_count mismatch."
+        )
+        assert_true(
+            len(notify_payload.get("mail_task_ids") or []) == len(progress_ids),
+            "Notify should create one mail task per candidate.",
+        )
         for item in notify_payload.get("items", []):
             data = item.get("contract_record_data") or {}
             assert_true(data.get("signing_status") == "已通知人选签合同", "Signing status did not update after notify.")
-            assert_true(bool(data.get("draft_contract_attachment")), "Notify response is missing draft contract attachment.")
+            assert_true(
+                bool(data.get("draft_contract_attachment")), "Notify response is missing draft contract attachment."
+            )
 
         for candidate in setup["candidates"]:
             candidate_token = await login_candidate(
@@ -389,7 +394,10 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
                 signed_response.status_code == 201,
                 f"Candidate signed upload failed for {candidate['email']}: {signed_response.status_code} {signed_response.text}",
             )
-            assert_true(signed_response.json().get("current_stage") == "contract_pool", "Signed upload should move to contract_pool.")
+            assert_true(
+                signed_response.json().get("current_stage") == "contract_pool",
+                "Signed upload should move to contract_pool.",
+            )
 
         blocked_company_response = await admin_client.post(
             f"/v1/jobs/{job_id}/progress/company-sealed-contract/upload",
@@ -415,7 +423,9 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
             headers=admin_headers,
             json={"progress_ids": progress_ids, "contract_review": "审核通过"},
         )
-        assert_true(int(review_payload.get("updated_count") or 0) == len(progress_ids), "Contract review batch update mismatch.")
+        assert_true(
+            int(review_payload.get("updated_count") or 0) == len(progress_ids), "Contract review batch update mismatch."
+        )
 
         company_files = {
             f"company countersigned {contract_number.lower()}.pdf": (
@@ -438,9 +448,13 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
                 f"Company signed upload failed for progress {progress_id}: {response.status_code} {response.text}",
             )
             payload = response.json()
-            assert_true(payload.get("current_stage") == "active", "Company signed upload should move progress to active.")
+            assert_true(
+                payload.get("current_stage") == "active", "Company signed upload should move progress to active."
+            )
             contract_data = payload.get("contract_record_data") or {}
-            assert_true(contract_data.get("contract_status") == "Active", "Company signed upload should activate contract.")
+            assert_true(
+                contract_data.get("contract_status") == "Active", "Company signed upload should activate contract."
+            )
             assert_true(
                 str(contract_data.get("effective_date") or "") == date.today().isoformat(),
                 "Company signed upload should preserve the draft upload effective date.",
@@ -467,7 +481,11 @@ async def run_batch_contract_mutation(args: argparse.Namespace) -> dict[str, Any
         contract_items = contracts_payload.get("items", [])
         assert_true(len(contract_items) >= len(progress_ids), "Contract library did not return all batch contracts.")
         assert_true(
-            all(item.get("contract_status") == "Active" for item in contract_items if str(item.get("agreement_ref_no", "")).startswith(marker)),
+            all(
+                item.get("contract_status") == "Active"
+                for item in contract_items
+                if str(item.get("agreement_ref_no", "")).startswith(marker)
+            ),
             "Batch contracts should all be Active in contract library.",
         )
 
@@ -515,7 +533,9 @@ async def main_async() -> int:
         report = await run_batch_contract_mutation(args)
         report_path = TMP_DIR / f"batch-contract-mutation-v2-{timestamp_tag()}.json"
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print_detail(f"[PASS] batch_contract_mutation: marker={report['marker']} candidates={report['candidate_count']}")
+        print_detail(
+            f"[PASS] batch_contract_mutation: marker={report['marker']} candidates={report['candidate_count']}"
+        )
         print_detail(f"report={report_path}")
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0

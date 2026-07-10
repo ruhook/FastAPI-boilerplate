@@ -422,9 +422,7 @@ async def test_web_me_contracts_only_lists_company_signed_active_contracts(
     assert apply_response.status_code == 200, apply_response.text
     application_id = int(apply_response.json()["application_id"])
 
-    progress_result = await db_session.execute(
-        select(JobProgress).where(JobProgress.application_id == application_id)
-    )
+    progress_result = await db_session.execute(select(JobProgress).where(JobProgress.application_id == application_id))
     progress = progress_result.scalar_one()
     progress.current_stage = "contract_pool"
 
@@ -456,10 +454,7 @@ async def test_web_me_contracts_only_lists_company_signed_active_contracts(
 
     pending_response = await web_client.get("/api/v1/me/contracts", headers=auth_headers)
     assert pending_response.status_code == 200, pending_response.text
-    assert all(
-        int(item["application_id"]) != application_id
-        for item in pending_response.json()["items"]
-    )
+    assert all(int(item["application_id"]) != application_id for item in pending_response.json()["items"])
 
     contract.company_sealed_contract_asset_id = sealed_asset.id
     contract.contract_status = "Active"

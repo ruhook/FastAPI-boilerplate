@@ -35,21 +35,15 @@ EXPECTED_ENGLISH_PROFICIENCY_OPTIONS = [
 def test_english_proficiency_is_registered_as_candidate_field() -> None:
     assert CandidateFieldKey.ENGLISH_PROFICIENCY.value == "english_proficiency"
     assert CANDIDATE_FIELD_CN_NAME_MAP[CandidateFieldKey.ENGLISH_PROFICIENCY] == "英语水平"
-    assert (
-        CANDIDATE_FIELD_DICTIONARY_KEY_MAP[CandidateFieldKey.ENGLISH_PROFICIENCY]
-        == "candidate_english_proficiency"
-    )
+    assert CANDIDATE_FIELD_DICTIONARY_KEY_MAP[CandidateFieldKey.ENGLISH_PROFICIENCY] == "candidate_english_proficiency"
     assert {"label": "英语水平", "value": "english_proficiency"} in build_candidate_field_catalog_options()
     assert CANDIDATE_FIELD_SELECT_OPTIONS_EN_MAP["english_proficiency"] == [
-        {"label": option["label"], "value": option["value"]}
-        for option in EXPECTED_ENGLISH_PROFICIENCY_OPTIONS
+        {"label": option["label"], "value": option["value"]} for option in EXPECTED_ENGLISH_PROFICIENCY_OPTIONS
     ]
 
 
 def test_base_candidate_form_template_contains_english_proficiency_select() -> None:
-    field = next(
-        item for item in FORM_TEMPLATE_FIELDS if item["key"] == "english_proficiency"
-    )
+    field = next(item for item in FORM_TEMPLATE_FIELDS if item["key"] == "english_proficiency")
 
     assert field == {
         "key": "english_proficiency",
@@ -63,11 +57,7 @@ def test_base_candidate_form_template_contains_english_proficiency_select() -> N
 
 
 def test_base_candidate_form_seed_contains_english_proficiency_dictionary() -> None:
-    dictionary = next(
-        item
-        for item in DICTIONARY_DEFINITIONS
-        if item["key"] == "candidate_english_proficiency"
-    )
+    dictionary = next(item for item in DICTIONARY_DEFINITIONS if item["key"] == "candidate_english_proficiency")
 
     assert dictionary == {
         "key": "candidate_english_proficiency",

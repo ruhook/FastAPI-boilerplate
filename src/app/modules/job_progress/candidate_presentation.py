@@ -142,8 +142,7 @@ def _has_assessment_submission(process_data: Mapping[str, Any]) -> bool:
     if not isinstance(submissions, list):
         return False
     return any(
-        isinstance(item, Mapping)
-        and _text(item.get("asset_id")).lower() not in {"", "0", "none", "null"}
+        isinstance(item, Mapping) and _text(item.get("asset_id")).lower() not in {"", "0", "none", "null"}
         for item in submissions
     )
 
@@ -287,11 +286,7 @@ def build_candidate_presentation(
                 body=ASSESSMENT_REVIEW_BODY,
             )
 
-    if (
-        normalized_stage == "pending_screening"
-        and assessment_enabled
-        and _has_value(process.get("assessment_sent_at"))
-    ):
+    if normalized_stage == "pending_screening" and assessment_enabled and _has_value(process.get("assessment_sent_at")):
         return _build(
             status="action_required",
             stage="assessment_file",
@@ -325,12 +320,9 @@ def build_candidate_presentation(
 def summarize_candidate_presentations(
     presentations: list[CandidatePresentation],
 ) -> CandidatePresentationSummary:
-    contract_uploads = sum(
-        presentation["candidate_action"] == "upload_contract" for presentation in presentations
-    )
+    contract_uploads = sum(presentation["candidate_action"] == "upload_contract" for presentation in presentations)
     other_actions = sum(
-        presentation["candidate_action_required"]
-        and presentation["candidate_action"] != "upload_contract"
+        presentation["candidate_action_required"] and presentation["candidate_action"] != "upload_contract"
         for presentation in presentations
     )
     total_action_required = contract_uploads + other_actions

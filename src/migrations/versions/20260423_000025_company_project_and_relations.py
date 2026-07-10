@@ -7,10 +7,9 @@ Create Date: 2026-04-23 15:30:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy import func
-
 
 revision: str = "20260423_000025"
 down_revision: str | None = "20260419_000024"
@@ -33,24 +32,34 @@ def upgrade() -> None:
             sa.Column("company_id", sa.Integer(), nullable=False),
             sa.Column("name", sa.String(length=120), nullable=False),
             sa.Column("data", sa.JSON(), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("current_timestamp(0)")),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("current_timestamp(0)")),
+            sa.Column(
+                "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("current_timestamp(0)")
+            ),
+            sa.Column(
+                "updated_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("current_timestamp(0)")
+            ),
             sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("0")),
             sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
             sa.ForeignKeyConstraint(["company_id"], ["admin_company.id"]),
             sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("company_id", "name", "is_deleted", name="uq_admin_company_project_company_name_active"),
+            sa.UniqueConstraint(
+                "company_id", "name", "is_deleted", name="uq_admin_company_project_company_name_active"
+            ),
         )
         inspector = sa.inspect(bind)
 
     project_indexes = {index["name"] for index in inspector.get_indexes("admin_company_project")}
     if op.f("ix_admin_company_project_company_id") not in project_indexes:
-        op.create_index(op.f("ix_admin_company_project_company_id"), "admin_company_project", ["company_id"], unique=False)
+        op.create_index(
+            op.f("ix_admin_company_project_company_id"), "admin_company_project", ["company_id"], unique=False
+        )
     if op.f("ix_admin_company_project_name") not in project_indexes:
         op.create_index(op.f("ix_admin_company_project_name"), "admin_company_project", ["name"], unique=False)
     if op.f("ix_admin_company_project_is_deleted") not in project_indexes:
-        op.create_index(op.f("ix_admin_company_project_is_deleted"), "admin_company_project", ["is_deleted"], unique=False)
+        op.create_index(
+            op.f("ix_admin_company_project_is_deleted"), "admin_company_project", ["is_deleted"], unique=False
+        )
 
     job_columns = {column["name"] for column in inspector.get_columns("job")}
     if "project_id" not in job_columns:
@@ -109,10 +118,7 @@ def upgrade() -> None:
     project_rows = bind.execute(
         sa.select(project_table.c.id, project_table.c.company_id).where(project_table.c.is_deleted.is_(False))
     ).all()
-    company_project_map = {
-        int(company_id): int(project_id)
-        for project_id, company_id in project_rows
-    }
+    company_project_map = {int(company_id): int(project_id) for project_id, company_id in project_rows}
 
     job_rows = bind.execute(
         sa.select(job_table.c.id, job_table.c.company_id).where(job_table.c.project_id.is_(None))
@@ -121,11 +127,7 @@ def upgrade() -> None:
         project_id = company_project_map.get(int(company_id)) if company_id is not None else None
         if project_id is None:
             raise RuntimeError(f"Unable to resolve default project for job {job_id}.")
-        bind.execute(
-            job_table.update()
-            .where(job_table.c.id == job_id)
-            .values(project_id=project_id)
-        )
+        bind.execute(job_table.update().where(job_table.c.id == job_id).values(project_id=project_id))
 
     job_indexes = {index["name"] for index in inspector.get_indexes("job")}
     if op.f("ix_job_project_id") not in job_indexes:
@@ -187,7 +189,9 @@ def upgrade() -> None:
         )
 
     contract_null_count = bind.execute(
-        sa.select(func.count()).select_from(contract_table).where(contract_table.c.service_customer_project_id.is_(None))
+        sa.select(func.count())
+        .select_from(contract_table)
+        .where(contract_table.c.service_customer_project_id.is_(None))
     ).scalar_one()
     if int(contract_null_count or 0) > 0:
         raise RuntimeError(

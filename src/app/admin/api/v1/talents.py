@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..dependencies import get_current_admin_user, require_admin_permission
 from ....core.db.database import async_get_db
 from ....modules.talent_profile.schema import (
     TalentNoteUpdateRequest,
@@ -20,6 +19,7 @@ from ....modules.talent_profile.service import (
     update_talent_pool_note,
     update_talent_pool_status,
 )
+from ..dependencies import get_current_admin_user, require_admin_permission
 
 router = APIRouter(prefix="/talents", tags=["admin-talents"])
 
@@ -57,7 +57,9 @@ async def read_talent_by_user(
     return await get_talent_profile_by_user_id(user_id, db)
 
 
-@router.get("/{talent_id}", response_model=TalentProfileRead, dependencies=[Depends(require_admin_permission("总人才库"))])
+@router.get(
+    "/{talent_id}", response_model=TalentProfileRead, dependencies=[Depends(require_admin_permission("总人才库"))]
+)
 async def read_talent(
     talent_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],

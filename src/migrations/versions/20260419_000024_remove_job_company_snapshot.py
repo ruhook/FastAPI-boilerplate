@@ -7,9 +7,8 @@ Create Date: 2026-04-19 23:20:00.000000
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260419_000024"
 down_revision: str | None = "20260419_000023"
@@ -46,7 +45,7 @@ def upgrade() -> None:
         sa.select(job_table.c.id, job_table.c.company_name).where(job_table.c.company_id.is_(None))
     ).all()
     for job_id, raw_name in jobs_without_company:
-        normalized_name = (str(raw_name or "").strip() or f"Job Company {job_id}")
+        normalized_name = str(raw_name or "").strip() or f"Job Company {job_id}"
         company_id = existing_companies.get(normalized_name)
         if company_id is None:
             bind.execute(
@@ -57,16 +56,10 @@ def upgrade() -> None:
                 )
             )
             company_id = int(
-                bind.execute(
-                    sa.select(company_table.c.id).where(company_table.c.name == normalized_name)
-                ).scalar_one()
+                bind.execute(sa.select(company_table.c.id).where(company_table.c.name == normalized_name)).scalar_one()
             )
             existing_companies[normalized_name] = company_id
-        bind.execute(
-            job_table.update()
-            .where(job_table.c.id == job_id)
-            .values(company_id=company_id)
-        )
+        bind.execute(job_table.update().where(job_table.c.id == job_id).values(company_id=company_id))
 
     op.alter_column("job", "company_id", existing_type=sa.Integer(), nullable=False)
     op.drop_index(op.f("ix_job_company_name"), table_name="job")
@@ -102,8 +95,9 @@ def downgrade() -> None:
     )
 
     rows = bind.execute(
-        sa.select(job_table.c.id, company_table.c.name)
-        .select_from(job_table.outerjoin(company_table, company_table.c.id == job_table.c.company_id))
+        sa.select(job_table.c.id, company_table.c.name).select_from(
+            job_table.outerjoin(company_table, company_table.c.id == job_table.c.company_id)
+        )
     ).all()
     for job_id, company_name in rows:
         bind.execute(

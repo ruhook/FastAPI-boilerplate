@@ -131,9 +131,7 @@ async def upsert_contract_record_for_progress(
 
     talent = None
     if progress.talent_profile_id is not None:
-        talent_result = await db.execute(
-            select(TalentProfile).where(TalentProfile.id == progress.talent_profile_id)
-        )
+        talent_result = await db.execute(select(TalentProfile).where(TalentProfile.id == progress.talent_profile_id))
         talent = talent_result.scalar_one_or_none()
 
     contractor_name = (
@@ -392,16 +390,8 @@ async def list_contract_records_for_admin(
     rows = result.all()
     records = [row[0] for row in rows]
     job_map = {int(row[1].id): row[1] for row in rows}
-    company_map = {
-        int(row[0].id): row[2]
-        for row in rows
-        if row[2] is not None
-    }
-    project_map = {
-        int(row[0].id): row[3]
-        for row in rows
-        if row[3] is not None
-    }
+    company_map = {int(row[0].id): row[2] for row in rows if row[2] is not None}
+    project_map = {int(row[0].id): row[3] for row in rows if row[3] is not None}
     id_attachment_asset_ids_by_user = await _list_id_attachment_asset_ids_by_user(
         db=db,
         user_ids={int(record.user_id) for record in records},
@@ -428,10 +418,7 @@ async def list_contract_records_for_admin(
                 Asset.is_deleted.is_(False),
             )
         )
-        asset_map = {
-            int(asset.id): serialize_asset(asset)
-            for asset in asset_result.scalars().all()
-        }
+        asset_map = {int(asset.id): serialize_asset(asset) for asset in asset_result.scalars().all()}
 
     items = [
         ContractRecordListItemRead(
@@ -446,9 +433,7 @@ async def list_contract_records_for_admin(
             job_progress_id=record.job_progress_id,
             job_title=record.job_snapshot_title,
             service_customer_company_id=record.service_customer_company_id,
-            service_customer_company_name=company_map[int(record.id)].name
-            if int(record.id) in company_map
-            else None,
+            service_customer_company_name=company_map[int(record.id)].name if int(record.id) in company_map else None,
             service_customer_project_id=record.service_customer_project_id,
             service_customer_project_name=project_map.get(int(record.id)).name
             if project_map.get(int(record.id)) is not None
@@ -465,9 +450,7 @@ async def list_contract_records_for_admin(
             worker_type=record.worker_type,
             effective_date=record.effective_date,
             end_date=record.end_date,
-            contract_attachment=_serialize_contract_asset(
-                asset_map.get(int(record.contract_attachment_asset_id or 0))
-            ),
+            contract_attachment=_serialize_contract_asset(asset_map.get(int(record.contract_attachment_asset_id or 0))),
             draft_contract_attachment=_serialize_contract_asset(
                 asset_map.get(int(record.draft_contract_asset_id or 0))
             ),
@@ -663,10 +646,7 @@ async def update_contract_record_for_admin(
                 Asset.is_deleted.is_(False),
             )
         )
-        asset_map = {
-            int(asset.id): serialize_asset(asset)
-            for asset in asset_result.scalars().all()
-        }
+        asset_map = {int(asset.id): serialize_asset(asset) for asset in asset_result.scalars().all()}
 
     return ContractRecordListItemRead(
         id=record.id,

@@ -105,13 +105,7 @@ async def set_threadpool_tokens(number_of_tokens: int = 100) -> None:
 
 
 def lifespan_factory(
-    settings: (
-        DatabaseSettings
-        | RedisCacheSettings
-        | AppSettings
-        | CORSSettings
-        | EnvironmentSettings
-    ),
+    settings: (DatabaseSettings | RedisCacheSettings | AppSettings | CORSSettings | EnvironmentSettings),
     create_tables_on_start: bool = False,
 ) -> Callable[[FastAPI], _AsyncGeneratorContextManager[Any]]:
     """Factory to create a lifespan async context manager for a FastAPI app."""
@@ -146,13 +140,7 @@ def lifespan_factory(
 # -------------- application --------------
 def create_application(
     router: APIRouter,
-    settings: (
-        DatabaseSettings
-        | RedisCacheSettings
-        | AppSettings
-        | CORSSettings
-        | EnvironmentSettings
-    ),
+    settings: (DatabaseSettings | RedisCacheSettings | AppSettings | CORSSettings | EnvironmentSettings),
     create_tables_on_start: bool = False,
     lifespan: Callable[[FastAPI], _AsyncGeneratorContextManager[Any]] | None = None,
     service_name: str | None = None,

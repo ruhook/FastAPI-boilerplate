@@ -18,4 +18,3 @@ CRUDAdminDictionary = FastCRUD[
     DictionaryRead,
 ]
 crud_dictionaries = CRUDAdminDictionary(AdminDictionary)
-

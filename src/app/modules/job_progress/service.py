@@ -723,9 +723,7 @@ def _evaluate_automation_rules(
     any_group_rules = [rule for rule in normalized_rules if is_any_group(rule)]
     if any_group_rules:
         required_results = [
-            _evaluate_automation_rule(rule, field_values)
-            for rule in normalized_rules
-            if not is_any_group(rule)
+            _evaluate_automation_rule(rule, field_values) for rule in normalized_rules if not is_any_group(rule)
         ]
         any_results = [_evaluate_automation_rule(rule, field_values) for rule in any_group_rules]
         matched = all(required_results) and (not any_results or any(any_results))
@@ -1687,12 +1685,8 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
             or (_normalize_text(contract_record.signing_status) if contract_record is not None else "")
         ),
         "onboarding_date": _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_DATE.value)),
-        "salary_confirmed_at": _normalize_text(
-            item.process_data.get(JobProgressDataKey.SALARY_CONFIRMED_AT.value)
-        ),
-        "gift_package_sent_at": _normalize_text(
-            item.process_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)
-        ),
+        "salary_confirmed_at": _normalize_text(item.process_data.get(JobProgressDataKey.SALARY_CONFIRMED_AT.value)),
+        "gift_package_sent_at": _normalize_text(item.process_data.get(JobProgressDataKey.GIFT_PACKAGE_SENT_AT.value)),
         "job_languages": normalize_progress_language_value(
             item.process_data.get(JobProgressDataKey.JOB_LANGUAGES.value)
         ),
@@ -1945,9 +1939,7 @@ async def list_candidate_job_applications(
         for progress, application, job in all_rows
     ]
     if needs_action_only:
-        annotated_rows = [
-            row for row in annotated_rows if row[3]["candidate_action_required"]
-        ]
+        annotated_rows = [row for row in annotated_rows if row[3]["candidate_action_required"]]
 
     total = len(annotated_rows)
     summary = summarize_candidate_presentations([row[3] for row in annotated_rows])
@@ -3054,9 +3046,7 @@ async def update_job_progress_onboarding(
     normalized_salary_confirmed_at = salary_confirmed_at.strip() or None if salary_confirmed_at is not None else None
     normalized_gift_package_sent_at = gift_package_sent_at.strip() or None if gift_package_sent_at is not None else None
     milestone_timestamp = (
-        _format_current_process_datetime()
-        if normalized_onboarding_status in {"已进群", "已发大礼包"}
-        else None
+        _format_current_process_datetime() if normalized_onboarding_status in {"已进群", "已发大礼包"} else None
     )
     salary_confirmed_date = _format_current_process_date() if normalized_onboarding_status == "已发砍价" else None
     for progress in progress_items:
@@ -3707,9 +3697,7 @@ async def submit_job_progress_candidate_signed_contract(
         raise BadRequestException("Signed contract must be uploaded as a .doc or .docx file.")
 
     progress_data = dict(progress.data or {})
-    contract_record = await get_current_contract_record_by_progress_id(
-        progress_id=progress.id, db=db, for_update=True
-    )
+    contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db, for_update=True)
     if contract_record is None or contract_record.draft_contract_asset_id in (None, "", 0):
         raise BadRequestException("Draft contract is not available yet.")
     if contract_record.contract_status in {CONTRACT_STATUS_TERMINATED, CONTRACT_STATUS_EXPIRED}:
@@ -3978,9 +3966,7 @@ async def upload_job_progress_company_sealed_contract(
     }:
         raise BadRequestException("Company signed contract can only be uploaded in 合同库 or Active.")
 
-    contract_record = await get_current_contract_record_by_progress_id(
-        progress_id=progress.id, db=db, for_update=True
-    )
+    contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db, for_update=True)
     if contract_record is None:
         raise BadRequestException("Company signed contract requires a contract record.")
     if contract_record.candidate_signed_contract_asset_id in (None, 0, ""):

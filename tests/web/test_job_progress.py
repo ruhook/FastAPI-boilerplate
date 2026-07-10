@@ -236,9 +236,7 @@ async def test_job_progress_auto_assigns_language_when_country_and_native_langua
     )
     assert list_response.status_code == 200, list_response.text
     item = next(
-        row
-        for row in list_response.json()["items"]
-        if row["application_id"] == apply_response.json()["application_id"]
+        row for row in list_response.json()["items"] if row["application_id"] == apply_response.json()["application_id"]
     )
     assert item["process_data"]["job_languages"] == "id-ID"
 
@@ -308,9 +306,7 @@ async def test_job_progress_auto_assigns_none_when_country_does_not_match(
     )
     assert list_response.status_code == 200, list_response.text
     item = next(
-        row
-        for row in list_response.json()["items"]
-        if row["application_id"] == apply_response.json()["application_id"]
+        row for row in list_response.json()["items"] if row["application_id"] == apply_response.json()["application_id"]
     )
     assert item["process_data"]["job_languages"] == "无"
 
@@ -380,9 +376,7 @@ async def test_job_progress_auto_assigns_none_when_native_language_does_not_matc
     )
     assert list_response.status_code == 200, list_response.text
     item = next(
-        row
-        for row in list_response.json()["items"]
-        if row["application_id"] == apply_response.json()["application_id"]
+        row for row in list_response.json()["items"] if row["application_id"] == apply_response.json()["application_id"]
     )
     assert item["process_data"]["job_languages"] == "无"
 

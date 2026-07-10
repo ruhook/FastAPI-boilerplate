@@ -100,9 +100,7 @@ def test_candidate_portal_demo_builds_summary_from_filtered_api_items() -> None:
     items = [
         {
             "candidate_action": case["expected_candidate_view"]["candidate_action"],
-            "candidate_action_required": case["expected_candidate_view"][
-                "candidate_action_required"
-            ],
+            "candidate_action_required": case["expected_candidate_view"]["candidate_action_required"],
         }
         for case in cases
     ]
@@ -132,9 +130,9 @@ def test_candidate_portal_demo_jobs_use_exact_chinese_state_copy() -> None:
     assert len({item["title"] for item in definitions}) == 16
     assert all("C端验收" not in item["title"] for item in definitions)
     assert all("葡语数据标注员" not in item["title"] for item in definitions)
-    assert {
-        item["description"] for item in definitions
-    } == {run_candidate_my_jobs_demo.CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION}
+    assert {item["description"] for item in definitions} == {
+        run_candidate_my_jobs_demo.CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION
+    }
 
 
 def test_candidate_portal_demo_ownership_uses_marker_or_legacy_prefix() -> None:
@@ -158,9 +156,7 @@ def test_candidate_portal_demo_does_not_require_auto_assessment_mail_task() -> N
 
 def test_rate_waiting_demo_uses_a_real_candidate_assessment_upload() -> None:
     definition = next(
-        item
-        for item in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS
-        if item["key"] == "rate_confirmation_waiting"
+        item for item in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS if item["key"] == "rate_confirmation_waiting"
     )
 
     assert definition["assessment_submission_file_name"] == "rate-confirmation-waiting.xlsx"
@@ -168,9 +164,7 @@ def test_rate_waiting_demo_uses_a_real_candidate_assessment_upload() -> None:
 
 def test_rate_waiting_demo_validation_rejects_missing_assessment_attachment() -> None:
     definition = next(
-        item
-        for item in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS
-        if item["key"] == "rate_confirmation_waiting"
+        item for item in run_candidate_my_jobs_demo.PORTAL_JOB_DEFINITIONS if item["key"] == "rate_confirmation_waiting"
     )
     item = {
         "current_stage": definition["target_stage"],

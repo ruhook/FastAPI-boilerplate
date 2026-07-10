@@ -794,9 +794,7 @@ async def _load_paid_auto_payables(
     if payment_type:
         conditions.append(PaymentRecord.payment_type == _safe_normalize_payment_type(payment_type))
     result = await db.execute(
-        select(PaymentRecord)
-        .where(*conditions)
-        .order_by(PaymentRecord.paid_at.desc(), PaymentRecord.id.desc())
+        select(PaymentRecord).where(*conditions).order_by(PaymentRecord.paid_at.desc(), PaymentRecord.id.desc())
     )
     records_by_source_key: dict[str, PaymentPayableRecordRead] = {}
     for record in result.scalars().all():
@@ -1104,9 +1102,7 @@ async def _calculate_referral_reward_payables(*, db: AsyncSession, cutoff_start:
                 project_name=None,
                 contract_ref_no=f"Referral: {referred.name or referred.email}" if referred is not None else "Referral",
                 country=(
-                    referrer_talent.location or referrer_talent.nationality
-                    if referrer_talent is not None
-                    else None
+                    referrer_talent.location or referrer_talent.nationality if referrer_talent is not None else None
                 ),
                 language=_talent_language_label(referrer_talent),
                 work_hours=work_hours,
@@ -1540,10 +1536,7 @@ async def _load_referral_payable_options(
         )
         .group_by(ProjectTimesheetRecord.user_id)
     )
-    work_hours_by_user_id = {
-        int(user_id): quantize_decimal(work_hours)
-        for user_id, work_hours in work_result.all()
-    }
+    work_hours_by_user_id = {int(user_id): quantize_decimal(work_hours) for user_id, work_hours in work_result.all()}
 
     options: list[PaymentRecordReferralOptionRead] = []
     for record, referrer, referred in rows:

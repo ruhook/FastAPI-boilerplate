@@ -14,7 +14,6 @@ from tests.helpers.talent import (
     login_web_user,
 )
 
-
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
@@ -38,7 +37,9 @@ async def test_admin_cannot_merge_application_from_another_talent_profile(
     )
 
     first_user, first_password = await create_candidate_user(db_session, suffix=f"mergea{suffix}", name="First Talent")
-    second_user, second_password = await create_candidate_user(db_session, suffix=f"mergeb{suffix}", name="Second Talent")
+    second_user, second_password = await create_candidate_user(
+        db_session, suffix=f"mergeb{suffix}", name="Second Talent"
+    )
 
     first_headers = await login_web_user(web_client, username=first_user.email, password=first_password)
     second_headers = await login_web_user(web_client, username=second_user.email, password=second_password)

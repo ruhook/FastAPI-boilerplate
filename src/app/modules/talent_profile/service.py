@@ -138,6 +138,7 @@ def _talent_status_sql_expression():
         else_=func.coalesce(override_status, "active"),
     )
 
+
 TALENT_ADVANCED_FILTER_FIELD_MAP: dict[str, AdvancedFilterFieldDefinition] = {
     "full_name": AdvancedFilterFieldDefinition(
         name="full_name",
@@ -470,9 +471,7 @@ async def _validate_application_items(
         if field.get("visible", True) is not False
     ]
     field_snapshot_map = {
-        str(field.get("key")): dict(field)
-        for field in hydrated_fields
-        if isinstance(field, dict) and field.get("key")
+        str(field.get("key")): dict(field) for field in hydrated_fields if isinstance(field, dict) and field.get("key")
     }
     submitted_keys: set[str] = set()
     asset_ids: list[int] = []
@@ -540,11 +539,7 @@ async def _validate_application_items(
             owner_id=int(current_user["id"]),
             asset_ids=asset_ids,
         )
-        invalid_assets = [
-            asset.id
-            for asset in assets
-            if asset.module != "candidate_application" or asset.is_deleted
-        ]
+        invalid_assets = [asset.id for asset in assets if asset.module != "candidate_application" or asset.is_deleted]
         if invalid_assets:
             raise BadRequestException("Invalid application attachment.")
 
@@ -668,10 +663,7 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
                 Job.is_deleted.is_(False),
             )
         )
-        job_company_name_map = {
-            int(job_id): company_name
-            for job_id, company_name in job_result.all()
-        }
+        job_company_name_map = {int(job_id): company_name for job_id, company_name in job_result.all()}
     application_ids = [application.id for application in application_models]
     progress_map: dict[int, JobProgress] = {}
     if application_ids:
@@ -841,8 +833,7 @@ async def _list_talent_operation_logs(
             )
         )
         application_titles = {
-            int(application_id): job_snapshot_title
-            for application_id, job_snapshot_title in application_result.all()
+            int(application_id): job_snapshot_title for application_id, job_snapshot_title in application_result.all()
         }
 
     job_titles: dict[int, str] = {}
@@ -1372,15 +1363,9 @@ async def list_talent_profiles(
         )
     )
 
-    total_result = await db.execute(
-        select(func.count())
-        .select_from(TalentProfile)
-        .where(*conditions)
-    )
+    total_result = await db.execute(select(func.count()).select_from(TalentProfile).where(*conditions))
     total = int(total_result.scalar() or 0)
-    paged_result = await db.execute(
-        base_query.offset((page - 1) * page_size).limit(page_size)
-    )
+    paged_result = await db.execute(base_query.offset((page - 1) * page_size).limit(page_size))
     talent_rows = list(paged_result.all())
     source_bundle = await load_talent_pool_sources(
         db=db,
@@ -1402,9 +1387,7 @@ async def list_talent_profiles(
             latest_applied_job_title=talent.latest_applied_job_title,
             resume_asset_id=talent.resume_asset_id,
             resume_asset_name=asset_name,
-            note=(
-                extra_fields := build_talent_pool_extra_fields(talent, source_bundle)
-            ).pop("note", talent.note),
+            note=(extra_fields := build_talent_pool_extra_fields(talent, source_bundle)).pop("note", talent.note),
             latest_applied_at=talent.latest_applied_at,
             created_at=talent.created_at,
             merge_strategy=talent.merge_strategy,

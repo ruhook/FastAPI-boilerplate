@@ -7,14 +7,20 @@ from typing import Any
 
 import httpx
 
+from ...app.core.db.database import async_engine
 from ..create_assessment_reviewer import (
     DEFAULT_EMAIL as DEFAULT_REVIEWER_EMAIL,
+)
+from ..create_assessment_reviewer import (
     DEFAULT_NAME as DEFAULT_REVIEWER_NAME,
+)
+from ..create_assessment_reviewer import (
     DEFAULT_ROLE_NAME as DEFAULT_REVIEWER_ROLE_NAME,
+)
+from ..create_assessment_reviewer import (
     ensure_reviewer_account,
     ensure_reviewer_role,
 )
-from ...app.core.db.database import async_engine
 from .shared import (
     DEFAULT_ADMIN_BASE_URL,
     DEFAULT_ASSESSMENT_REVIEWER_PASSWORD,

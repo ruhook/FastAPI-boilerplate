@@ -128,9 +128,7 @@ async def _create_talent_with_sources(
     assert response.status_code == 200, response.text
     payload = response.json()
 
-    talent = (
-        await db_session.execute(select(TalentProfile).where(TalentProfile.user_id == user.id))
-    ).scalar_one()
+    talent = (await db_session.execute(select(TalentProfile).where(TalentProfile.user_id == user.id))).scalar_one()
     progress = (
         await db_session.execute(select(JobProgress).where(JobProgress.application_id == payload["application_id"]))
     ).scalar_one()

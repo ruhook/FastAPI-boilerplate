@@ -70,7 +70,9 @@ def parse_form_template_fields(
     normalized: list[FormTemplateField] = []
     for raw_field in raw_fields:
         try:
-            field = raw_field if isinstance(raw_field, FormTemplateField) else FormTemplateField.model_validate(raw_field)
+            field = (
+                raw_field if isinstance(raw_field, FormTemplateField) else FormTemplateField.model_validate(raw_field)
+            )
         except Exception:
             if strict:
                 raise

@@ -417,9 +417,7 @@ async def list_referrals_for_admin(
         group["total_rewards"] += item.referral_earnings
         group["paid_rewards"] += item.paid_reward_amount
         group["payable_rewards"] += item.payable_reward_amount
-        if item.last_paid_at and (
-            group["last_paid_at"] is None or item.last_paid_at > group["last_paid_at"]
-        ):
+        if item.last_paid_at and (group["last_paid_at"] is None or item.last_paid_at > group["last_paid_at"]):
             group["last_paid_at"] = item.last_paid_at
 
     groups = [

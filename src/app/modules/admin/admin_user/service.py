@@ -253,9 +253,7 @@ async def query_admin_accounts(
         permissions: list[str] = []
         if not account.is_superuser and role is not None and role.enabled:
             try:
-                permissions = normalize_effective_role_permissions(
-                    validate_permissions(role.permissions or [])
-                )
+                permissions = normalize_effective_role_permissions(validate_permissions(role.permissions or []))
                 role_name = role.name
             except ValueError:
                 pass
@@ -405,9 +403,7 @@ async def build_admin_auth_user(
             role_id=admin_user["role_id"],
         )
     permissions = (
-        list(all_permissions)
-        if admin_user["is_superuser"]
-        else resolve_effective_admin_permissions(role_permissions)
+        list(all_permissions) if admin_user["is_superuser"] else resolve_effective_admin_permissions(role_permissions)
     )
 
     return AdminUserAuth(

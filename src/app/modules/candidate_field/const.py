@@ -68,10 +68,7 @@ CANDIDATE_FIELD_CN_NAME_MAP: dict[CandidateFieldKey, str] = {
 
 
 def build_candidate_field_catalog_options() -> list[dict[str, str]]:
-    return [
-        {"label": label, "value": field_key.value}
-        for field_key, label in CANDIDATE_FIELD_CN_NAME_MAP.items()
-    ]
+    return [{"label": label, "value": field_key.value} for field_key, label in CANDIDATE_FIELD_CN_NAME_MAP.items()]
 
 
 CANDIDATE_FIELD_SELECT_OPTIONS_EN_MAP: dict[str, list[dict[str, str]]] = {

@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_superuser, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.dictionary.schema import DictionaryCreate, DictionaryRead, DictionaryUpdate
 from .....modules.admin.dictionary.service import (
@@ -14,6 +13,7 @@ from .....modules.admin.dictionary.service import (
     serialize_dictionary,
     update_dictionary,
 )
+from ...dependencies import get_current_admin_superuser, require_any_admin_permission
 
 router = APIRouter(prefix="/dictionaries", tags=["admin-dictionaries"])
 

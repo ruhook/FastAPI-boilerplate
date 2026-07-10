@@ -11,4 +11,3 @@ class AdminFormTemplate(DataBackedSoftDeleteEntityMixin, Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, index=True, unique=True)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     fields: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False, default=list)
-

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.modules.admin.dictionary.model import AdminDictionary
 from tests.helpers.talent import build_form_fields, create_form_template, create_open_job
 
-
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
@@ -135,7 +134,5 @@ async def test_web_job_detail_returns_public_fields_and_form_snapshot(
     assert detail_payload["form_fields"][0]["key"] == "full_name"
     assert detail_payload["description_html"]
     assert detail_payload["summary"]
-    education_field = next(
-        field for field in detail_payload["form_fields"] if field["key"] == "education_status"
-    )
+    education_field = next(field for field in detail_payload["form_fields"] if field["key"] == "education_status")
     assert education_field["options"]

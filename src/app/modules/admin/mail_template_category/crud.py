@@ -18,4 +18,3 @@ CRUDMailTemplateCategory = FastCRUD[
     MailTemplateCategoryRead,
 ]
 crud_mail_template_categories = CRUDMailTemplateCategory(MailTemplateCategory)
-

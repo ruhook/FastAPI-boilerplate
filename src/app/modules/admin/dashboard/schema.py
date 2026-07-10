@@ -18,4 +18,3 @@ class AdminDashboardMetricRead(BaseModel):
 class AdminDashboardMetricsRead(BaseModel):
     range: DashboardRange
     items: list[AdminDashboardMetricRead]
-

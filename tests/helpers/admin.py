@@ -79,8 +79,6 @@ async def fetch_admin_audit_logs(
     admin_user_id: int,
 ) -> list[AdminAuditLog]:
     result = await db_session.execute(
-        select(AdminAuditLog)
-        .where(AdminAuditLog.admin_user_id == admin_user_id)
-        .order_by(AdminAuditLog.id.asc())
+        select(AdminAuditLog).where(AdminAuditLog.admin_user_id == admin_user_id).order_by(AdminAuditLog.id.asc())
     )
     return list(result.scalars().all())

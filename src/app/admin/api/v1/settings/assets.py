@@ -80,11 +80,7 @@ async def current_admin_can_access_asset(
         )
         return timesheet_asset_result.first() is not None
 
-    application_stage_filter = (
-        "AND jp.current_stage = 'assessment_review'"
-        if reviewer_only
-        else ""
-    )
+    application_stage_filter = "AND jp.current_stage = 'assessment_review'" if reviewer_only else ""
     application_asset_result = await db.execute(
         text(
             f"""
@@ -121,11 +117,7 @@ async def current_admin_can_access_asset(
             for key in process_asset_keys
         ]
     )
-    process_stage_filter = (
-        "AND jp.current_stage = 'assessment_review'"
-        if reviewer_only
-        else ""
-    )
+    process_stage_filter = "AND jp.current_stage = 'assessment_review'" if reviewer_only else ""
     process_asset_result = await db.execute(
         text(
             f"""
@@ -281,6 +273,7 @@ async def download_assets_as_zip(
     filename = (payload.filename or "attachments.zip").strip() or "attachments.zip"
     if not filename.lower().endswith(".zip"):
         filename = f"{filename}.zip"
+
     def iter_archive():
         try:
             while chunk := output.read(1024 * 1024):

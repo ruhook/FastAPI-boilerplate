@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_superuser, require_any_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.form_template.schema import FormTemplateCreate, FormTemplateRead, FormTemplateUpdate
 from .....modules.admin.form_template.service import (
@@ -13,6 +12,7 @@ from .....modules.admin.form_template.service import (
     list_form_templates,
     update_form_template,
 )
+from ...dependencies import get_current_admin_superuser, require_any_admin_permission
 
 router = APIRouter(prefix="/form-templates", tags=["admin-form-templates"])
 

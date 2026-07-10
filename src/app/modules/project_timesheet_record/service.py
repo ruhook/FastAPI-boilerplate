@@ -708,9 +708,7 @@ async def list_project_timesheet_workspace(
     admin_user_map = await _load_admin_user_payload_map(
         db=db,
         admin_user_ids=[
-            int(record.created_by_admin_user_id)
-            for record in filtered_records
-            if record.created_by_admin_user_id
+            int(record.created_by_admin_user_id) for record in filtered_records if record.created_by_admin_user_id
         ],
     )
 

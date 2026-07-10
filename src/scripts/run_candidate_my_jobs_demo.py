@@ -66,8 +66,7 @@ DEFAULT_CANDIDATE_PASSWORD = "12345678"
 CANDIDATE_PORTAL_DEMO_CASE_DATA_KEY = "candidate_portal_demo_case_key"
 LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX = "Candidate Portal Demo - "
 CANDIDATE_PORTAL_DEMO_JOB_DESCRIPTION = (
-    "<p>负责葡萄牙语数据标注、内容质量检查与结果反馈，"
-    "按照项目规范完成交付，并与项目团队保持及时沟通。</p>"
+    "<p>负责葡萄牙语数据标注、内容质量检查与结果反馈，按照项目规范完成交付，并与项目团队保持及时沟通。</p>"
 )
 
 
@@ -567,9 +566,7 @@ def build_expected_candidate_portal_cases() -> list[dict[str, Any]]:
 
 
 def build_expected_candidate_summary(cases: list[dict[str, Any]]) -> dict[str, int]:
-    contract_uploads = sum(
-        case["expected_candidate_view"]["candidate_action"] == "upload_contract" for case in cases
-    )
+    contract_uploads = sum(case["expected_candidate_view"]["candidate_action"] == "upload_contract" for case in cases)
     other_actions = sum(
         case["expected_candidate_view"]["candidate_action_required"]
         and case["expected_candidate_view"]["candidate_action"] != "upload_contract"
@@ -587,8 +584,7 @@ def build_expected_candidate_summary(cases: list[dict[str, Any]]) -> dict[str, i
 def build_candidate_summary_from_items(items: list[dict[str, Any]]) -> dict[str, int]:
     contract_uploads = sum(item.get("candidate_action") == "upload_contract" for item in items)
     other_actions = sum(
-        bool(item.get("candidate_action_required"))
-        and item.get("candidate_action") != "upload_contract"
+        bool(item.get("candidate_action_required")) and item.get("candidate_action") != "upload_contract"
         for item in items
     )
     total_action_required = contract_uploads + other_actions
@@ -601,11 +597,7 @@ def build_candidate_summary_from_items(items: list[dict[str, Any]]) -> dict[str,
 
 
 def get_expected_action_required_case_keys(cases: list[dict[str, Any]]) -> set[str]:
-    return {
-        str(case["key"])
-        for case in cases
-        if case["expected_candidate_view"]["candidate_action_required"]
-    }
+    return {str(case["key"]) for case in cases if case["expected_candidate_view"]["candidate_action_required"]}
 
 
 def get_candidate_portal_demo_case_key(job: Any) -> str:
@@ -614,9 +606,9 @@ def get_candidate_portal_demo_case_key(job: Any) -> str:
 
 
 def is_candidate_portal_demo_owned_job(job: Any) -> bool:
-    return bool(get_candidate_portal_demo_case_key(job)) or str(
-        getattr(job, "title", "") or ""
-    ).startswith(LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX)
+    return bool(get_candidate_portal_demo_case_key(job)) or str(getattr(job, "title", "") or "").startswith(
+        LEGACY_CANDIDATE_PORTAL_DEMO_JOB_TITLE_PREFIX
+    )
 
 
 def is_current_candidate_portal_demo_job(job: Any) -> bool:
@@ -626,8 +618,7 @@ def is_current_candidate_portal_demo_job(job: Any) -> bool:
 
 def should_verify_auto_assessment_mail_task() -> bool:
     return any(
-        should_auto_apply(definition)
-        and definition.get("application_scenario") == "assessment_auto_pass"
+        should_auto_apply(definition) and definition.get("application_scenario") == "assessment_auto_pass"
         for definition in PORTAL_JOB_DEFINITIONS
     )
 
@@ -1143,10 +1134,7 @@ async def fetch_existing_application(user_id: int, job_id: int) -> dict[str, int
 
 def mail_task_targets_email(task: MailTask, email: str) -> bool:
     normalized_email = email.strip().lower()
-    return any(
-        str(item.get("email") or "").strip().lower() == normalized_email
-        for item in (task.to_recipients or [])
-    )
+    return any(str(item.get("email") or "").strip().lower() == normalized_email for item in (task.to_recipients or []))
 
 
 def mail_task_targets_demo_scope(
@@ -1196,17 +1184,11 @@ async def reset_candidate_portal_demo_state(
 ) -> dict[str, int]:
     now = datetime.now(UTC)
     async with local_session() as session:
-        demo_job_result = await session.execute(
-            select(Job)
-        )
+        demo_job_result = await session.execute(select(Job))
         demo_job_ids = {
-            int(job.id)
-            for job in demo_job_result.scalars().all()
-            if is_candidate_portal_demo_owned_job(job)
+            int(job.id) for job in demo_job_result.scalars().all() if is_candidate_portal_demo_owned_job(job)
         }
-        scoped_job_ids = sorted(
-            {int(job_id) for job_id in job_ids}.union(demo_job_ids)
-        )
+        scoped_job_ids = sorted({int(job_id) for job_id in job_ids}.union(demo_job_ids))
 
         application_result = await session.execute(
             select(CandidateApplication).where(
@@ -1524,15 +1506,18 @@ async def main() -> None:  # noqa: C901
     for job in jobs:
         print_detail(f"job ready: {job.id} {job.title}")
 
-    async with httpx.AsyncClient(
-        transport=ASGITransport(app=web_app),
-        base_url=WEB_BASE_URL,
-        timeout=30.0,
-    ) as web_client, httpx.AsyncClient(
-        transport=ASGITransport(app=admin_app),
-        base_url=ADMIN_BASE_URL,
-        timeout=30.0,
-    ) as admin_client:
+    async with (
+        httpx.AsyncClient(
+            transport=ASGITransport(app=web_app),
+            base_url=WEB_BASE_URL,
+            timeout=30.0,
+        ) as web_client,
+        httpx.AsyncClient(
+            transport=ASGITransport(app=admin_app),
+            base_url=ADMIN_BASE_URL,
+            timeout=30.0,
+        ) as admin_client,
+    ):
         print_step("Step 2/6: login, logout, and login again with the candidate account")
         await register_or_reuse_candidate(
             web_client,
@@ -1611,9 +1596,7 @@ async def main() -> None:  # noqa: C901
             }
 
         duplicate_job = next(
-            job
-            for definition, job in zip(PORTAL_JOB_DEFINITIONS, jobs, strict=True)
-            if should_auto_apply(definition)
+            job for definition, job in zip(PORTAL_JOB_DEFINITIONS, jobs, strict=True) if should_auto_apply(definition)
         )
         duplicate_items = build_application_items(
             scenario_key=str(
@@ -2029,10 +2012,7 @@ async def main() -> None:  # noqa: C901
         print_detail("rejected job moved to rejected and rejection mail task created")
 
         print_step("Step 5/6: verify Applications list and candidate-facing detail APIs")
-        seeded_application_job_ids = {
-            int(case["job"].id)
-            for case in cases_by_key.values()
-        }
+        seeded_application_job_ids = {int(case["job"].id) for case in cases_by_key.values()}
         refreshed_payload = await fetch_my_applications_page(
             web_client,
             access_token=access_token,
@@ -2045,9 +2025,7 @@ async def main() -> None:  # noqa: C901
         ]
         refreshed_by_title = {str(item["job_title"]): item for item in refreshed_items}
         expected_titles = {
-            str(definition["title"])
-            for definition in PORTAL_JOB_DEFINITIONS
-            if should_auto_apply(definition)
+            str(definition["title"]) for definition in PORTAL_JOB_DEFINITIONS if should_auto_apply(definition)
         }
         missing_titles = expected_titles.difference(refreshed_by_title.keys())
         if missing_titles:
@@ -2056,10 +2034,7 @@ async def main() -> None:  # noqa: C901
         expected_summary = build_expected_candidate_summary(expected_cases)
         actual_demo_summary = build_candidate_summary_from_items(refreshed_items)
         if actual_demo_summary != expected_summary:
-            raise RuntimeError(
-                f"Applications summary mismatch: expected={expected_summary}, "
-                f"got={actual_demo_summary}"
-            )
+            raise RuntimeError(f"Applications summary mismatch: expected={expected_summary}, got={actual_demo_summary}")
         for definition in PORTAL_JOB_DEFINITIONS:
             if not should_auto_apply(definition):
                 continue
@@ -2095,9 +2070,7 @@ async def main() -> None:  # noqa: C901
             access_token=access_token,
             application_id=int(cases_by_key["assessment_under_review"]["application_id"]),
         )
-        has_assessment_submission = bool(
-            (assessment_detail.get("process_data") or {}).get("assessment_submitted_at")
-        )
+        has_assessment_submission = bool((assessment_detail.get("process_data") or {}).get("assessment_submitted_at"))
         print_detail(f"assessment detail submitted_at={has_assessment_submission}")
         print_detail(
             "contract detail draft="
@@ -2130,7 +2103,7 @@ async def main() -> None:  # noqa: C901
         if download_response.status_code != 200:
             raise RuntimeError(
                 f"Draft contract download should succeed, got {download_response.status_code} {download_response.text}"
-        )
+            )
         print_detail("contract draft download returned 200 for the candidate user")
 
         my_contracts_payload = await fetch_my_contracts_page(
@@ -2154,8 +2127,7 @@ async def main() -> None:  # noqa: C901
         }.intersection(my_contract_titles.keys())
         if inactive_contract_titles:
             raise RuntimeError(
-                "My Contracts should only show active contracts, "
-                f"got: {sorted(inactive_contract_titles)}"
+                f"My Contracts should only show active contracts, got: {sorted(inactive_contract_titles)}"
             )
         print_detail(f"my contracts endpoint works: items={my_contracts_payload['total']}")
 
@@ -2203,8 +2175,7 @@ async def main() -> None:  # noqa: C901
             raise RuntimeError("Needs-action filter returned a passive candidate presentation.")
         needs_action_titles = {str(item["job_title"]) for item in needs_action_items}
         expected_needs_action_titles = {
-            str(cases_by_key[key]["job"].title)
-            for key in get_expected_action_required_case_keys(expected_cases)
+            str(cases_by_key[key]["job"].title) for key in get_expected_action_required_case_keys(expected_cases)
         }
         if expected_needs_action_titles != needs_action_titles:
             raise RuntimeError(

@@ -822,9 +822,7 @@ async def import_data(args: argparse.Namespace) -> dict[str, Any]:
                 or latest_effective_date
             )
             end_date = (
-                None
-                if is_active_candidate
-                else last_work_date_by_email.get(candidate.email, latest_effective_date)
+                None if is_active_candidate else last_work_date_by_email.get(candidate.email, latest_effective_date)
             )
             application = CandidateApplication(
                 user_id=user.id,

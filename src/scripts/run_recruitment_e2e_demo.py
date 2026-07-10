@@ -15,9 +15,17 @@ from ..app.modules.admin.mail_task.model import MailTask
 from ..app.modules.operation_log.const import OperationLogType
 from .create_assessment_reviewer import (
     DEFAULT_EMAIL as DEFAULT_REVIEWER_EMAIL,
+)
+from .create_assessment_reviewer import (
     DEFAULT_NAME as DEFAULT_REVIEWER_NAME,
+)
+from .create_assessment_reviewer import (
     DEFAULT_PASSWORD as DEFAULT_REVIEWER_PASSWORD,
+)
+from .create_assessment_reviewer import (
     DEFAULT_USERNAME as DEFAULT_REVIEWER_USERNAME,
+)
+from .create_assessment_reviewer import (
     ensure_reviewer_account,
     ensure_reviewer_role,
 )
@@ -34,7 +42,6 @@ from .run_client_assessment_upload_demo import (
     build_demo_xlsx_bytes,
     upload_assessment,
 )
-from .seed_apply_demo_flow import DEMO_ADMIN_PASSWORD, DEMO_ADMIN_USERNAME
 from .seed_job_progress_demo_flow import (
     DEFAULT_CANDIDATE_EMAIL,
     DEFAULT_CANDIDATE_NAME,
@@ -97,9 +104,7 @@ async def login_admin(
 
 async def list_mail_tasks_for_recipient(email: str) -> list[MailTask]:
     async with local_session() as session:
-        result = await session.execute(
-            select(MailTask).order_by(MailTask.id.asc())
-        )
+        result = await session.execute(select(MailTask).order_by(MailTask.id.asc()))
         items = []
         for task in result.scalars().all():
             recipients = task.to_recipients or []
@@ -340,15 +345,18 @@ async def main() -> None:
         password=args.reviewer_password,
         reset_password=True,
     )
-    async with httpx.AsyncClient(
-        transport=ASGITransport(app=admin_app),
-        base_url=ADMIN_BASE_URL,
-        timeout=30.0,
-    ) as admin_client, httpx.AsyncClient(
-        transport=ASGITransport(app=web_app),
-        base_url=WEB_BASE_URL,
-        timeout=30.0,
-    ) as web_client:
+    async with (
+        httpx.AsyncClient(
+            transport=ASGITransport(app=admin_app),
+            base_url=ADMIN_BASE_URL,
+            timeout=30.0,
+        ) as admin_client,
+        httpx.AsyncClient(
+            transport=ASGITransport(app=web_app),
+            base_url=WEB_BASE_URL,
+            timeout=30.0,
+        ) as web_client,
+    ):
         admin_login_payload = await login_admin(
             admin_client,
             username_or_email=seed_payload["admin"]["username"],
@@ -403,9 +411,13 @@ async def main() -> None:
             )
 
         assessment_case = next(item for item in applications if item["definition"]["key"] == "assessment_auto_pass")
-        no_assessment_case = next(item for item in applications if item["definition"]["key"] == "no_assessment_auto_pass")
+        no_assessment_case = next(
+            item for item in applications if item["definition"]["key"] == "no_assessment_auto_pass"
+        )
         manual_case = next(item for item in applications if item["definition"]["key"] == "assessment_manual_pending")
-        rejected_case = next(item for item in applications if item["definition"]["key"] == "no_assessment_auto_rejected")
+        rejected_case = next(
+            item for item in applications if item["definition"]["key"] == "no_assessment_auto_rejected"
+        )
 
         local_part, _, domain = candidate_email.partition("@")
         second_candidate_email = f"{local_part}.batch@{domain or 'example.com'}"
@@ -732,12 +744,8 @@ async def main() -> None:
         print_detail(
             f"branch check: no-assessment auto pass -> {no_assessment_case['progress']['current_stage_cn_name']}"
         )
-        print_detail(
-            f"branch check: assessment manual pending -> {manual_case['progress']['current_stage_cn_name']}"
-        )
-        print_detail(
-            f"branch check: automation rejected -> {rejected_case['progress']['current_stage_cn_name']}"
-        )
+        print_detail(f"branch check: assessment manual pending -> {manual_case['progress']['current_stage_cn_name']}")
+        print_detail(f"branch check: automation rejected -> {rejected_case['progress']['current_stage_cn_name']}")
 
         print_step("完成")
         print(

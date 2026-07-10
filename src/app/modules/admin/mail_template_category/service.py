@@ -34,7 +34,9 @@ def serialize_mail_template_category(
     ).model_dump()
 
 
-async def list_mail_template_categories(db: AsyncSession, *, admin_user_id: int, include_public: bool = False) -> list[dict[str, Any]]:
+async def list_mail_template_categories(
+    db: AsyncSession, *, admin_user_id: int, include_public: bool = False
+) -> list[dict[str, Any]]:
     visibility_filters = [MailTemplateCategory.admin_user_id == admin_user_id]
     if include_public:
         visibility_filters.append(AdminUser.is_superuser.is_(True))
@@ -61,7 +63,9 @@ async def list_mail_template_categories(db: AsyncSession, *, admin_user_id: int,
     ]
 
 
-async def get_mail_template_category_model(category_id: int, db: AsyncSession, *, admin_user_id: int) -> MailTemplateCategory:
+async def get_mail_template_category_model(
+    category_id: int, db: AsyncSession, *, admin_user_id: int
+) -> MailTemplateCategory:
     result = await db.execute(
         select(MailTemplateCategory).where(
             MailTemplateCategory.id == category_id,

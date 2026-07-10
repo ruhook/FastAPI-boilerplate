@@ -83,8 +83,7 @@ JOB_LANGUAGE_REQUIREMENT_VALUES = [
 ]
 
 JOB_LANGUAGE_REQUIREMENT_OPTIONS = [
-    {"label": value, "admin_label": value, "value": value}
-    for value in JOB_LANGUAGE_REQUIREMENT_VALUES
+    {"label": value, "admin_label": value, "value": value} for value in JOB_LANGUAGE_REQUIREMENT_VALUES
 ]
 
 JOB_PROGRESS_LANGUAGE_CODES = [
@@ -176,8 +175,7 @@ JOB_PROGRESS_LANGUAGE_CODES = [
 ]
 
 JOB_PROGRESS_LANGUAGE_OPTIONS = [
-    {"label": value, "admin_label": value, "value": value}
-    for value in JOB_PROGRESS_LANGUAGE_CODES
+    {"label": value, "admin_label": value, "value": value} for value in JOB_PROGRESS_LANGUAGE_CODES
 ]
 
 
@@ -203,11 +201,7 @@ def _option_value(option: Any) -> str:
 
 def _merge_options(seed_options: list[dict[str, str]], existing_options: Any) -> list[dict[str, Any]]:
     existing_list = existing_options if isinstance(existing_options, list) else []
-    existing_by_value = {
-        value: option
-        for option in existing_list
-        if (value := _option_value(option))
-    }
+    existing_by_value = {value: option for option in existing_list if (value := _option_value(option))}
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     for option in seed_options:

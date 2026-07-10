@@ -9,9 +9,13 @@ from ..app.core.db.database import async_engine, local_session
 from ..app.core.security import get_password_hash
 from ..app.modules.admin.admin_user.const import DEFAULT_ADMIN_PROFILE_IMAGE_URL
 from ..app.modules.admin.admin_user.model import AdminUser
+from ..app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from ..app.modules.admin.dictionary.model import AdminDictionary
 from ..app.modules.admin.form_template.model import AdminFormTemplate
-from ..app.modules.admin.company.model import AdminCompany, AdminCompanyProject
+from ..app.modules.admin.mail_account.model import MailAccount  # noqa: F401
+from ..app.modules.admin.mail_signature.model import MailSignature  # noqa: F401
+from ..app.modules.admin.mail_template.model import MailTemplate  # noqa: F401
+from ..app.modules.admin.role.model import Role
 from ..app.modules.job.const import JOB_DATA_CONTRACT_EXAMPLE_KEY, JOB_DATA_FORM_FIELDS_KEY, JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.referral_bonus_model.const import (
@@ -20,15 +24,11 @@ from ..app.modules.referral_bonus_model.const import (
     default_referral_bonus_milestones_payload,
 )
 from ..app.modules.referral_bonus_model.model import ReferralBonusModel
-from ..app.modules.admin.mail_account.model import MailAccount  # noqa: F401
-from ..app.modules.admin.mail_signature.model import MailSignature  # noqa: F401
-from ..app.modules.admin.mail_template.model import MailTemplate  # noqa: F401
-from ..app.modules.admin.role.model import Role
 from .seed_candidate_base_form_template import (
     DICTIONARY_DEFINITIONS,
     FIELD_DESCRIPTIONS,
-    TEMPLATE_NAME,
     FORM_TEMPLATE_FIELDS,
+    TEMPLATE_NAME,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -109,9 +109,7 @@ async def ensure_dictionary(session, definition: dict) -> AdminDictionary:
 
 
 async def ensure_form_template(session) -> AdminFormTemplate:
-    result = await session.execute(
-        select(AdminFormTemplate).where(AdminFormTemplate.name == TEMPLATE_NAME)
-    )
+    result = await session.execute(select(AdminFormTemplate).where(AdminFormTemplate.name == TEMPLATE_NAME))
     template = result.scalar_one_or_none()
     data = {
         "field_descriptions": FIELD_DESCRIPTIONS,

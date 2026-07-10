@@ -216,7 +216,11 @@ async def _load_referrers(
     )
     referrers: dict[int, str] = {}
     for referred_user_id, snapshot_name, user_name, user_email in result.all():
-        label = normalize_display_value(user_name) or normalize_display_value(snapshot_name) or normalize_display_value(user_email)
+        label = (
+            normalize_display_value(user_name)
+            or normalize_display_value(snapshot_name)
+            or normalize_display_value(user_email)
+        )
         if label:
             referrers.setdefault(int(referred_user_id), label)
     return referrers
@@ -268,7 +272,9 @@ async def _load_timesheet_aggregates(
         if talent_id <= 0:
             continue
         if record.candidate_duration_hours is not None:
-            total_hours_by_talent[talent_id] = total_hours_by_talent.get(talent_id, Decimal("0")) + record.candidate_duration_hours
+            total_hours_by_talent[talent_id] = (
+                total_hours_by_talent.get(talent_id, Decimal("0")) + record.candidate_duration_hours
+            )
         current_recent = recent_work_date_by_talent.get(talent_id)
         if current_recent is None or record.work_date > current_recent:
             recent_work_date_by_talent[talent_id] = record.work_date
@@ -389,10 +395,9 @@ def build_talent_pool_extra_fields(
     progress_rate = parse_decimal(progress_data.get(JobProgressDataKey.ACCEPTED_RATE.value))
     contract_rate = contract.rate if contract is not None else None
     accepted_hourly_rate = contract_rate if contract_rate is not None else progress_rate
-    contract_number = (
-        normalize_display_value(contract.agreement_ref_no if contract is not None else None)
-        or normalize_display_value(progress_data.get(JobProgressDataKey.CONTRACT_NUMBER.value))
-    )
+    contract_number = normalize_display_value(
+        contract.agreement_ref_no if contract is not None else None
+    ) or normalize_display_value(progress_data.get(JobProgressDataKey.CONTRACT_NUMBER.value))
     contract_effective_date = contract.effective_date if contract is not None else None
     contract_end_date = contract.end_date if contract is not None else None
     id_attachment_asset_id = sources.id_attachment_asset_id_by_user.get(int(talent.user_id))
@@ -414,11 +419,11 @@ def build_talent_pool_extra_fields(
         "contract_effective_date": contract_effective_date,
         "contract_end_date": contract_end_date,
         "company_sealed_contract_asset": serialize_talent_attachment(
-            sources.asset_by_id.get(int((contract.company_sealed_contract_asset_id if contract is not None else None) or 0))
+            sources.asset_by_id.get(
+                int((contract.company_sealed_contract_asset_id if contract is not None else None) or 0)
+            )
         ),
-        "id_attachment_asset": serialize_talent_attachment(
-            sources.asset_by_id.get(int(id_attachment_asset_id or 0))
-        ),
+        "id_attachment_asset": serialize_talent_attachment(sources.asset_by_id.get(int(id_attachment_asset_id or 0))),
         "onboarding_status": normalize_display_value(progress_data.get(JobProgressDataKey.ONBOARDING_STATUS.value)),
         "onboarding_date": parse_iso_date(progress_data.get(JobProgressDataKey.ONBOARDING_DATE.value)),
         "note": normalize_display_value(progress_data.get(JobProgressDataKey.NOTE.value)) or talent.note,

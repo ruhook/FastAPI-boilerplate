@@ -201,11 +201,7 @@ def _evaluate_multiselect_rule(raw_value: Any, operator: str, target_value: Any)
         left_values = [
             value.strip()
             for value in (
-                _normalize_to_comparable_string(raw_value)
-                .lower()
-                .replace("、", ",")
-                .replace("/", ",")
-                .split(",")
+                _normalize_to_comparable_string(raw_value).lower().replace("、", ",").replace("/", ",").split(",")
             )
             if value.strip()
         ]
@@ -368,9 +364,7 @@ def build_advanced_filter_rule_sql_condition(  # noqa: C901
         try:
             right_value = _normalize_date_value(target_value)
         except (TypeError, ValueError) as exc:
-            raise BadRequestException(
-                f"Advanced filter value for '{field_name}' must be a valid date."
-            ) from exc
+            raise BadRequestException(f"Advanced filter value for '{field_name}' must be a valid date.") from exc
         right_value_text = right_value.isoformat()
         left_value = _build_sql_date_expression(expression)
         if operator == ">":

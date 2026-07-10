@@ -3,10 +3,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_superuser
 from .....core.db.database import async_get_db
 from .....modules.admin.role.schema import RoleCreate, RoleRead, RoleUpdate
 from .....modules.admin.role.service import create_role, delete_role, get_role, list_roles, update_role
+from ...dependencies import get_current_admin_superuser
 
 router = APIRouter(prefix="/roles", tags=["admin-roles"])
 
@@ -17,7 +17,9 @@ async def read_roles(db: Annotated[AsyncSession, Depends(async_get_db)]) -> list
 
 
 @router.post("", response_model=RoleRead, status_code=201, dependencies=[Depends(get_current_admin_superuser)])
-async def create_role_endpoint(payload: RoleCreate, db: Annotated[AsyncSession, Depends(async_get_db)]) -> dict[str, Any]:
+async def create_role_endpoint(
+    payload: RoleCreate, db: Annotated[AsyncSession, Depends(async_get_db)]
+) -> dict[str, Any]:
     return await create_role(payload, db)
 
 

@@ -17,6 +17,7 @@ class MailAccountStatus(StrEnum):
     PENDING = "pending"
     DISABLED = "disabled"
 
+
 MAIL_ACCOUNT_PROVIDER_PRESETS: dict[str, dict[str, str | int]] = {
     MailAccountProvider.QQ.value: {
         "label": "QQ 邮箱",

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 from ..create_assessment_reviewer import (
     DEFAULT_EMAIL as DEFAULT_REVIEWER_EMAIL,
+)
+from ..create_assessment_reviewer import (
     DEFAULT_NAME as DEFAULT_REVIEWER_NAME,
+)
+from ..create_assessment_reviewer import (
     DEFAULT_ROLE_NAME as DEFAULT_REVIEWER_ROLE_NAME,
 )
 from .shared import (
@@ -88,9 +91,7 @@ def main() -> None:
         log_prefix="v2-seed-assessment-reviewer",
     )
     print_detail(
-        "assessment reviewer ready: "
-        f"username={DEFAULT_ASSESSMENT_REVIEWER_USERNAME} "
-        f"role={DEFAULT_REVIEWER_ROLE_NAME}"
+        f"assessment reviewer ready: username={DEFAULT_ASSESSMENT_REVIEWER_USERNAME} role={DEFAULT_REVIEWER_ROLE_NAME}"
     )
 
     print_step("Step 4/5: seed contracts, timesheets, earnings, and referral demo data")

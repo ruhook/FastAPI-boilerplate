@@ -121,12 +121,18 @@ async def test_admin_can_list_detail_and_manually_merge_talent_from_second_appli
     assert detail_payload["education"] == "Bachelor’s degree (completed)"
     assert detail_payload["resume_asset_id"] == first_resume.id
     assert len(detail_payload["applications"]) == 2
-    assert next(item for item in detail_payload["applications"] if item["id"] == first_apply["application_id"])[
-        "job_company_name"
-    ] == first_company_name
-    assert next(item for item in detail_payload["applications"] if item["id"] == second_apply["application_id"])[
-        "job_company_name"
-    ] == second_company_name
+    assert (
+        next(item for item in detail_payload["applications"] if item["id"] == first_apply["application_id"])[
+            "job_company_name"
+        ]
+        == first_company_name
+    )
+    assert (
+        next(item for item in detail_payload["applications"] if item["id"] == second_apply["application_id"])[
+            "job_company_name"
+        ]
+        == second_company_name
+    )
     assert len(detail_payload["logs"]) >= 4
     assert detail_payload["logs"][0]["title"]
     assert detail_payload["logs"][0]["summary"]

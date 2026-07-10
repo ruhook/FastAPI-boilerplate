@@ -94,9 +94,7 @@ async def delete_role(role_id: int, db: AsyncSession) -> dict[str, str]:
     if role is None:
         raise NotFoundException("Role not found.")
     await db.execute(
-        update(AdminUser)
-        .where(AdminUser.role_id == role_id)
-        .values(role_id=None, updated_at=datetime.now(UTC))
+        update(AdminUser).where(AdminUser.role_id == role_id).values(role_id=None, updated_at=datetime.now(UTC))
     )
     await db.flush()
     await crud_roles.delete(db=db, id=role_id)

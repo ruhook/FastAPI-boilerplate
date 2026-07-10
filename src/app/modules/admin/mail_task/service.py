@@ -417,7 +417,7 @@ def _compose_final_body_html(
         "</head>"
         "<body>"
         '<div class="email-shell" style="padding:28px 16px;'
-        "background:linear-gradient(180deg,#eef8fd 0%,#f8fbfd 100%);\">"
+        'background:linear-gradient(180deg,#eef8fd 0%,#f8fbfd 100%);">'
         '<div class="email-card" style="max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #d6e8f3;'
         'border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(19,128,175,0.08);">'
         '<div class="email-header" style="padding:24px 28px;background:linear-gradient('
@@ -670,9 +670,7 @@ async def resend_mail_task(task_id: int, db: AsyncSession, *, admin_user_id: int
 
 async def process_mail_task(task_id: int) -> None:
     async with local_session() as db:
-        task_result = await db.execute(
-            select(MailTask).where(MailTask.id == task_id).with_for_update()
-        )
+        task_result = await db.execute(select(MailTask).where(MailTask.id == task_id).with_for_update())
         task = task_result.scalar_one_or_none()
         if task is None:
             raise NotFoundException("Mail task not found.")

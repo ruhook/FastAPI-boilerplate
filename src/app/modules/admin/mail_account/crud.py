@@ -18,4 +18,3 @@ CRUDMailAccount = FastCRUD[
     MailAccountRead,
 ]
 crud_mail_accounts = CRUDMailAccount(MailAccount)
-

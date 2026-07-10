@@ -18,4 +18,3 @@ CRUDAdminFormTemplate = FastCRUD[
     FormTemplateRead,
 ]
 crud_form_templates = CRUDAdminFormTemplate(AdminFormTemplate)
-

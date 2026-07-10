@@ -7,14 +7,20 @@ from typing import Any
 
 import httpx
 
+from ...app.core.db.database import async_engine
 from ..create_assessment_reviewer import (
     DEFAULT_EMAIL as DEFAULT_REVIEWER_EMAIL,
+)
+from ..create_assessment_reviewer import (
     DEFAULT_NAME as DEFAULT_REVIEWER_NAME,
+)
+from ..create_assessment_reviewer import (
     DEFAULT_ROLE_NAME as DEFAULT_REVIEWER_ROLE_NAME,
+)
+from ..create_assessment_reviewer import (
     ensure_reviewer_account,
     ensure_reviewer_role,
 )
-from ...app.core.db.database import async_engine
 from .shared import (
     DEFAULT_ADMIN_BASE_URL,
     DEFAULT_ASSESSMENT_REVIEWER_PASSWORD,
@@ -190,9 +196,13 @@ async def main_async() -> int:
 
         for asset in admin_assets[:3]:
             asset_id = int(asset["asset_id"])
-            download_response = await admin_client.get(f"/v1/assets/{asset_id}/download", headers=bearer_headers(admin_token))
+            download_response = await admin_client.get(
+                f"/v1/assets/{asset_id}/download", headers=bearer_headers(admin_token)
+            )
             assert_status(download_response, {200}, f"Admin download asset {asset_id}")
-            pdf_response = await admin_client.get(f"/v1/assets/{asset_id}/download-pdf", headers=bearer_headers(admin_token))
+            pdf_response = await admin_client.get(
+                f"/v1/assets/{asset_id}/download-pdf", headers=bearer_headers(admin_token)
+            )
             assert_status(pdf_response, {200}, f"Admin PDF download asset {asset_id}")
             if pdf_response.headers.get("content-type", "").split(";")[0] != "application/pdf":
                 raise AssertionError(f"Admin PDF download did not return PDF content type for asset {asset_id}.")

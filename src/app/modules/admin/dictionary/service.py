@@ -193,9 +193,7 @@ async def update_dictionary(
 
 async def delete_dictionary(dictionary_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     dictionary = await get_dictionary_model(dictionary_id, db)
-    result = await db.execute(
-        select(AdminFormTemplate).where(AdminFormTemplate.is_deleted.is_(False))
-    )
+    result = await db.execute(select(AdminFormTemplate).where(AdminFormTemplate.is_deleted.is_(False)))
     templates = result.scalars().all()
     for template in templates:
         for field in parse_form_template_fields(template.fields or [], strict=False):

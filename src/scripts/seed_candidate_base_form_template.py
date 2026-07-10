@@ -178,8 +178,7 @@ DICTIONARY_DEFINITIONS: list[dict[str, Any]] = [
 FIELD_DESCRIPTIONS = {
     CandidateFieldKey.WHATSAPP.value: "If we cannot connect you via email, we may try this way.",
     CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: (
-        "Please enter the country name in English, such as United Kingdom, "
-        "the Philippines, or Brazil."
+        "Please enter the country name in English, such as United Kingdom, the Philippines, or Brazil."
     ),
     CandidateFieldKey.CITY.value: "Please enter the city name in English, such as Bangkok, Sao Paulo, or Jakarta.",
     CandidateFieldKey.NATIVE_LANGUAGES.value: "e.g. English, Malay, Korean",
@@ -339,8 +338,7 @@ FORM_TEMPLATE_FIELDS: list[dict[str, Any]] = [
     {
         "key": CandidateFieldKey.REQUIRES_VISA_SPONSORSHIP.value,
         "label": (
-            "Will you now or in the future require visa sponsorship to participate "
-            "in this independent contractor role?"
+            "Will you now or in the future require visa sponsorship to participate in this independent contractor role?"
         ),
         "type": "select",
         "required": True,

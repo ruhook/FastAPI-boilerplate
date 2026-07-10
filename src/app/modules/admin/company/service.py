@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.exceptions.http_exceptions import BadRequestException, DuplicateValueException, NotFoundException
 from ...assets.service import ensure_assets_exist, serialize_asset
-from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
-from ..admin_audit_log.service import create_admin_audit_log
 from ...contract_record.model import ContractRecord
 from ...job.model import Job
+from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
+from ..admin_audit_log.service import create_admin_audit_log
 from .model import AdminCompany, AdminCompanyProject
 from .schema import (
     CompanyCreate,
@@ -367,19 +367,23 @@ async def delete_company_project(
     project = await get_company_project_model(company_id, project_id, db)
 
     job_result = await db.execute(
-        select(Job.id).where(
+        select(Job.id)
+        .where(
             Job.project_id == project_id,
             Job.is_deleted.is_(False),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if job_result.scalar_one_or_none() is not None:
         raise BadRequestException("Project is still used by jobs.")
 
     contract_result = await db.execute(
-        select(ContractRecord.id).where(
+        select(ContractRecord.id)
+        .where(
             ContractRecord.service_customer_project_id == project_id,
             ContractRecord.is_deleted.is_(False),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if contract_result.scalar_one_or_none() is not None:
         raise BadRequestException("Project is still used by contracts.")
@@ -402,18 +406,22 @@ async def delete_company_project(
 async def delete_company(company_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     company = await get_company_model(company_id, db)
     project_result = await db.execute(
-        select(AdminCompanyProject.id).where(
+        select(AdminCompanyProject.id)
+        .where(
             AdminCompanyProject.company_id == company_id,
             AdminCompanyProject.is_deleted.is_(False),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if project_result.scalar_one_or_none() is not None:
         raise BadRequestException("Company is still used by projects.")
     job_result = await db.execute(
-        select(Job.id).where(
+        select(Job.id)
+        .where(
             Job.company_id == company_id,
             Job.is_deleted.is_(False),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if job_result.scalar_one_or_none() is not None:
         raise BadRequestException("Company is still used by jobs.")

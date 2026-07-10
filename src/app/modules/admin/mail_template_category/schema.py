@@ -3,8 +3,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ....core.schemas import PersistentDeletion
-
 
 def _normalize_text(value: str) -> str:
     normalized = value.strip()

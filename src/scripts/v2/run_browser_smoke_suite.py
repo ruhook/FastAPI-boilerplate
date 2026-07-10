@@ -16,13 +16,11 @@ from .shared import (
     DEFAULT_WEB_BASE_URL,
     TMP_DIR,
     ensure_status,
-    login_admin,
     login_candidate,
     print_detail,
     print_step,
     timestamp_tag,
 )
-
 
 DEFAULT_CANDIDATE_FRONTEND_URL = "http://127.0.0.1:3002"
 DEFAULT_ADMIN_FRONTEND_URL = "http://127.0.0.1:3001"
@@ -50,7 +48,9 @@ ADMIN_AUTH_PATHS = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run V2 browser/static smoke checks for the admin and candidate frontends.")
+    parser = argparse.ArgumentParser(
+        description="Run V2 browser/static smoke checks for the admin and candidate frontends."
+    )
     parser.add_argument("--web-base-url", default=DEFAULT_WEB_BASE_URL, help="Candidate API base URL.")
     parser.add_argument("--admin-base-url", default=DEFAULT_ADMIN_BASE_URL, help="Admin API base URL.")
     parser.add_argument("--candidate-frontend-url", default=DEFAULT_CANDIDATE_FRONTEND_URL)
@@ -155,9 +155,7 @@ async def run_playwright_smoke(args: argparse.Namespace) -> dict[str, Any]:
         from playwright.async_api import async_playwright
     except ModuleNotFoundError:
         if args.require_browser:
-            raise RuntimeError(
-                "Playwright is not installed. Install it before running with --require-browser."
-            )
+            raise RuntimeError("Playwright is not installed. Install it before running with --require-browser.")
         return await run_static_http_smoke(args)
 
     candidate_session = await get_candidate_session(web_base_url=args.web_base_url)
@@ -187,7 +185,10 @@ async def run_playwright_smoke(args: argparse.Namespace) -> dict[str, Any]:
             assert_true(response is not None and response.status < 400, f"Browser visit failed for {origin}{path}")
             content = await page.locator("body").inner_text(timeout=10_000)
             assert_true(content.strip(), f"Browser page {origin}{path} rendered empty body text.")
-            assert_true("Request failed with status code" not in content, f"Browser page {origin}{path} rendered API error text.")
+            assert_true(
+                "Request failed with status code" not in content,
+                f"Browser page {origin}{path} rendered API error text.",
+            )
             page_results.append(
                 {
                     "url": f"{origin}{path}",
@@ -201,8 +202,7 @@ async def run_playwright_smoke(args: argparse.Namespace) -> dict[str, Any]:
             f"{json.dumps(json.dumps(candidate_session))});"
         )
         admin_storage = (
-            "window.localStorage.setItem('hr-admin-auth-session', "
-            f"{json.dumps(json.dumps(admin_session))});"
+            f"window.localStorage.setItem('hr-admin-auth-session', {json.dumps(json.dumps(admin_session))});"
         )
 
         for path in CANDIDATE_PUBLIC_PATHS:

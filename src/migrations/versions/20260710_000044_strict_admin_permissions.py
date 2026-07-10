@@ -81,9 +81,7 @@ def upgrade() -> None:
             migrated_permissions = SPECIAL_PERMISSIONS
         else:
             migrated_permissions = _deduplicate([*DEFAULT_PERMISSIONS, *explicit_permissions])
-        connection.execute(
-            role.update().where(role.c.id == role_id).values(permissions=migrated_permissions)
-        )
+        connection.execute(role.update().where(role.c.id == role_id).values(permissions=migrated_permissions))
         if role_name == FULL_ACCESS_ROLE_NAME:
             full_access_role_id = int(role_id)
 
@@ -101,9 +99,7 @@ def upgrade() -> None:
             )
         )
         full_access_role_id = int(
-            connection.execute(
-                sa.select(role.c.id).where(role.c.name == FULL_ACCESS_ROLE_NAME)
-            ).scalar_one()
+            connection.execute(sa.select(role.c.id).where(role.c.name == FULL_ACCESS_ROLE_NAME)).scalar_one()
         )
 
     connection.execute(
@@ -120,9 +116,5 @@ def downgrade() -> None:
     ).scalar_one_or_none()
     if full_access_role_id is None:
         return
-    connection.execute(
-        admin_user.update()
-        .where(admin_user.c.role_id == full_access_role_id)
-        .values(role_id=None)
-    )
+    connection.execute(admin_user.update().where(admin_user.c.role_id == full_access_role_id).values(role_id=None))
     connection.execute(role.delete().where(role.c.id == full_access_role_id))

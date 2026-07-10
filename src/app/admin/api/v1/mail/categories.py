@@ -3,7 +3,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.mail_template_category.schema import (
     MailTemplateCategoryCreate,
@@ -16,11 +15,17 @@ from .....modules.admin.mail_template_category.service import (
     list_mail_template_categories,
     update_mail_template_category,
 )
+from ...dependencies import get_current_admin_user, require_admin_permission
 
 router = APIRouter()
 
 
-@router.post("/template-categories", response_model=MailTemplateCategoryRead, status_code=201, dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.post(
+    "/template-categories",
+    response_model=MailTemplateCategoryRead,
+    status_code=201,
+    dependencies=[Depends(require_admin_permission("邮件与模板"))],
+)
 async def create_mail_template_category_endpoint(
     payload: MailTemplateCategoryCreate,
     db: Annotated[AsyncSession, Depends(async_get_db)],
@@ -29,16 +34,26 @@ async def create_mail_template_category_endpoint(
     return await create_mail_template_category(payload, db, admin_user_id=int(current_admin["id"]))
 
 
-@router.get("/template-categories", response_model=list[MailTemplateCategoryRead], dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.get(
+    "/template-categories",
+    response_model=list[MailTemplateCategoryRead],
+    dependencies=[Depends(require_admin_permission("邮件与模板"))],
+)
 async def read_mail_template_categories(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
     include_public: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
-    return await list_mail_template_categories(db, admin_user_id=int(current_admin["id"]), include_public=include_public)
+    return await list_mail_template_categories(
+        db, admin_user_id=int(current_admin["id"]), include_public=include_public
+    )
 
 
-@router.patch("/template-categories/{category_id}", response_model=MailTemplateCategoryRead, dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.patch(
+    "/template-categories/{category_id}",
+    response_model=MailTemplateCategoryRead,
+    dependencies=[Depends(require_admin_permission("邮件与模板"))],
+)
 async def update_mail_template_category_endpoint(
     category_id: int,
     payload: MailTemplateCategoryUpdate,

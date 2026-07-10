@@ -3,10 +3,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dependencies import get_current_admin_user, require_admin_permission
 from .....core.db.database import async_get_db
 from .....modules.admin.mail_task.schema import MailTaskRead
 from .....modules.admin.mail_task.service import list_mail_tasks, resend_mail_task
+from ...dependencies import get_current_admin_user, require_admin_permission
 
 router = APIRouter(prefix="/tasks")
 
@@ -19,7 +19,9 @@ async def read_mail_tasks(
     return await list_mail_tasks(db, admin_user_id=int(current_admin["id"]))
 
 
-@router.post("/{task_id}/resend", response_model=MailTaskRead, dependencies=[Depends(require_admin_permission("邮件与模板"))])
+@router.post(
+    "/{task_id}/resend", response_model=MailTaskRead, dependencies=[Depends(require_admin_permission("邮件与模板"))]
+)
 async def resend_mail_task_endpoint(
     task_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],

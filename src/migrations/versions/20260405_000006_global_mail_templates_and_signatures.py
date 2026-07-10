@@ -98,9 +98,7 @@ def downgrade() -> None:
     fallback_account_id = _ensure_fallback_mail_account_id()
 
     op.execute(
-        sa.text(
-            "UPDATE asset SET owner_type = 'mail_account', owner_id = :owner_id WHERE module = 'mail'"
-        ),
+        sa.text("UPDATE asset SET owner_type = 'mail_account', owner_id = :owner_id WHERE module = 'mail'"),
         {"owner_id": fallback_account_id},
     )
     op.execute(

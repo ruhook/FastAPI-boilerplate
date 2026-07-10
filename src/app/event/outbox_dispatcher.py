@@ -84,11 +84,7 @@ class OutboxDispatcher:
                 )
 
             async with local_session() as db:
-                result = await db.execute(
-                    select(EventOutbox)
-                    .where(EventOutbox.id == claimed.id)
-                    .with_for_update()
-                )
+                result = await db.execute(select(EventOutbox).where(EventOutbox.id == claimed.id).with_for_update())
                 current = result.scalar_one_or_none()
                 if current is None or current.lease_owner != self.lease_owner:
                     await db.rollback()
