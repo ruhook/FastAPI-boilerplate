@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from src.app.modules.job.const import JOB_DATA_AUTOMATION_RULES_KEY
-from src.app.modules.job_progress.service import _evaluate_automation_rules
+from src.app.modules.job_progress.automation import _evaluate_automation_rules
 
 pytestmark = pytest.mark.no_database_cleanup
 
