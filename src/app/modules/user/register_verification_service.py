@@ -15,11 +15,11 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.config import settings
+from ...core.auth_rate_limit import AuthRateLimitAction, enforce_auth_rate_limit
+from ...core.config import EnvironmentOption, settings
 from ...core.exceptions.http_exceptions import (
     BadRequestException,
-    DuplicateValueException,
-    RateLimitException,
+    TooManyRequestsException,
     UnprocessableEntityException,
 )
 from ..user.crud import crud_users
@@ -50,9 +50,18 @@ def _verification_cache_key(email: str, *, prefix: str | None = None) -> str:
 
 def _hash_code(email: str, code: str) -> str:
     normalized = _normalize_email(email)
-    secret = settings.CANDIDATE_REGISTER_VERIFICATION_AUTH_SECRET.get_secret_value()
-    raw = f"{normalized}:{code}:{secret}".encode()
-    return hashlib.sha256(raw).hexdigest()
+    secret = settings.SECRET_KEY.get_secret_value().encode()
+    message = f"verification-code:{normalized}:{code}".encode()
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
+
+
+def _email_log_key(email: str) -> str:
+    return hashlib.sha256(_normalize_email(email).encode()).hexdigest()[:16]
+
+
+def _perform_dummy_verification_work(email: str) -> None:
+    code = _generate_verification_code()
+    _hash_code(email, code)
 
 
 def _generate_verification_code() -> str:
@@ -186,10 +195,20 @@ async def send_register_verification_code(
     email: str,
     redis: Redis,
     db: AsyncSession,
+    client_ip: str,
 ) -> VerificationSendResult:
     normalized_email = _normalize_email(email)
+    await enforce_auth_rate_limit(
+        redis,
+        action=AuthRateLimitAction.VERIFICATION_SEND,
+        client_ip=client_ip,
+        identifier=normalized_email,
+    )
     if await crud_users.exists(db=db, email=normalized_email):
-        raise DuplicateValueException("Email is already registered")
+        _perform_dummy_verification_work(normalized_email)
+        return VerificationSendResult(
+            cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+        )
 
     now = int(time.time())
     cache_key = _verification_cache_key(normalized_email)
@@ -203,7 +222,10 @@ async def send_register_verification_code(
         cooldown = int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
         retry_after = cooldown - (now - sent_at)
         if retry_after > 0:
-            raise RateLimitException(f"Please wait {retry_after} seconds before requesting another verification code.")
+            raise TooManyRequestsException(
+                f"Please wait {retry_after} seconds before requesting another verification code.",
+                retry_after=retry_after,
+            )
 
     verification_code = _generate_verification_code()
     payload = {
@@ -219,13 +241,18 @@ async def send_register_verification_code(
     try:
         await asyncio.to_thread(_send_mail_sync, normalized_email, verification_code)
     except Exception as exc:
-        logger.exception("Failed to send candidate registration verification email", extra={"email": normalized_email})
-        if settings.ENVIRONMENT.value != "local":
+        logger.error(
+            "Candidate registration verification email delivery failed",
+            extra={"email_key": _email_log_key(normalized_email), "error_type": type(exc).__name__},
+        )
+        if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
             await redis.delete(cache_key)
-            raise BadRequestException(f"Failed to send verification email: {exc}") from exc
+            return VerificationSendResult(
+                cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+            )
         logger.warning(
             "Using local debug registration verification code because SMTP delivery failed",
-            extra={"email": normalized_email},
+            extra={"email_key": _email_log_key(normalized_email)},
         )
         return VerificationSendResult(
             cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS),
@@ -242,8 +269,15 @@ async def send_password_reset_verification_code(
     email: str,
     redis: Redis,
     db: AsyncSession,
+    client_ip: str,
 ) -> VerificationSendResult:
     normalized_email = _normalize_email(email)
+    await enforce_auth_rate_limit(
+        redis,
+        action=AuthRateLimitAction.VERIFICATION_SEND,
+        client_ip=client_ip,
+        identifier=normalized_email,
+    )
     user_result = await db.execute(
         select(User.id).where(
             func.lower(User.email) == normalized_email,
@@ -251,7 +285,10 @@ async def send_password_reset_verification_code(
         )
     )
     if user_result.scalar_one_or_none() is None:
-        raise BadRequestException("No candidate account was found for this email.")
+        _perform_dummy_verification_work(normalized_email)
+        return VerificationSendResult(
+            cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+        )
 
     now = int(time.time())
     cache_key = _verification_cache_key(
@@ -268,7 +305,10 @@ async def send_password_reset_verification_code(
         cooldown = int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
         retry_after = cooldown - (now - sent_at)
         if retry_after > 0:
-            raise RateLimitException(f"Please wait {retry_after} seconds before requesting another verification code.")
+            raise TooManyRequestsException(
+                f"Please wait {retry_after} seconds before requesting another verification code.",
+                retry_after=retry_after,
+            )
 
     verification_code = _generate_verification_code()
     payload = {
@@ -284,13 +324,18 @@ async def send_password_reset_verification_code(
     try:
         await asyncio.to_thread(_send_mail_sync, normalized_email, verification_code, purpose="password_reset")
     except Exception as exc:
-        logger.exception("Failed to send candidate password reset email", extra={"email": normalized_email})
-        if settings.ENVIRONMENT.value != "local":
+        logger.error(
+            "Candidate password reset email delivery failed",
+            extra={"email_key": _email_log_key(normalized_email), "error_type": type(exc).__name__},
+        )
+        if settings.ENVIRONMENT != EnvironmentOption.LOCAL:
             await redis.delete(cache_key)
-            raise BadRequestException(f"Failed to send password reset email: {exc}") from exc
+            return VerificationSendResult(
+                cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+            )
         logger.warning(
             "Using local debug password reset verification code because SMTP delivery failed",
-            extra={"email": normalized_email},
+            extra={"email_key": _email_log_key(normalized_email)},
         )
         return VerificationSendResult(
             cooldown_seconds=int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS),
@@ -307,9 +352,16 @@ async def _verify_verification_code(
     email: str,
     code: str,
     redis: Redis,
+    client_ip: str,
     prefix: str | None = None,
 ) -> None:
     normalized_email = _normalize_email(email)
+    await enforce_auth_rate_limit(
+        redis,
+        action=AuthRateLimitAction.VERIFICATION_CHECK,
+        client_ip=client_ip,
+        identifier=normalized_email,
+    )
     normalized_code = code.strip()
     if not normalized_code:
         raise UnprocessableEntityException("Verification code is required.")
@@ -354,8 +406,14 @@ async def verify_register_verification_code(
     email: str,
     code: str,
     redis: Redis,
+    client_ip: str,
 ) -> None:
-    await _verify_verification_code(email=email, code=code, redis=redis)
+    await _verify_verification_code(
+        email=email,
+        code=code,
+        redis=redis,
+        client_ip=client_ip,
+    )
 
 
 async def verify_password_reset_verification_code(
@@ -363,10 +421,12 @@ async def verify_password_reset_verification_code(
     email: str,
     code: str,
     redis: Redis,
+    client_ip: str,
 ) -> None:
     await _verify_verification_code(
         email=email,
         code=code,
         redis=redis,
+        client_ip=client_ip,
         prefix=settings.CANDIDATE_PASSWORD_RESET_VERIFICATION_REDIS_PREFIX,
     )

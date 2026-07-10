@@ -95,6 +95,26 @@ def test_production_rejects_local_auth_bypass() -> None:
         production_settings(ENABLE_LOCAL_AUTH_BYPASS=True)
 
 
+@pytest.mark.parametrize(
+    "setting_name",
+    [
+        "AUTH_LOGIN_WINDOW_SECONDS",
+        "AUTH_LOGIN_IP_LIMIT",
+        "AUTH_LOGIN_IDENTIFIER_LIMIT",
+        "AUTH_LOGIN_PAIR_LIMIT",
+        "AUTH_VERIFICATION_SEND_WINDOW_SECONDS",
+        "AUTH_VERIFICATION_SEND_IP_LIMIT",
+        "AUTH_VERIFICATION_SEND_IDENTIFIER_LIMIT",
+        "AUTH_VERIFICATION_CHECK_WINDOW_SECONDS",
+        "AUTH_VERIFICATION_CHECK_IP_LIMIT",
+        "AUTH_VERIFICATION_CHECK_IDENTIFIER_LIMIT",
+    ],
+)
+def test_auth_abuse_limits_must_be_positive(setting_name: str) -> None:
+    with pytest.raises(ValidationError, match=setting_name):
+        Settings(_env_file=None, ENVIRONMENT="local", **{setting_name: 0})
+
+
 def test_production_requires_mail_credential_encryption_key() -> None:
     with pytest.raises(ValidationError, match="MAIL_CREDENTIAL_ENCRYPTION_KEY"):
         production_settings(MAIL_CREDENTIAL_ENCRYPTION_KEY="")

@@ -1,7 +1,7 @@
 import re
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from redis.asyncio import Redis
 from sqlalchemy import func, select
@@ -28,6 +28,7 @@ from ...modules.user.schema import UserAuth, UserCreateInternal, UserRead
 from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/user", tags=["web-user"])
+VERIFICATION_ACCEPTED_MESSAGE = "If the address is eligible, a verification code will be sent."
 
 
 class WebRegisterRequest(BaseModel):
@@ -110,6 +111,7 @@ async def _generate_available_username(email: str, db: AsyncSession) -> str:
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register_user(
+    request: Request,
     payload: WebRegisterRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     redis: Annotated[Redis, Depends(async_get_redis)],
@@ -119,6 +121,7 @@ async def register_user(
             email=str(payload.email),
             code=payload.verification_code or "",
             redis=redis,
+            client_ip=request.client.host if request.client else "unknown",
         )
 
     if await crud_users.exists(db=db, email=payload.email):
@@ -148,6 +151,7 @@ async def register_user(
 
 @router.post("/register/send-code", response_model=RegisterVerificationCodeResponse)
 async def send_register_code(
+    request: Request,
     payload: RegisterVerificationCodeRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     redis: Annotated[Redis, Depends(async_get_redis)],
@@ -159,13 +163,10 @@ async def send_register_code(
         email=str(payload.email),
         redis=redis,
         db=db,
+        client_ip=request.client.host if request.client else "unknown",
     )
     return RegisterVerificationCodeResponse(
-        message=(
-            "Verification code sent."
-            if send_result.debug_verification_code is None
-            else "Local debug verification code generated."
-        ),
+        message=VERIFICATION_ACCEPTED_MESSAGE,
         cooldown_seconds=send_result.cooldown_seconds,
         debug_verification_code=send_result.debug_verification_code,
     )
@@ -173,6 +174,7 @@ async def send_register_code(
 
 @router.post("/password-reset/send-code", response_model=RegisterVerificationCodeResponse)
 async def send_password_reset_code(
+    request: Request,
     payload: PasswordResetCodeRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     redis: Annotated[Redis, Depends(async_get_redis)],
@@ -181,11 +183,10 @@ async def send_password_reset_code(
         email=str(payload.email),
         redis=redis,
         db=db,
+        client_ip=request.client.host if request.client else "unknown",
     )
     return RegisterVerificationCodeResponse(
-        message="Password reset verification code sent."
-        if send_result.debug_verification_code is None
-        else "Local debug password reset code generated.",
+        message=VERIFICATION_ACCEPTED_MESSAGE,
         cooldown_seconds=send_result.cooldown_seconds,
         debug_verification_code=send_result.debug_verification_code,
     )
@@ -193,6 +194,7 @@ async def send_password_reset_code(
 
 @router.post("/password-reset/confirm")
 async def confirm_password_reset(
+    request: Request,
     payload: PasswordResetConfirmRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     redis: Annotated[Redis, Depends(async_get_redis)],
@@ -205,6 +207,7 @@ async def confirm_password_reset(
         email=normalized_email,
         code=payload.verification_code,
         redis=redis,
+        client_ip=request.client.host if request.client else "unknown",
     )
 
     result = await db.execute(
