@@ -25,3 +25,8 @@ class MailTask(DataBackedEntityMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

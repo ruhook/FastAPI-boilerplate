@@ -4,7 +4,7 @@ import logging
 import mimetypes
 import smtplib
 import ssl
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 from html import escape
@@ -41,7 +41,7 @@ from .schema import MailTaskCreate, MailTaskRead
 logger = logging.getLogger(__name__)
 
 
-def _get_mail_delivery_mode() -> str:
+def get_mail_delivery_mode() -> str:
     configured = (settings.MAIL_DELIVERY_MODE or "").strip().lower()
     if configured in {"smtp", "preview"}:
         return configured
@@ -52,6 +52,27 @@ def resolve_mail_failure_status(*, current_status: str, delivery_mode: str) -> s
     if current_status == MailTaskStatus.SENDING.value and delivery_mode == "smtp":
         return MailTaskStatus.DELIVERY_UNKNOWN.value
     return MailTaskStatus.FAILED.value
+
+
+def resolve_stale_mail_task_recovery(*, current_status: str, delivery_mode: str) -> tuple[str, bool]:
+    if current_status == MailTaskStatus.RENDERING.value:
+        return MailTaskStatus.RETRYING.value, True
+    if current_status == MailTaskStatus.SENDING.value and delivery_mode == "preview":
+        return MailTaskStatus.RETRYING.value, True
+    if current_status == MailTaskStatus.SENDING.value and delivery_mode == "smtp":
+        return MailTaskStatus.DELIVERY_UNKNOWN.value, False
+    raise ValueError(f"Mail task status is not recoverable: {current_status}")
+
+
+def set_mail_task_processing_lease(task: MailTask, *, now: datetime | None = None) -> None:
+    timestamp = now or datetime.now(UTC)
+    task.processing_started_at = timestamp
+    task.processing_lease_expires_at = timestamp + timedelta(seconds=settings.MAIL_TASK_PROCESSING_LEASE_SECONDS)
+
+
+def clear_mail_task_processing_lease(task: MailTask) -> None:
+    task.processing_started_at = None
+    task.processing_lease_expires_at = None
 
 
 def serialize_mail_task(
@@ -691,6 +712,7 @@ async def process_mail_task(task_id: int) -> None:
         task.status = MailTaskStatus.RENDERING.value
         task.error_message = None
         task.updated_at = datetime.now(UTC)
+        set_mail_task_processing_lease(task)
         await db.commit()
 
         account_result = await db.execute(
@@ -704,6 +726,7 @@ async def process_mail_task(task_id: int) -> None:
             task.status = MailTaskStatus.FAILED.value
             task.error_message = "Mail account not found."
             task.updated_at = datetime.now(UTC)
+            clear_mail_task_processing_lease(task)
             await db.commit()
             return
 
@@ -731,10 +754,11 @@ async def process_mail_task(task_id: int) -> None:
             task.status = MailTaskStatus.FAILED.value
             task.error_message = "Mail account is not enabled."
             task.updated_at = datetime.now(UTC)
+            clear_mail_task_processing_lease(task)
             await db.commit()
             return
 
-        delivery_mode = _get_mail_delivery_mode()
+        delivery_mode = get_mail_delivery_mode()
         try:
             render_context = build_mail_render_context(task, account=account, template=template, signature=signature)
             final_subject = render_template_text(task.subject, render_context)
@@ -750,6 +774,7 @@ async def process_mail_task(task_id: int) -> None:
             task.data = next_data
             task.status = MailTaskStatus.SENDING.value
             task.updated_at = datetime.now(UTC)
+            set_mail_task_processing_lease(task)
             await db.commit()
 
             assets = await ensure_assets_exist(db, asset_ids=task.attachment_asset_ids or [])
@@ -777,6 +802,7 @@ async def process_mail_task(task_id: int) -> None:
             task.provider_message_id = provider_message_id
             task.sent_at = datetime.now(UTC)
             task.updated_at = datetime.now(UTC)
+            clear_mail_task_processing_lease(task)
             await db.commit()
             logger.info(
                 "Mail task sent successfully",
@@ -805,4 +831,5 @@ async def process_mail_task(task_id: int) -> None:
             )
             task.error_message = type(exc).__name__
             task.updated_at = datetime.now(UTC)
+            clear_mail_task_processing_lease(task)
             await db.commit()

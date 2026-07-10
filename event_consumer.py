@@ -11,6 +11,7 @@ from src.app.event import AsyncEventManager, AsyncMQClient, EventType, QueueType
 from src.app.event.handlers.example import handle_example_event
 from src.app.event.handlers.mail import handle_mail_task_created
 from src.app.event.outbox_dispatcher import OutboxDispatcher
+from src.app.modules.admin.mail_task.recovery import MailTaskRecoveryWorker
 
 init_logging(service_name="event")
 
@@ -24,6 +25,7 @@ event_manager.register_handler(EventType.EXAMPLE, handle_example_event)
 event_manager.register_handler(EventType.MAIL_TASK_CREATED, handle_mail_task_created)
 event_manager.set_mq_client(mq)
 outbox_dispatcher = OutboxDispatcher()
+mail_task_recovery_worker = MailTaskRecoveryWorker()
 
 
 @mq.subscribe
@@ -33,11 +35,13 @@ async def dispatch_event(msg: dict) -> None:
 
 async def run_event_services() -> None:
     dispatcher_task = asyncio.create_task(outbox_dispatcher.run())
+    recovery_task = asyncio.create_task(mail_task_recovery_worker.run())
     try:
         await event_manager.run()
     finally:
         outbox_dispatcher.stop()
-        await dispatcher_task
+        mail_task_recovery_worker.stop()
+        await asyncio.gather(dispatcher_task, recovery_task)
 
 
 if __name__ == "__main__":

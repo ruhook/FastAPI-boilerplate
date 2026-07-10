@@ -3,6 +3,7 @@ import pytest
 from src.app.event import EventType
 from src.app.modules.admin.mail_task import service as mail_task_service
 from src.app.modules.admin.mail_task.const import MailTaskStatus
+from src.app.modules.admin.mail_task.model import MailTask
 
 pytestmark = pytest.mark.no_database_cleanup
 
@@ -52,6 +53,29 @@ def test_ambiguous_smtp_failure_is_not_automatically_retryable() -> None:
         )
         == MailTaskStatus.FAILED.value
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "delivery_mode", "expected"),
+    [
+        (MailTaskStatus.RENDERING.value, "smtp", (MailTaskStatus.RETRYING.value, True)),
+        (MailTaskStatus.SENDING.value, "smtp", (MailTaskStatus.DELIVERY_UNKNOWN.value, False)),
+        (MailTaskStatus.SENDING.value, "preview", (MailTaskStatus.RETRYING.value, True)),
+    ],
+)
+def test_stale_mail_task_recovery_decision(
+    status: str,
+    delivery_mode: str,
+    expected: tuple[str, bool],
+) -> None:
+    resolver = getattr(mail_task_service, "resolve_stale_mail_task_recovery", None)
+    assert resolver is not None
+    assert resolver(current_status=status, delivery_mode=delivery_mode) == expected
+
+
+def test_mail_task_model_has_processing_lease_columns() -> None:
+    assert "processing_started_at" in MailTask.__table__.columns
+    assert "processing_lease_expires_at" in MailTask.__table__.columns
     assert (
         mail_task_service.resolve_mail_failure_status(
             current_status=MailTaskStatus.SENDING.value,
