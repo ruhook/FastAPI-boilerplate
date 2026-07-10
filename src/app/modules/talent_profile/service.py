@@ -3,7 +3,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.advanced_filter import (
@@ -990,6 +991,24 @@ async def create_application_and_sync_talent(
         db=db,
     )
 
+    next_count = Job.applicant_count + 1
+    summary_object_path = f"$.{JOB_DATA_APPLICATION_SUMMARY_KEY}"
+    summary_applicants_path = f"{summary_object_path}.applicants"
+    next_job_data = case(
+        (
+            func.json_type(func.json_extract(Job.data, summary_object_path)) == "OBJECT",
+            func.json_set(Job.data, summary_applicants_path, next_count),
+        ),
+        else_=Job.data,
+    )
+    await db.execute(
+        update(Job)
+        .where(Job.id == job.id)
+        .values(applicant_count=next_count, data=next_job_data)
+        .execution_options(synchronize_session=False)
+    )
+    await db.refresh(job, attribute_names=["applicant_count", "data"])
+
     application = CandidateApplication(
         user_id=current_user["id"],
         job_id=job.id,
@@ -1000,17 +1019,12 @@ async def create_application_and_sync_talent(
         data={"submitted_items_count": len(validated_items)},
     )
     db.add(application)
-    await db.flush()
-
-    job.applicant_count = int(job.applicant_count or 0) + 1
-    if isinstance(job.data, dict):
-        application_summary = job.data.get(JOB_DATA_APPLICATION_SUMMARY_KEY)
-        if isinstance(application_summary, dict):
-            next_summary = dict(application_summary)
-            next_summary["applicants"] = int(job.applicant_count)
-            next_data = dict(job.data)
-            next_data[JOB_DATA_APPLICATION_SUMMARY_KEY] = next_summary
-            job.data = next_data
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if "uq_candidate_application_active_user_job" in str(exc.orig):
+            raise BadRequestException("You have already applied to this role.") from None
+        raise
 
     next_order = 0
     for item in validated_items:
