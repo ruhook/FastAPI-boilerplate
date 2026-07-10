@@ -35,9 +35,15 @@ Two alternatives were rejected:
 
 Canonical public facade. Re-exports the public query and command functions currently consumed by API routes, event handlers, scripts, other services, and tests. It owns no private helpers, database queries, or business decisions.
 
+### `normalization.py`
+
+Owns the small pure normalization primitives shared by filtering, automation, serialization, mail, assessment, and contract workflows: text, numeric, decimal, datetime, language-list, and attachment-presence normalization.
+
+Keeping these helpers in a leaf module prevents unrelated workflows from depending on `filtering.py` or `serialization.py` merely to normalize input. It must not issue database queries or import a workflow module.
+
 ### `filtering.py`
 
-Owns progress-filter normalization, stage and application SQL expressions, advanced-filter field definitions, advanced-filter record serialization, numeric and decimal normalization used by filtering, and filter-specific rejected-stage mapping.
+Owns progress-filter normalization, stage and application SQL expressions, advanced-filter field definitions, advanced-filter record serialization, and filter-specific rejected-stage mapping.
 
 It must not load database rows or call workflows.
 
@@ -49,7 +55,7 @@ It is a pure decision module apart from consuming already-loaded job and applica
 
 ### `state.py`
 
-Owns shared persistence primitives: progress lookup, bulk model loading, locked-query construction, expected-version validation, UTC normalization, and small shared state mutations that are required by more than one workflow.
+Owns shared persistence primitives: progress lookup, bulk model loading, locked-query construction, expected-version validation, shared company/project lookups, and small shared state mutations that are required by more than one workflow.
 
 Assessment-invitation timestamp mutation belongs here because both the assessment workflow and mail synchronization need it. The module does not decide when an invitation should be sent.
 
@@ -116,6 +122,7 @@ service facade
             +-- serialization
             +-- filtering
             +-- automation
+            +-- normalization
             +-- existing focused domain helpers
 ```
 
