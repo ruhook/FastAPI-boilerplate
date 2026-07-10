@@ -36,3 +36,6 @@ async def test_preview_form_template_fields_are_job_read_compatible() -> None:
         assert "required" in field
         assert "canFilter" in field
         JobFormField.model_validate(field)
+
+    resume_field = next(field for field in template.fields if field["key"] == "resume_attachment")
+    assert resume_field["type"] == "file"

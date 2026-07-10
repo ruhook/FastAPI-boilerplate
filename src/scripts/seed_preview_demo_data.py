@@ -87,7 +87,7 @@ def _build_preview_form_fields() -> list[dict[str, object]]:
         ),
         _preview_form_field(
             CandidateFieldKey.RESUME_ATTACHMENT,
-            field_type="attachment",
+            field_type="file",
             required=True,
             can_filter=False,
         ),
@@ -391,7 +391,7 @@ async def _create_application_with_progress(
         (CandidateFieldKey.NATIVE_LANGUAGES, "English", "multiselect", None),
         (CandidateFieldKey.ADDITIONAL_LANGUAGES, "Chinese", "multiselect", None),
         (CandidateFieldKey.EXPECTED_SALARY_USD_PER_HOUR, "6_10", "select", None),
-        (CandidateFieldKey.RESUME_ATTACHMENT, resume_asset.original_name, "attachment", resume_asset.id),
+        (CandidateFieldKey.RESUME_ATTACHMENT, resume_asset.original_name, "file", resume_asset.id),
     ]
     for index, (field_key, value, field_type, asset_id) in enumerate(field_specs, start=1):
         db.add(
