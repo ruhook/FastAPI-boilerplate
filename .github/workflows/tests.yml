@@ -6,6 +6,49 @@ jobs:
   tests:
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: test-root-password
+          MYSQL_DATABASE: hr_server_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      ENVIRONMENT: local
+      SECRET_KEY: test-secret-key-for-ci-with-at-least-32-characters
+      ENABLE_LOCAL_AUTH_BYPASS: false
+      ENABLE_LOCAL_ADMIN_BOOTSTRAP: false
+      ALLOW_TEST_DATABASE_CLEANUP: true
+      TEST_DATABASE_NAME_ALLOWLIST: hr_server_test
+      DATABASE_BACKEND: mysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: test-root-password
+      MYSQL_SERVER: 127.0.0.1
+      MYSQL_PORT: 3306
+      MYSQL_DB: hr_server_test
+      REDIS_CACHE_HOST: 127.0.0.1
+      REDIS_CACHE_PORT: 6379
+      ASSET_STORAGE_PROVIDER: local
+      ASSET_STORAGE_DIR: /tmp/hr-server-test-assets
+      CANDIDATE_REGISTER_VERIFICATION_ENABLED: false
+      MAIL_DELIVERY_MODE: log
+
     steps:
     - uses: actions/checkout@v4
 
@@ -23,8 +66,9 @@ jobs:
     - name: Install package with dev dependencies
       run: uv pip install -e ".[dev]"
 
+    - name: Upgrade disposable database
+      run: uv run alembic upgrade head
+      working-directory: src
+
     - name: Run tests
       run: uv run pytest
-      env:
-        ENVIRONMENT: local
-        SECRET_KEY: test-secret-key-for-testing-only

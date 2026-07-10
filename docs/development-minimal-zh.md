@@ -90,6 +90,8 @@ REDIS_CACHE_PORT=6379
 
 如果确实需要数据库中的固定本地管理员，可以仅在 `ENVIRONMENT=local` 时显式设置 `ENABLE_LOCAL_ADMIN_BOOTSTRAP=true`。这个开关与虚拟免登录相互独立。
 
+真实普通管理员不再继承隐式默认权限：角色勾选哪些权限，登录后就只有哪些权限；没有角色的账号只能完成认证，访问受保护的后台业务接口会得到 403。本地虚拟 `HaokangImport` 仍是显式超级管理员例外。
+
 本地需要创建或发送邮件账号时，还要生成一个 Fernet key：
 
 ```bash

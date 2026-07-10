@@ -231,7 +231,8 @@ async def query_admin_accounts(
     required_permission: str | None = None,
 ) -> list[dict[str, Any]]:
     stmt: Select[Any] = (
-        select(AdminUser)
+        select(AdminUser, Role)
+        .outerjoin(Role, Role.id == AdminUser.role_id)
         .where(AdminUser.is_deleted.is_(False))
         .order_by(AdminUser.created_at.desc())
     )
@@ -246,14 +247,18 @@ async def query_admin_accounts(
             )
         )
     result = await db.execute(stmt)
-    accounts = result.scalars().all()
     serialized_accounts: list[dict[str, Any]] = []
-    for account in accounts:
-        role_name, permissions = await resolve_admin_role_assignment(
-            db=db,
-            admin_user_id=account.id,
-            role_id=account.role_id,
-        )
+    for account, role in result.all():
+        role_name: str | None = None
+        permissions: list[str] = []
+        if not account.is_superuser and role is not None and role.enabled:
+            try:
+                permissions = normalize_effective_role_permissions(
+                    validate_permissions(role.permissions or [])
+                )
+                role_name = role.name
+            except ValueError:
+                pass
         if required_permission and not account.is_superuser and required_permission not in permissions:
             continue
         effective_role_id = account.role_id if role_name is not None or permissions else None

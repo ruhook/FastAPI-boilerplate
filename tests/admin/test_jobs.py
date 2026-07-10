@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -9,7 +11,7 @@ from src.app.modules.admin.mail_task.const import MAIL_TASK_DATA_RENDER_CONTEXT_
 from src.app.modules.admin.mail_task.model import MailTask
 from src.app.modules.admin.mail_template.model import MailTemplate
 from src.app.modules.admin.mail_template_category.model import MailTemplateCategory
-from tests.helpers.admin import create_admin_user, login_admin_user
+from tests.helpers.admin import create_admin_user, create_role, login_admin_user
 from tests.helpers.talent import (
     build_application_items,
     build_automation_rules,
@@ -123,15 +125,20 @@ async def test_non_owner_can_view_job_but_cannot_update_it(
     db_session: AsyncSession,
     admin_auth_headers: dict[str, str],
 ) -> None:
+    job_role = await create_role(
+        db_session,
+        name=f"job-manager-{uuid4().hex[:8]}",
+        permissions=["岗位管理"],
+    )
     owner_admin, owner_password = await create_admin_user(
         db_session,
-        role_id=None,
+        role_id=job_role.id,
         name="Job Owner",
         username_prefix="owner",
     )
     other_admin, other_password = await create_admin_user(
         db_session,
-        role_id=None,
+        role_id=job_role.id,
         name="Job Viewer",
         username_prefix="viewer",
     )

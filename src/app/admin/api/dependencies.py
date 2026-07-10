@@ -13,17 +13,7 @@ from ...modules.admin.admin_user.service import (
     is_local_dev_auto_login_admin,
     resolve_admin_role_assignment,
 )
-from ...modules.admin.role.const import (
-    is_assessment_reviewer_only_permissions,
-    resolve_effective_admin_permissions,
-)
-
-
-def _is_assessment_reviewer_only(current_admin: dict[str, Any]) -> bool:
-    return is_assessment_reviewer_only_permissions(
-        current_admin.get("permissions") or [],
-        is_superuser=bool(current_admin.get("is_superuser")),
-    )
+from ...modules.admin.role.const import resolve_effective_admin_permissions
 
 
 async def _get_admin_by_id(
@@ -96,11 +86,7 @@ def require_admin_permission(permission: str):
     async def permission_dependency(current_admin: Annotated[dict, Depends(get_current_admin_user)]) -> dict[str, Any]:
         if current_admin["is_superuser"]:
             return current_admin
-        if not _is_assessment_reviewer_only(current_admin):
-            return current_admin
-        if permission == "测试题判题":
-            return current_admin
-        if permission not in current_admin["permissions"]:
+        if permission not in (current_admin.get("permissions") or []):
             raise ForbiddenException(f"Missing admin permission: {permission}")
         return current_admin
 
@@ -112,8 +98,6 @@ def require_any_admin_permission(*permissions: str):
         current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
     ) -> dict[str, Any]:
         if current_admin["is_superuser"]:
-            return current_admin
-        if not _is_assessment_reviewer_only(current_admin):
             return current_admin
         current_permissions = set(current_admin.get("permissions") or [])
         if not any(permission in current_permissions for permission in permissions):

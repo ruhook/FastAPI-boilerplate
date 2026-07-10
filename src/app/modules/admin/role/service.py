@@ -29,7 +29,9 @@ def build_role_update_values(payload: RoleUpdate, existing_data: dict[str, Any] 
 
 
 def sanitize_role_permissions(permissions: list[str]) -> list[str]:
-    return deduplicate_permissions([permission for permission in permissions if permission in CONFIGURABLE_ADMIN_PERMISSIONS])
+    return deduplicate_permissions(
+        [permission for permission in permissions if permission in CONFIGURABLE_ADMIN_PERMISSIONS]
+    )
 
 
 def serialize_role(role: Role) -> dict[str, Any]:

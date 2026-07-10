@@ -12,20 +12,23 @@ BUSINESS_ADMIN_PERMISSIONS = [
 ]
 SPECIAL_ADMIN_PERMISSIONS = ["测试题判题"]
 SETTINGS_ADMIN_PERMISSIONS = ["账户管理", "权限与角色", "常量字典", "报名表单策略", "公司管理"]
-CONFIGURABLE_ADMIN_PERMISSIONS = [*SPECIAL_ADMIN_PERMISSIONS]
 DEFAULT_ADMIN_PERMISSIONS = [
     *BUSINESS_ADMIN_PERMISSIONS,
     *SETTINGS_ADMIN_PERMISSIONS,
 ]
+CONFIGURABLE_ADMIN_PERMISSIONS = [
+    *BUSINESS_ADMIN_PERMISSIONS,
+    *SETTINGS_ADMIN_PERMISSIONS,
+    *SPECIAL_ADMIN_PERMISSIONS,
+]
 
 PERMISSION_CATALOG: list[dict[str, list[str] | str]] = [
+    {"group": "业务权限", "items": BUSINESS_ADMIN_PERMISSIONS},
+    {"group": "设置权限", "items": SETTINGS_ADMIN_PERMISSIONS},
     {"group": "特殊权限", "items": SPECIAL_ADMIN_PERMISSIONS},
 ]
 
-ALL_ADMIN_PERMISSIONS: list[str] = [
-    *DEFAULT_ADMIN_PERMISSIONS,
-    *CONFIGURABLE_ADMIN_PERMISSIONS,
-]
+ALL_ADMIN_PERMISSIONS: list[str] = [*CONFIGURABLE_ADMIN_PERMISSIONS]
 
 
 def deduplicate_permissions(permissions: list[str]) -> list[str]:
@@ -79,8 +82,4 @@ def resolve_effective_admin_permissions(
     if is_superuser:
         return list(ALL_ADMIN_PERMISSIONS)
 
-    role_permissions = normalize_effective_role_permissions(permissions)
-    if is_assessment_reviewer_only_permissions(role_permissions):
-        return role_permissions
-
-    return deduplicate_permissions([*DEFAULT_ADMIN_PERMISSIONS, *role_permissions])
+    return normalize_effective_role_permissions(permissions)

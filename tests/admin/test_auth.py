@@ -88,14 +88,18 @@ async def test_admin_login_me_and_permissions_catalog(
     permissions_response = await client.get("/api/v1/settings/permissions/catalog", headers=headers)
     assert permissions_response.status_code == 200, permissions_response.text
     permissions_data = permissions_response.json()
-    assert permissions_data == [{"group": "特殊权限", "items": ["测试题判题"]}]
+    assert permissions_data == [
+        {"group": "业务权限", "items": DEFAULT_ADMIN_PERMISSIONS[:8]},
+        {"group": "设置权限", "items": DEFAULT_ADMIN_PERMISSIONS[8:]},
+        {"group": "特殊权限", "items": ["测试题判题"]},
+    ]
 
     async with local_session() as session:
         audit_logs = await fetch_admin_audit_logs(session, admin_user_id=int(superadmin_credentials["id"]))
         assert [log.action_type for log in audit_logs] == [AdminAuditLogActionType.ADMIN_LOGIN.value]
 
 
-async def test_non_superadmin_without_special_role_gets_default_permissions(
+async def test_non_superadmin_without_role_gets_no_permissions(
     client: AsyncClient,
     db_session,
 ) -> None:
@@ -114,7 +118,7 @@ async def test_non_superadmin_without_special_role_gets_default_permissions(
     )
     assert login_response.status_code == 200, login_response.text
     permissions = login_response.json()["user"]["permissions"]
-    assert sorted(permissions) == sorted(DEFAULT_ADMIN_PERMISSIONS)
+    assert permissions == []
 
 
 async def test_admin_refresh_and_logout_blacklists_refresh_token(
