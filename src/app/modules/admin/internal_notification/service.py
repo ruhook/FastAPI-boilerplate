@@ -131,7 +131,7 @@ async def mark_admin_internal_notification_read(
         notification.is_read = True
         notification.read_at = datetime.now(UTC)
         notification.updated_at = datetime.now(UTC)
-        await db.commit()
+        await db.flush()
         await db.refresh(notification)
 
     return serialize_admin_internal_notification(notification)
@@ -156,6 +156,6 @@ async def mark_all_admin_internal_notifications_read(
         item.updated_at = now
 
     if items:
-        await db.commit()
+        await db.flush()
 
     return AdminInternalNotificationReadAllResponse(updated_count=len(items)).model_dump()

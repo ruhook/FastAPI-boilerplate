@@ -200,6 +200,8 @@ Normal Web/Admin access tokens expire after 15 minutes and carry the immutable a
 
 Mail-task events use a transactional database outbox: creating the task and recording its event now commit together. The event process dispatches leased outbox rows to Redis with a stable event id, retries publication with bounded backoff, reclaims stale Redis pending messages, and ACKs only after every handler succeeds. SMTP failures after the sending boundary become `delivery_unknown` for operator review instead of being blindly retried.
 
+Recruitment mutations lock `JobProgress` rows in ascending id order and use an automatically incremented `version`. Admin progress-list responses include that version; stage-move requests may send `expected_versions` (a map of progress id to version), and stale writes receive HTTP 409. Request database dependencies own normal commit/rollback so recruitment state, operation logs, mail tasks, and outbox rows stay atomic.
+
 ## Common tasks
 
 ```bash

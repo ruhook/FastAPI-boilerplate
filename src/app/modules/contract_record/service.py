@@ -64,8 +64,9 @@ async def get_current_contract_record_by_progress_id(
     *,
     progress_id: int,
     db: AsyncSession,
+    for_update: bool = False,
 ) -> ContractRecord | None:
-    result = await db.execute(
+    statement = (
         select(ContractRecord)
         .where(
             ContractRecord.job_progress_id == progress_id,
@@ -75,6 +76,9 @@ async def get_current_contract_record_by_progress_id(
         .order_by(ContractRecord.version.desc(), ContractRecord.id.desc())
         .limit(1)
     )
+    if for_update:
+        statement = statement.with_for_update()
+    result = await db.execute(statement)
     return result.scalar_one_or_none()
 
 
@@ -116,7 +120,11 @@ async def upsert_contract_record_for_progress(
     field_updates: Mapping[str, Any] | None = None,
     data_updates: Mapping[str, Any] | None = None,
 ) -> ContractRecord:
-    current = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
+    current = await get_current_contract_record_by_progress_id(
+        progress_id=progress.id,
+        db=db,
+        for_update=True,
+    )
 
     user_result = await db.execute(select(User).where(User.id == progress.user_id))
     user = user_result.scalar_one_or_none()

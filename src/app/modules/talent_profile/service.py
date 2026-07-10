@@ -1144,7 +1144,7 @@ async def create_application_and_sync_talent(
         db=db,
     )
 
-    await db.commit()
+    await db.flush()
 
     return CandidateApplicationSubmitResponse(
         application_id=application.id,
@@ -1208,7 +1208,7 @@ async def merge_application_into_talent(
             "merged_fields": merged_fields,
         },
     )
-    await db.commit()
+    await db.flush()
     await db.refresh(talent)
     return await _serialize_talent_profile(talent, db)
 
@@ -1240,7 +1240,7 @@ async def update_talent_pool_note(
             JobProgressDataKey.NOTE.value: normalized_note,
         }
     talent.note = normalized_note
-    await db.commit()
+    await db.flush()
     await db.refresh(talent)
     return await _serialize_talent_profile(talent, db)
 
@@ -1265,7 +1265,7 @@ async def update_talent_pool_status(
     }
     if normalized_status == TALENT_STATUS_REPLACED and progress is not None:
         progress.current_stage = RecruitmentStage.REPLACED.value
-    await db.commit()
+    await db.flush()
     await db.refresh(talent)
     return await _serialize_talent_profile(talent, db)
 

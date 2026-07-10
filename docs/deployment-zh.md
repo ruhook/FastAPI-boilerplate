@@ -261,6 +261,8 @@ uv run python -m src.scripts.encrypt_mail_account_credentials
 
 `20260710_000042` 会新增 `event_outbox`。邮件任务与待发布事件在同一个数据库事务中提交，`event_consumer.py` 同时负责 outbox 派发和 Redis 消费；因此生产环境必须持续托管这个进程。Redis 发布失败会按退避重试，超过上限的行保留为 `failed`，需要运维查询和人工重试。`delivery_unknown` 邮件表示 SMTP 发送结果不确定，确认收件情况前不要自动重发。
 
+`20260710_000043` 会给 `job_progress` 增加递增版本。管理端阶段变更可以提交 `expected_versions`；返回 409 时必须刷新列表并让用户重新确认，不能静默覆盖。批量招聘命令按进度 ID 顺序加行锁，发布期间应监控数据库死锁与 409 比例。
+
 ## 12. 建议
 
 - `web` 和 `admin` 建议走不同域名或至少不同子路径/端口

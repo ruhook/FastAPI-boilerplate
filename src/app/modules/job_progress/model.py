@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.db.database import Base
@@ -24,6 +24,7 @@ class JobProgress(DataBackedSoftDeleteEntityMixin, Base):
         index=True,
     )
     current_stage: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     screening_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
     assessment_reviewer_admin_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("admin_user.id"),
@@ -42,3 +43,5 @@ class JobProgress(DataBackedSoftDeleteEntityMixin, Base):
         server_default=text("current_timestamp(0)"),
         index=True,
     )
+
+    __mapper_args__ = {"version_id_col": version}

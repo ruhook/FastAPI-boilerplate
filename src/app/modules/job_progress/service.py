@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import UploadFile
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.advanced_filter import (
@@ -18,7 +18,7 @@ from ...core.advanced_filter import (
 )
 from ...core.config import settings
 from ...core.db.database import local_session
-from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
+from ...core.exceptions.http_exceptions import BadRequestException, ConflictException, NotFoundException
 from ..admin.admin_user.model import AdminUser
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
@@ -1167,18 +1167,40 @@ async def get_job_progress_models(
     job_id: int,
     progress_ids: list[int],
     db: AsyncSession,
+    expected_versions: dict[int, int] | None = None,
 ) -> list[JobProgress]:
-    result = await db.execute(
-        select(JobProgress).where(
-            JobProgress.job_id == job_id,
-            JobProgress.id.in_(progress_ids),
-            JobProgress.is_deleted.is_(False),
-        )
-    )
+    result = await db.execute(build_locked_job_progress_query(job_id=job_id, progress_ids=progress_ids))
     items = result.scalars().all()
     if len(items) != len(set(progress_ids)):
         raise NotFoundException("Job progress record not found.")
+    ensure_expected_progress_versions(items, expected_versions=expected_versions)
     return items
+
+
+def build_locked_job_progress_query(*, job_id: int, progress_ids: list[int]) -> Select[tuple[JobProgress]]:
+    normalized_ids = sorted(set(progress_ids))
+    return (
+        select(JobProgress)
+        .where(
+            JobProgress.job_id == job_id,
+            JobProgress.id.in_(normalized_ids),
+            JobProgress.is_deleted.is_(False),
+        )
+        .order_by(JobProgress.id.asc())
+        .with_for_update()
+    )
+
+
+def ensure_expected_progress_versions(
+    progress_items: list[JobProgress],
+    *,
+    expected_versions: dict[int, int] | None,
+) -> None:
+    if expected_versions is None:
+        return
+    for progress in progress_items:
+        if expected_versions.get(progress.id) != progress.version:
+            raise ConflictException("Job progress changed; refresh the list and retry.")
 
 
 def serialize_job_progress(progress: JobProgress) -> dict[str, Any]:
@@ -1189,6 +1211,7 @@ def serialize_job_progress(progress: JobProgress) -> dict[str, Any]:
         application_id=progress.application_id,
         talent_profile_id=progress.talent_profile_id,
         current_stage=progress.current_stage,
+        version=progress.version,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
         screening_mode=progress.screening_mode,
         entered_stage_at=_ensure_utc_datetime(progress.entered_stage_at),
@@ -1793,6 +1816,7 @@ async def list_job_progress(
             application_id=progress.application_id,
             talent_profile_id=progress.talent_profile_id,
             current_stage=progress.current_stage,
+            version=progress.version,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
             screening_mode=progress.screening_mode,
             applied_at=_ensure_utc_datetime(application.submitted_at),
@@ -2234,6 +2258,7 @@ async def move_job_progress_stage(  # noqa: C901
     db: AsyncSession,
     reason: str | None = None,
     reviewer_scope_admin_user_id: int | None = None,
+    expected_versions: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     try:
         normalized_target_stage = RecruitmentStage(target_stage)
@@ -2250,7 +2275,12 @@ async def move_job_progress_stage(  # noqa: C901
     if job is None:
         raise NotFoundException("Job not found.")
 
-    progress_items = await get_job_progress_models(job_id=job_id, progress_ids=progress_ids, db=db)
+    progress_items = await get_job_progress_models(
+        job_id=job_id,
+        progress_ids=progress_ids,
+        db=db,
+        expected_versions=expected_versions,
+    )
     application_ids = [progress.application_id for progress in progress_items]
     application_map: dict[int, CandidateApplication] = {}
     if application_ids:
@@ -2331,7 +2361,9 @@ async def move_job_progress_stage(  # noqa: C901
                 raise BadRequestException("Only QA rework records can move back to assessment review.")
 
         if normalized_target_stage == RecruitmentStage.ACTIVE:
-            contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
+            contract_record = await get_current_contract_record_by_progress_id(
+                progress_id=progress.id, db=db, for_update=True
+            )
             if contract_record is None:
                 raise BadRequestException("Active stage requires a contract record.")
             if contract_record.candidate_signed_contract_asset_id in (None, 0, ""):
@@ -2344,7 +2376,9 @@ async def move_job_progress_stage(  # noqa: C901
             progress.current_stage == RecruitmentStage.CONTRACT_POOL.value
             and normalized_target_stage == RecruitmentStage.SCREENING_PASSED
         ):
-            contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
+            contract_record = await get_current_contract_record_by_progress_id(
+                progress_id=progress.id, db=db, for_update=True
+            )
             if contract_record is not None and (
                 contract_record.company_sealed_contract_asset_id not in (None, 0, "")
                 or contract_record.contract_status == "Active"
@@ -2354,7 +2388,9 @@ async def move_job_progress_stage(  # noqa: C901
             RecruitmentStage.REPLACED,
             RecruitmentStage.REJECTED,
         }:
-            contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
+            contract_record = await get_current_contract_record_by_progress_id(
+                progress_id=progress.id, db=db, for_update=True
+            )
             if contract_record is None:
                 raise BadRequestException("Leaving active stage requires a contract record.")
             leaving_active_contract_record_map[progress.id] = contract_record
@@ -2599,7 +2635,7 @@ async def sync_assessment_sent_at_from_mail_task(mail_task_id: int) -> bool:
             except (TypeError, ValueError):
                 progress_id = 0
             if progress_id:
-                progress = await db.get(JobProgress, progress_id)
+                progress = await db.get(JobProgress, progress_id, with_for_update=True)
 
         if progress is None:
             mail_task_id_expr = _build_progress_json_text_expression(
@@ -2612,6 +2648,7 @@ async def sync_assessment_sent_at_from_mail_task(mail_task_id: int) -> bool:
                     mail_task_id_expr == str(mail_task_id),
                 )
                 .limit(1)
+                .with_for_update()
             )
             progress = progress_result.scalar_one_or_none()
 
@@ -3522,6 +3559,7 @@ async def submit_job_progress_assessment(
         )
         .order_by(JobProgress.entered_stage_at.desc(), JobProgress.id.desc())
         .limit(1)
+        .with_for_update()
     )
     progress = progress_result.scalar_one_or_none()
     if progress is None:
@@ -3658,6 +3696,7 @@ async def submit_job_progress_candidate_signed_contract(
         )
         .order_by(JobProgress.entered_stage_at.desc(), JobProgress.id.desc())
         .limit(1)
+        .with_for_update()
     )
     progress = progress_result.scalar_one_or_none()
     if progress is None:
@@ -3668,7 +3707,9 @@ async def submit_job_progress_candidate_signed_contract(
         raise BadRequestException("Signed contract must be uploaded as a .doc or .docx file.")
 
     progress_data = dict(progress.data or {})
-    contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
+    contract_record = await get_current_contract_record_by_progress_id(
+        progress_id=progress.id, db=db, for_update=True
+    )
     if contract_record is None or contract_record.draft_contract_asset_id in (None, "", 0):
         raise BadRequestException("Draft contract is not available yet.")
     if contract_record.contract_status in {CONTRACT_STATUS_TERMINATED, CONTRACT_STATUS_EXPIRED}:
@@ -3805,11 +3846,13 @@ async def upload_job_progress_contract_draft(
         raise NotFoundException("Job not found.")
 
     progress_result = await db.execute(
-        select(JobProgress).where(
+        select(JobProgress)
+        .where(
             JobProgress.id == progress_id,
             JobProgress.job_id == job_id,
             JobProgress.is_deleted.is_(False),
         )
+        .with_for_update()
     )
     progress = progress_result.scalar_one_or_none()
     if progress is None:
@@ -3918,11 +3961,13 @@ async def upload_job_progress_company_sealed_contract(
         raise NotFoundException("Job not found.")
 
     progress_result = await db.execute(
-        select(JobProgress).where(
+        select(JobProgress)
+        .where(
             JobProgress.id == progress_id,
             JobProgress.job_id == job_id,
             JobProgress.is_deleted.is_(False),
         )
+        .with_for_update()
     )
     progress = progress_result.scalar_one_or_none()
     if progress is None:
@@ -3933,7 +3978,9 @@ async def upload_job_progress_company_sealed_contract(
     }:
         raise BadRequestException("Company signed contract can only be uploaded in 合同库 or Active.")
 
-    contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db)
+    contract_record = await get_current_contract_record_by_progress_id(
+        progress_id=progress.id, db=db, for_update=True
+    )
     if contract_record is None:
         raise BadRequestException("Company signed contract requires a contract record.")
     if contract_record.candidate_signed_contract_asset_id in (None, 0, ""):

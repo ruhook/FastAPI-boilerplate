@@ -9,3 +9,8 @@ from fastcrud.exceptions.http_exceptions import (
     DuplicateValueException,
     RateLimitException,
 )
+
+
+class ConflictException(CustomException):
+    def __init__(self, detail: str | None = None):
+        super().__init__(status_code=409, detail=detail)

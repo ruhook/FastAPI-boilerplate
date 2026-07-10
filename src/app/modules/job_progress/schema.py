@@ -11,6 +11,7 @@ class JobProgressStageMoveRequest(BaseModel):
     progress_ids: list[int] = Field(min_length=1)
     target_stage: str = Field(min_length=1)
     reason: str | None = None
+    expected_versions: dict[int, int] | None = None
 
 
 class JobProgressStageMoveResponse(BaseModel):
@@ -178,6 +179,7 @@ class JobProgressRead(BaseModel):
     application_id: int
     talent_profile_id: int | None = None
     current_stage: str
+    version: int
     current_stage_cn_name: str
     screening_mode: str
     entered_stage_at: datetime
@@ -195,6 +197,7 @@ class JobProgressListItemRead(BaseModel):
     application_id: int
     talent_profile_id: int | None = None
     current_stage: str
+    version: int
     current_stage_cn_name: str
     screening_mode: str
     applied_at: datetime

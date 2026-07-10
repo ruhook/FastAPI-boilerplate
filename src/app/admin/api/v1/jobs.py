@@ -184,6 +184,7 @@ async def move_job_progress_stage_endpoint(
         reason=payload.reason,
         admin_user_id=int(current_admin["id"]),
         reviewer_scope_admin_user_id=None,
+        expected_versions=payload.expected_versions,
         db=db,
     )
 
