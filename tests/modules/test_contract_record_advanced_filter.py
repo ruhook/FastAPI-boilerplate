@@ -1,13 +1,13 @@
 import pytest
 
 from src.app.core.advanced_filter import build_advanced_filter_query_sql_condition
-from src.app.modules.contract_record import service as contract_service
+from src.app.modules.contract_record import queries as contract_queries
 
 pytestmark = pytest.mark.no_database_cleanup
 
 
 def test_contract_advanced_filter_field_map_supports_table_fields() -> None:
-    field_map = contract_service._build_contract_advanced_filter_field_map()
+    field_map = contract_queries._build_contract_advanced_filter_field_map()
 
     assert field_map["contractor_name"].filter_kind == "text"
     assert field_map["contractor_email"].filter_kind == "email"
@@ -22,7 +22,7 @@ def test_contract_advanced_filter_field_map_supports_table_fields() -> None:
 
 
 def test_contract_advanced_filter_field_map_builds_sql_conditions() -> None:
-    field_map = contract_service._build_contract_advanced_filter_field_map()
+    field_map = contract_queries._build_contract_advanced_filter_field_map()
     query = {
         "combinator": "and",
         "rules": [

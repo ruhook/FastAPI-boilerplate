@@ -12,6 +12,7 @@ from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
 from ..candidate_application.model import CandidateApplication
 from ..candidate_internal_notification.service import create_candidate_internal_notification
+from ..contract_record.commands import upsert_contract_record_for_progress
 from ..contract_record.const import (
     CONTRACT_STATUS_EXPIRED,
     CONTRACT_STATUS_TERMINATED,
@@ -19,10 +20,7 @@ from ..contract_record.const import (
     ContractSigningStatus,
 )
 from ..contract_record.model import ContractRecord
-from ..contract_record.service import (
-    get_current_contract_record_by_progress_id,
-    upsert_contract_record_for_progress,
-)
+from ..contract_record.queries import get_current_contract_record_by_progress_id
 from ..job.model import Job
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log

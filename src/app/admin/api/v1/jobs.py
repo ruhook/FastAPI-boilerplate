@@ -5,15 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.db.database import async_get_db
 from ....modules.admin.role.const import is_assessment_reviewer_only_permissions
-from ....modules.job.schema import JobCreate, JobListPage, JobOwnerOptionRead, JobRead, JobUpdate
-from ....modules.job.service import (
-    create_job,
+from ....modules.job.commands import create_job, update_job
+from ....modules.job.queries import (
     ensure_job_editable_for_admin,
     get_job_for_admin,
     list_job_owner_options,
     list_jobs,
-    update_job,
 )
+from ....modules.job.schema import JobCreate, JobListPage, JobOwnerOptionRead, JobRead, JobUpdate
 from ....modules.job_progress.const import RecruitmentStage
 from ....modules.job_progress.schema import (
     JobProgressAssessmentAutomationRequest,

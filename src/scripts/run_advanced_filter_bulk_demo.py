@@ -22,7 +22,7 @@ from ..app.modules.assets.service import create_asset_from_bytes, read_asset_con
 from ..app.modules.candidate_application.model import CandidateApplication
 from ..app.modules.candidate_application.schema import CandidateApplicationSubmitRequest
 from ..app.modules.candidate_field.const import CandidateFieldKey
-from ..app.modules.contract_record.service import upsert_contract_record_for_progress
+from ..app.modules.contract_record.commands import upsert_contract_record_for_progress
 from ..app.modules.job.const import JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.const import JobProgressDataKey, RecruitmentStage

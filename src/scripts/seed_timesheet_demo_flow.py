@@ -20,8 +20,8 @@ from ..app.modules.admin.company.service import (
 from ..app.modules.admin.form_template.model import AdminFormTemplate
 from ..app.modules.admin.role.model import Role
 from ..app.modules.candidate_application.model import CandidateApplication
+from ..app.modules.contract_record.commands import upsert_contract_record_for_progress
 from ..app.modules.contract_record.model import ContractRecord
-from ..app.modules.contract_record.service import upsert_contract_record_for_progress
 from ..app.modules.job.const import JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.const import RecruitmentScreeningMode, RecruitmentStage

@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.db.database import async_get_db
-from ....modules.contract_record.commands import review_contract
+from ....modules.contract_record.commands import (
+    resign_contract_record_for_admin,
+    review_contract,
+    update_contract_record_for_admin,
+)
+from ....modules.contract_record.queries import list_contract_records_for_admin
 from ....modules.contract_record.schema import (
     ContractRecordListPage,
     ContractRecordResignResponse,
@@ -14,11 +19,6 @@ from ....modules.contract_record.schema import (
     ContractRecordUpdateResponse,
     ContractReviewRequest,
     ContractStateRead,
-)
-from ....modules.contract_record.service import (
-    list_contract_records_for_admin,
-    resign_contract_record_for_admin,
-    update_contract_record_for_admin,
 )
 from ..dependencies import get_current_admin_user, require_admin_permission
 

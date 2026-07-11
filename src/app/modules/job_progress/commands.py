@@ -14,10 +14,8 @@ from ..contract_record.const import (
     ContractSigningStatus,
 )
 from ..contract_record.model import ContractRecord
-from ..contract_record.service import (
-    get_current_contract_record_by_progress_id,
-    get_default_contract_end_date,
-)
+from ..contract_record.queries import get_current_contract_record_by_progress_id
+from ..contract_record.serialization import get_default_contract_end_date
 from ..job.const import JOB_DATA_LANGUAGES_KEY
 from ..job.model import Job
 from ..operation_log.const import OperationLogType

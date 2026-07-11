@@ -11,13 +11,13 @@ from src.app.application.settlement import sync_settlement_month, sync_timesheet
 from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from src.app.modules.admin.form_template.model import AdminFormTemplate
 from src.app.modules.candidate_application.model import CandidateApplication
+from src.app.modules.contract_record.commands import update_contract_record_for_admin
 from src.app.modules.contract_record.const import (
     CONTRACT_STATUS_ACTIVE,
     CONTRACT_TYPE_NORMAL,
     CONTRACT_TYPE_TEAM_LEADER,
 )
 from src.app.modules.contract_record.model import ContractRecord
-from src.app.modules.contract_record.service import update_contract_record_for_admin
 from src.app.modules.job.const import JobStatus
 from src.app.modules.job.model import Job
 from src.app.modules.job_progress.model import JobProgress

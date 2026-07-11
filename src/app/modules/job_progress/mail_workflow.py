@@ -15,12 +15,10 @@ from ..admin.mail_template.service import get_mail_template_model
 from ..assets.model import Asset
 from ..assets.service import serialize_asset
 from ..candidate_application.model import CandidateApplication
+from ..contract_record.commands import upsert_contract_record_for_progress
 from ..contract_record.const import ContractSigningStatus
 from ..contract_record.model import ContractRecord
-from ..contract_record.service import (
-    list_current_contract_records_by_progress_ids,
-    upsert_contract_record_for_progress,
-)
+from ..contract_record.queries import list_current_contract_records_by_progress_ids
 from ..job.const import JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY
 from ..job.model import Job
 from ..operation_log.const import OperationLogType

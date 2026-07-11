@@ -19,7 +19,7 @@ from ..candidate_application.model import CandidateApplication
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
 from ..contract_record.const import CONTRACT_STATUS_EXPIRED, CONTRACT_STATUS_TERMINATED
 from ..contract_record.model import ContractRecord
-from ..contract_record.service import (
+from ..contract_record.queries import (
     get_current_contract_record_by_progress_id,
     list_current_contract_records_by_progress_ids,
 )
