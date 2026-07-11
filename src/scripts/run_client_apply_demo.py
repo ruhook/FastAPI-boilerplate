@@ -228,7 +228,7 @@ def build_application_items(
 ) -> list[dict[str, Any]]:
     if job_index == 0:
         whatsapp = "+55 11 90000 0001"
-        nationality = "Brazilian"
+        nationality = "Brazil"
         country_of_residence = "Brazil"
         education_status = "bachelor_completed"
         native_languages = "Portuguese"
@@ -244,7 +244,7 @@ def build_application_items(
         additional_information = "Initial apply flow demo submission."
     else:
         whatsapp = "+55 11 90000 0002"
-        nationality = "Brazilian"
+        nationality = "Brazil"
         country_of_residence = "Brazil"
         education_status = "master_completed"
         native_languages = "Portuguese"
