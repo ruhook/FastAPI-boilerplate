@@ -32,6 +32,8 @@ from .const import (
     CONTRACT_STATUS_PENDING_ACTIVATION,
     CONTRACT_STATUS_TERMINATED,
     CONTRACT_TYPE_NORMAL,
+    ContractReviewStatus,
+    ContractSigningStatus,
     normalize_contract_status,
     normalize_contract_type,
 )
@@ -241,10 +243,6 @@ def _extract_id_attachment_asset_id(user_data: dict[str, Any] | None) -> int | N
         return None
 
 
-def _build_contract_json_text_expression(key: str):
-    return func.json_unquote(func.json_extract(ContractRecord.data, f"$.{key}"))
-
-
 def _build_contract_id_attachment_sql_expression():
     return (
         select(func.json_unquote(func.json_extract(User.data, "$.payment_info.id_attachment_asset_id")))
@@ -299,8 +297,12 @@ def _build_contract_advanced_filter_field_map() -> dict[str, AdvancedFilterField
         ContractRecord.company_sealed_contract_asset_id,
     )
     add_field(["idAttachment", "id_attachment"], "file", _build_contract_id_attachment_sql_expression())
-    add_field(["contractReview", "contract_review"], "select", _build_contract_json_text_expression("contract_review"))
-    add_field(["signingStatus", "signing_status"], "select", _build_contract_json_text_expression("signing_status"))
+    add_field(
+        ["contractReviewStatus", "contract_review_status"],
+        "select",
+        ContractRecord.contract_review_status,
+    )
+    add_field(["signingStatus", "signing_status"], "select", ContractRecord.signing_status)
 
     return field_map
 
@@ -441,6 +443,8 @@ async def list_contract_records_for_admin(
             else None,
             agreement_ref_no=record.agreement_ref_no,
             contract_status=record.contract_status,
+            contract_review_status=record.contract_review_status,
+            signing_status=record.signing_status,
             contract_type=record.contract_type,
             contractor_name=record.contractor_name,
             contractor_email=record.user_snapshot_email,
@@ -464,8 +468,6 @@ async def list_contract_records_for_admin(
             id_attachment=_serialize_contract_asset(
                 asset_map.get(int(id_attachment_asset_ids_by_user.get(int(record.user_id)) or 0))
             ),
-            contract_review=(record.data or {}).get("contract_review"),
-            signing_status=(record.data or {}).get("signing_status"),
             created_at=record.created_at,
             updated_at=record.updated_at,
         ).model_dump()
@@ -668,6 +670,8 @@ async def update_contract_record_for_admin(
         service_customer_project_name=project.name if project is not None else None,
         agreement_ref_no=record.agreement_ref_no,
         contract_status=record.contract_status,
+        contract_review_status=record.contract_review_status,
+        signing_status=record.signing_status,
         contract_type=record.contract_type,
         contractor_name=record.contractor_name,
         contractor_email=record.user_snapshot_email,
@@ -689,8 +693,6 @@ async def update_contract_record_for_admin(
         id_attachment=_serialize_contract_asset(
             asset_map.get(int(id_attachment_asset_ids_by_user.get(int(record.user_id)) or 0))
         ),
-        contract_review=(record.data or {}).get("contract_review"),
-        signing_status=(record.data or {}).get("signing_status"),
         created_at=record.created_at,
         updated_at=record.updated_at,
     ).model_dump()
@@ -786,6 +788,8 @@ async def resign_contract_record_for_admin(
         service_customer_project_id=old_record.service_customer_project_id,
         agreement_ref_no=(agreement_ref_no or old_record.agreement_ref_no or "").strip() or None,
         contract_status=next_contract_status,
+        contract_review_status=ContractReviewStatus.APPROVED.value,
+        signing_status=ContractSigningStatus.COMPANY_SEALED.value,
         contract_type=normalize_contract_type(contract_type or old_record.contract_type),
         contractor_name=(contractor_name or old_record.contractor_name or "").strip() or None,
         rate=rate if rate is not None else old_record.rate,
@@ -804,7 +808,6 @@ async def resign_contract_record_for_admin(
         updated_by_admin_user_id=admin_user_id,
         data={
             **(old_record.data or {}),
-            "contract_review": "审核通过",
             "resigned_from_contract_record_id": old_record.id,
         },
     )

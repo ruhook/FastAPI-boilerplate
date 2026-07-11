@@ -12,6 +12,8 @@ def test_contract_advanced_filter_field_map_supports_table_fields() -> None:
     assert field_map["contractor_name"].filter_kind == "text"
     assert field_map["contractor_email"].filter_kind == "email"
     assert field_map["contract_status"].filter_kind == "select"
+    assert field_map["contract_review_status"].filter_kind == "select"
+    assert field_map["signing_status"].filter_kind == "select"
     assert field_map["contract_type"].filter_kind == "select"
     assert field_map["rate"].filter_kind == "number"
     assert field_map["effective_date"].filter_kind == "date"
@@ -24,7 +26,7 @@ def test_contract_advanced_filter_field_map_builds_sql_conditions() -> None:
     query = {
         "combinator": "and",
         "rules": [
-            {"field": "contract_status", "operator": "=", "value": "Active"},
+            {"field": "contract_status", "operator": "=", "value": "active"},
             {"field": "rate", "operator": ">=", "value": 5},
             {"field": "contract_attachment", "operator": "uploaded", "value": ""},
         ],

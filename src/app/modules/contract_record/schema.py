@@ -29,6 +29,8 @@ class ContractRecordListItemRead(BaseModel):
     service_customer_project_name: str | None = None
     agreement_ref_no: str | None = None
     contract_status: str
+    contract_review_status: str
+    signing_status: str
     contract_type: str
     contractor_name: str | None = None
     contractor_email: str | None = None
@@ -44,8 +46,6 @@ class ContractRecordListItemRead(BaseModel):
     candidate_signed_contract_attachment: ContractRecordAssetRead | None = None
     company_sealed_contract_attachment: ContractRecordAssetRead | None = None
     id_attachment: ContractRecordAssetRead | None = None
-    contract_review: str | None = None
-    signing_status: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 

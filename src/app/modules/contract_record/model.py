@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.db.database import Base
 from ...core.db.models import DataBackedSoftDeleteEntityMixin
+from .const import ContractReviewStatus, ContractSigningStatus, ContractStatus
 
 
 class ContractRecord(DataBackedSoftDeleteEntityMixin, Base):
@@ -46,8 +47,22 @@ class ContractRecord(DataBackedSoftDeleteEntityMixin, Base):
         String(32),
         nullable=False,
         index=True,
-        default="Pending Activation",
-        server_default=text("'Pending Activation'"),
+        default=ContractStatus.PENDING_ACTIVATION.value,
+        server_default=text("'pending_activation'"),
+    )
+    contract_review_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        index=True,
+        default=ContractReviewStatus.PENDING.value,
+        server_default=text("'pending'"),
+    )
+    signing_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        index=True,
+        default=ContractSigningStatus.NOT_SENT.value,
+        server_default=text("'not_sent'"),
     )
     contract_type: Mapped[str] = mapped_column(
         String(32),
