@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PayoutDetails(BaseModel):
@@ -59,3 +59,63 @@ class BatchPayoutResult(BaseModel):
     items: list[BatchPayoutItemResult]
     paid_count: int
     failed_count: int
+
+
+class BatchPayoutRequest(PayoutDetails):
+    payable_ids: list[int] = Field(..., min_length=1)
+
+    @field_validator("payable_ids")
+    @classmethod
+    def normalize_payable_ids(cls, value: list[int]) -> list[int]:
+        ids = list(dict.fromkeys(value))
+        if any(item < 1 for item in ids):
+            raise ValueError("Payable IDs must be positive integers.")
+        return ids
+
+    def payout_details(self) -> PayoutDetails:
+        return PayoutDetails(
+            paid_at=self.paid_at,
+            external_platform=self.external_platform,
+            external_transaction_no=self.external_transaction_no,
+            remark=self.remark,
+        )
+
+
+class PaymentReverseRequest(PayoutDetails):
+    pass
+
+
+class PaymentListQuery(BaseModel):
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=1000)
+    keyword: str | None = None
+    payment_type: str | None = None
+    user_id: int | None = Field(default=None, ge=1)
+    month: str | None = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+    @field_validator("keyword", "payment_type", mode="before")
+    @classmethod
+    def normalize_optional_filter(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return str(value).strip() or None
+
+
+class PaymentListPage(BaseModel):
+    items: list[PaymentRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class CandidatePaymentSummaryRead(BaseModel):
+    total_paid: Decimal
+    month_paid: Decimal
+    referral_rewards_paid: Decimal
+    latest_payment_at: datetime | None = None
+    currency: str = "USD"
+    month: str
+
+
+class CandidatePaymentListPage(PaymentListPage):
+    summary: CandidatePaymentSummaryRead

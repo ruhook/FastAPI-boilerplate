@@ -22,7 +22,7 @@
 - Modify: `src/app/modules/contract_record/const.py`
 - Modify: `src/app/modules/contract_record/model.py`
 - Modify: `src/app/modules/contract_record/schema.py`
-- Create: `src/migrations/versions/20260711_000052_contract_state_columns.py`
+- Create: `src/migrations/versions/20260711_000051_contract_state_columns.py`
 - Test: `tests/modules/test_contract_state_model.py`
 
 - [ ] Write failing tests asserting defaults `pending_activation`, `pending`, and `not_sent`, plus absence of JSON-based serialization.

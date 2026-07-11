@@ -37,7 +37,7 @@
 - Modify: `src/app/modules/project_timesheet_record/model.py`
 - Modify: `src/app/modules/project_timesheet_record/schema.py`
 - Create: `src/app/modules/project_timesheet_record/idempotency.py`
-- Create: `src/migrations/versions/20260711_000050_timesheet_settlement_guards.py`
+- Create: `src/migrations/versions/20260711_000049_timesheet_settlement_guards.py`
 - Test: `tests/modules/test_project_timesheet_concurrency.py`
 - Test: `tests/admin/test_timesheet_idempotency.py`
 
@@ -87,7 +87,11 @@
 - Modify: `src/app/modules/referral/schema.py`
 - Modify: `src/app/modules/referral/queries.py`
 - Modify: `src/app/application/settlement.py`
-- Create: `src/migrations/versions/20260711_000051_referral_settlement_ownership.py`
+- Create: `src/migrations/versions/20260711_000050_referral_settlement_ownership.py`
+- Delete: `src/app/modules/payment_record/`
+- Delete: `src/app/admin/api/v1/payment_records.py`
+- Modify: `src/migrations/env.py`
+- Modify: `tests/conftest.py`
 - Test: `tests/modules/test_referral_settlement.py`
 - Test: `tests/admin/test_referrals.py`
 - Test: `tests/web/test_referrals.py`
@@ -95,7 +99,7 @@
 **Interfaces:** Referral reward status and paid totals are query projections from Payable/Payment.
 
 - [ ] Write failing tests for one Payable per crossed milestone, cap enforcement, paid aggregation, and reversed aggregation.
-- [ ] Remove payout columns from the ORM and migration; add SQL aggregate queries.
+- [ ] Remove referral payout columns and the old `payment_record` table in the migration; delete the old internal module after migrating its final referral caller; add SQL aggregate queries.
 - [ ] Trigger milestone sync after relevant timesheet changes.
 - [ ] Run referral and settlement tests; expect PASS.
 - [ ] Commit `refactor: derive referral payouts from settlement ledger`.

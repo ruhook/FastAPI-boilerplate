@@ -20,8 +20,8 @@ from ...modules.job_progress.service import (
     list_candidate_contracts,
     list_candidate_job_applications,
 )
-from ...modules.payment_record.schema import CandidateEarningsListPage
-from ...modules.payment_record.service import list_payment_records_for_candidate
+from ...modules.payment.queries import list_candidate_payments
+from ...modules.payment.schema import CandidatePaymentListPage, PaymentListQuery
 from ...modules.project_timesheet_record.schema import CandidateTimesheetWorkspaceRead
 from ...modules.project_timesheet_record.service import list_candidate_timesheet_workspace
 from ...modules.referral.schema import CandidateReferralDashboardRead
@@ -155,22 +155,24 @@ async def read_my_referrals(
     )
 
 
-@router.get("/earnings", response_model=CandidateEarningsListPage)
-async def read_my_earnings(
+@router.get("/payments", response_model=CandidatePaymentListPage)
+async def read_my_payments(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
     payment_type: str | None = Query(default=None),
-) -> dict:
-    return await list_payment_records_for_candidate(
+) -> CandidatePaymentListPage:
+    return await list_candidate_payments(
         db=db,
         user_id=int(current_user["id"]),
-        page=page,
-        page_size=page_size,
-        month=month,
-        payment_type=payment_type,
+        query=PaymentListQuery(
+            page=page,
+            page_size=page_size,
+            month=month,
+            payment_type=payment_type,
+        ),
     )
 
 

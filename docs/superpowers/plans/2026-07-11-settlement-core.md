@@ -4,7 +4,7 @@
 
 **Goal:** Introduce persistent Payable and immutable Payment models with database-backed idempotent payout and reversal flows.
 
-**Architecture:** Create focused `payable` and `payment` modules plus application payout orchestration. The old `payment_record` table and module remain operational until the new API and callers are ready, then are deleted together in the final task of this plan.
+**Architecture:** Create focused `payable` and `payment` modules plus application payout orchestration. The old external payment-record routes are removed in this plan. The internal module and table remain only for the referral payout caller and are deleted in the referral-settlement task immediately after that caller migrates.
 
 **Tech Stack:** FastAPI, SQLAlchemy async, Alembic, MySQL, Pytest
 
@@ -215,22 +215,19 @@ git add src/app/application src/app/modules/payment tests/modules/test_payout_co
 git commit -m "feat: make payout and reversal idempotent"
 ```
 
-### Task 5: Replace settlement APIs and remove payment_record
+### Task 5: Replace external settlement APIs
 
 **Files:**
 - Create: `src/app/admin/api/v1/payables.py`
 - Create: `src/app/admin/api/v1/payments.py`
-- Create: `src/migrations/versions/20260711_000049_remove_payment_record.py`
 - Modify: `src/app/admin/api/v1/__init__.py`
 - Modify: `src/app/api/v1/me.py`
 - Delete: `src/app/admin/api/v1/payment_records.py`
-- Delete: `src/app/modules/payment_record/`
-- Replace: `tests/modules/test_payment_record_payables.py`
 - Test: `tests/admin/test_payables.py`
 - Test: `tests/admin/test_payments.py`
 - Test: `tests/web/test_payments.py`
 
-**Interfaces:** Implements the exact `/admin/payables`, `/admin/payments`, and `/me/payments` routes in the approved design.
+**Interfaces:** Implements the exact `/payables`, `/payments`, and `/me/payments` routes in the approved design and unregisters every external `/payment-records` and `/me/earnings` route.
 
 - [ ] **Step 1: Write API tests for new routes and old-route removal**
 
@@ -255,9 +252,7 @@ Routes validate Pydantic DTOs, apply existing `流水记录` permission, call qu
 
 - [ ] **Step 4: Update imports, fixtures, and talent payment aggregation; delete old module**
 
-Replace every `payment_record` import with `payable` or `payment`. No forwarding module remains.
-
-The final migration drops `payment_record` only after all production imports and tests use the new modules. Its downgrade recreates the old empty schema without attempting data conversion.
+Replace API, candidate-payment, and talent-detail imports with `payable` or `payment`. The referral-only internal import is removed in the referral-settlement plan; it is not registered as a compatibility route.
 
 - [ ] **Step 5: Run plan verification and commit**
 
@@ -269,4 +264,4 @@ git add src tests
 git commit -m "refactor: replace payment records with settlement APIs"
 ```
 
-Expected: tests pass and Alembic prints `20260711_000049 (head)` once.
+Expected: tests pass and Alembic prints `20260711_000048 (head)` once.

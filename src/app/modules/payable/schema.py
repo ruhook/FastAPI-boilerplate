@@ -109,6 +109,22 @@ class PayableListPage(BaseModel):
     summary: PayableSummaryRead
 
 
+class PayableIdsRequest(BaseModel):
+    payable_ids: list[int] = Field(..., min_length=1)
+
+    @field_validator("payable_ids")
+    @classmethod
+    def normalize_payable_ids(cls, value: list[int]) -> list[int]:
+        ids = list(dict.fromkeys(value))
+        if any(item < 1 for item in ids):
+            raise ValueError("Payable IDs must be positive integers.")
+        return ids
+
+
+class PayableBatchResponse(BaseModel):
+    items: list[PayableRead]
+
+
 class PayableListQuery(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=1000)

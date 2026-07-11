@@ -40,7 +40,7 @@
 - Create: `src/app/modules/talent_profile/queries.py`
 - Create: `src/app/modules/talent_profile/serialization.py`
 - Modify: `src/app/modules/talent_profile/model.py`
-- Create: `src/migrations/versions/20260711_000053_talent_status_column.py`
+- Create: `src/migrations/versions/20260711_000052_talent_status_column.py`
 - Delete: `src/app/modules/talent_profile/service.py`
 - Test: `tests/modules/test_talent_profile_boundaries.py`
 

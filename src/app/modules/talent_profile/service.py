@@ -39,7 +39,7 @@ from ..operation_log.const import OperationLogType
 from ..operation_log.model import OperationLog
 from ..operation_log.schema import OperationLogRead
 from ..operation_log.service import create_operation_log
-from ..payment_record.model import PaymentRecord
+from ..payment.model import Payment
 from ..project_timesheet_record.model import ProjectTimesheetRecord
 from ..referral.model import ReferralRecord
 from ..talent_profile_merge_log.model import TalentProfileMergeLog
@@ -779,15 +779,14 @@ async def _list_talent_payment_records(
     db: AsyncSession,
 ) -> list[dict[str, Any]]:
     result = await db.execute(
-        select(PaymentRecord)
+        select(Payment)
         .where(
-            PaymentRecord.is_deleted.is_(False),
             or_(
-                PaymentRecord.talent_profile_id == talent.id,
-                PaymentRecord.user_id == talent.user_id,
+                Payment.talent_profile_id == talent.id,
+                Payment.user_id == talent.user_id,
             ),
         )
-        .order_by(PaymentRecord.paid_at.desc(), PaymentRecord.id.desc())
+        .order_by(Payment.paid_at.desc(), Payment.id.desc())
         .limit(50)
     )
     return [

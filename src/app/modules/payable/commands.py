@@ -92,6 +92,7 @@ async def create_manual_payable(
     _apply_draft(payable, draft)
     db.add(payable)
     await db.flush()
+    await db.refresh(payable)
     return payable
 
 
@@ -134,4 +135,6 @@ async def transition_payables(
         elif target == PayableStatus.CANCELLED:
             payable.cancelled_at = now
     await db.flush()
+    for payable in payables:
+        await db.refresh(payable)
     return payables
