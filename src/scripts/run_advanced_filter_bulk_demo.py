@@ -357,7 +357,7 @@ async def seed_progress_candidates(
                     JobProgressDataKey.NOTE.value: definition["note"] or "",
                 }
                 contract_number = ""
-                contract_review = ""
+                contract_review_status = ""
                 accepted_rate = ""
             elif index <= 140:
                 stage_alias = "passed"
@@ -370,13 +370,11 @@ async def seed_progress_candidates(
                     field_updates={
                         "agreement_ref_no": f"{run_tag}-SP-{index:03d}",
                         "rate": Decimal("0.85") + Decimal(index % 4) / Decimal("10"),
-                    },
-                    data_updates={
-                        "signing_status": "待筛选签约资料",
+                        "signing_status": "not_sent",
                     },
                 )
                 contract_number = str(contract.agreement_ref_no or "")
-                contract_review = str((contract.data or {}).get("contract_review") or "")
+                contract_review_status = str(contract.contract_review_status or "")
                 accepted_rate = str(contract.rate or "")
             elif index <= 200:
                 stage_alias = "contract"
@@ -389,14 +387,12 @@ async def seed_progress_candidates(
                     field_updates={
                         "agreement_ref_no": f"{run_tag}-CP-{index:03d}",
                         "rate": Decimal("0.80") + Decimal(index % 5) / Decimal("10"),
-                    },
-                    data_updates={
-                        "contract_review": "待审核" if index % 3 == 0 else "待修改",
-                        "signing_status": "已通知人选签合同",
+                        "contract_review_status": "pending" if index % 3 == 0 else "changes_requested",
+                        "signing_status": "sent",
                     },
                 )
                 contract_number = str(contract.agreement_ref_no or "")
-                contract_review = str((contract.data or {}).get("contract_review") or "")
+                contract_review_status = str(contract.contract_review_status or "")
                 accepted_rate = str(contract.rate or "")
             else:
                 stage_alias = "employed"
@@ -413,15 +409,13 @@ async def seed_progress_candidates(
                     field_updates={
                         "agreement_ref_no": f"{run_tag}-AC-{index:03d}",
                         "rate": Decimal("1.00") + Decimal(index % 4) / Decimal("10"),
-                        "contract_status": "Active",
-                    },
-                    data_updates={
-                        "contract_review": "审核通过",
-                        "signing_status": "已完成签约",
+                        "contract_status": "active",
+                        "contract_review_status": "approved",
+                        "signing_status": "company_sealed",
                     },
                 )
                 contract_number = str(contract.agreement_ref_no or "")
-                contract_review = str((contract.data or {}).get("contract_review") or "")
+                contract_review_status = str(contract.contract_review_status or "")
                 accepted_rate = str(contract.rate or "")
 
             progress.entered_stage_at = submitted_at + timedelta(hours=6)
@@ -445,7 +439,7 @@ async def seed_progress_candidates(
                     "source_application_id": int(application.id),
                     "latest_applied_at": submitted_at.isoformat(),
                     "contract_number": contract_number,
-                    "contract_review": contract_review,
+                    "contract_review_status": contract_review_status,
                     "accepted_rate": accepted_rate,
                     "note": definition["note"],
                 }
@@ -713,7 +707,7 @@ def build_progress_query_contract(*, run_tag: str) -> dict[str, Any]:
             {"field": CandidateFieldKey.FULL_NAME.value, "operator": "contains", "value": run_tag},
             {"field": CandidateFieldKey.COUNTRY_OF_RESIDENCE.value, "operator": "=", "value": "Japan"},
             {"field": "current_stage", "operator": "=", "value": "contract"},
-            {"field": "contract_review", "operator": "=", "value": "待审核"},
+            {"field": "contract_review_status", "operator": "=", "value": "pending"},
             {"field": "accepted_rate", "operator": ">=", "value": "0.9"},
         ],
     }
@@ -768,7 +762,7 @@ def expected_progress_contract_count(rows: list[dict[str, Any]], *, run_tag: str
             if run_tag in row["full_name"]
             and row["stage_alias"] == "contract"
             and row["country_of_residence"] == "Japan"
-            and row["contract_review"] == "待审核"
+            and row["contract_review_status"] == "pending"
             and row["accepted_rate"]
             and Decimal(str(row["accepted_rate"])) >= Decimal("0.9")
         ]

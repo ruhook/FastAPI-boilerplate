@@ -128,7 +128,7 @@ uv run python -m src.scripts.v2.run_full_regression_suite
 - Admin Timesheet Overview / Workspace
 - Admin Progress 基础探活
 - Admin Payment Record 批量新增 + 非法 Referral Reward 拦截
-- Admin Referral mark-paid + Payment Record / Candidate Referral 联动
+- Admin Payables 结算/支付 + Payment 不可变流水 / Candidate Referral 联动
 - Admin Contract 编辑 + 非法激活拦截 + 重签
 - Admin Timesheet 批量新增 / 编辑 / 删除 + 整数边界校验
 - Progress 合同链路：补合同记录 -> 上传待签合同 -> C 端签回 -> 审核通过 -> 上传公司签回合同 -> 激活

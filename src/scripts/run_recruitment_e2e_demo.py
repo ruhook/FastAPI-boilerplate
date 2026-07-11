@@ -258,22 +258,35 @@ async def admin_update_contract_record(
     job_id: int,
     progress_ids: list[int],
     agreement_ref_no: str | None = None,
-    signing_status: str | None = None,
-    contract_review: str | None = None,
+    contract_review_status: str | None = None,
     rate: str | None = None,
 ) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "progress_ids": progress_ids,
+        "ensure_contract_record": True,
+    }
+    if agreement_ref_no is not None:
+        payload["agreement_ref_no"] = agreement_ref_no
+    if rate is not None:
+        payload["rate"] = rate
     response = await client.patch(
         f"/jobs/{job_id}/progress/contract-record",
         headers={"Authorization": f"Bearer {access_token}"},
-        json={
-            "progress_ids": progress_ids,
-            "agreement_ref_no": agreement_ref_no,
-            "signing_status": signing_status,
-            "contract_review": contract_review,
-            "rate": rate,
-        },
+        json=payload,
     )
-    return ensure_ok(response, "Update contract record failed")
+    result = ensure_ok(response, "Update contract record failed")
+    if contract_review_status is not None:
+        for item in result.get("items", []):
+            contract_id = int((item.get("contract_record_data") or {}).get("id") or 0)
+            if contract_id < 1:
+                raise RuntimeError("Update contract record did not return a contract ID for review.")
+            review_response = await client.post(
+                f"/contracts/{contract_id}/review",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"target": contract_review_status},
+            )
+            ensure_ok(review_response, "Review contract failed")
+    return result
 
 
 async def admin_get_talent(
@@ -609,16 +622,7 @@ async def main() -> None:
             )
             batch_mail_task_ids.append(int(mail_payload["id"]))
 
-        await admin_update_contract_record(
-            admin_client,
-            access_token=admin_access_token,
-            job_id=int(no_assessment_case["job"].id),
-            progress_ids=batch_progress_ids,
-            signing_status="已通知人选签合同",
-        )
-        print_detail(
-            f"batch notify created mail_tasks={batch_mail_task_ids} and updated signing_status=已通知人选签合同"
-        )
+        print_detail(f"batch notify created mail_tasks={batch_mail_task_ids} and updated signing_status=sent")
 
         print_step("环节 8/11：B 端推进到合同库并上传合同")
         await admin_move_stage(

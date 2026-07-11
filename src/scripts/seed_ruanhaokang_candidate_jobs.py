@@ -603,7 +603,6 @@ def _stage_data(stage: RecruitmentStage, *, now: datetime) -> dict[str, Any]:
             JobProgressDataKey.ASSESSMENT_REVIEW_COMMENT.value: "Seeded candidate passed screening.",
             JobProgressDataKey.QA_STATUS.value: "待质检",
             JobProgressDataKey.ACCEPTED_RATE.value: "8.50",
-            JobProgressDataKey.SIGNING_STATUS.value: "待通知签合同",
             JobProgressDataKey.SALARY_CONFIRMED_AT.value: (now - timedelta(days=1)).isoformat(),
         }
     if stage == RecruitmentStage.CONTRACT_POOL:
@@ -611,12 +610,8 @@ def _stage_data(stage: RecruitmentStage, *, now: datetime) -> dict[str, Any]:
             **base,
             JobProgressDataKey.ASSESSMENT_RESULT.value: "通过",
             JobProgressDataKey.ACCEPTED_RATE.value: "9.00",
-            JobProgressDataKey.SIGNING_STATUS.value: "已通知人选签合同",
             JobProgressDataKey.CONTRACT_NUMBER.value: "HK-SEED-CONTRACT-001",
-            JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT.value: "haokang-draft-contract.pdf",
-            JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT.value: "haokang-signed-contract.pdf",
             JobProgressDataKey.SUBMITTED_CONTRACT_AT.value: (now - timedelta(hours=18)).isoformat(),
-            JobProgressDataKey.CONTRACT_REVIEW.value: "待审核",
             JobProgressDataKey.SALARY_CONFIRMED_AT.value: (now - timedelta(days=2)).isoformat(),
         }
     if stage == RecruitmentStage.ACTIVE:

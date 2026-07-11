@@ -55,7 +55,7 @@ def build_contract(progress_id: int) -> ContractRecord:
         job_id=10,
         job_progress_id=progress_id,
         service_customer_project_id=1,
-        contract_status="Pending Activation",
+        contract_status="pending_activation",
         legal_entity="T-Maxx International",
         worker_type="Contractor",
         draft_contract_asset_id=99,

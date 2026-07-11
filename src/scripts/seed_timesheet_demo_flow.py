@@ -876,7 +876,7 @@ async def ensure_active_contract_record(
     if existing_records:
         seed_current = existing_records[0]
         seed_current.is_current = True
-        seed_current.contract_status = "Active"
+        seed_current.contract_status = "active"
         seed_current.updated_by_admin_user_id = admin.id
         for duplicate in existing_records[1:]:
             duplicate.is_deleted = True
@@ -895,13 +895,12 @@ async def ensure_active_contract_record(
             "rate": definition["rate"],
             "effective_date": effective_date,
             "end_date": effective_date + timedelta(days=365),
-            "contract_status": "Active",
+            "contract_status": "active",
+            "contract_review_status": "approved",
+            "signing_status": "company_sealed",
             "contract_type": definition.get("contract_type", "normal"),
             "is_current": True,
             "updated_by_admin_user_id": admin.id,
-        },
-        data_updates={
-            "contract_review": "审核通过",
         },
     )
     await session.flush()
@@ -959,7 +958,7 @@ async def ensure_candidate_portal_referral_records(
         .join(Job, Job.id == ContractRecord.job_id)
         .where(
             ContractRecord.user_id == int(referrer_user.id),
-            ContractRecord.contract_status == "Active",
+            ContractRecord.contract_status == "active",
             ContractRecord.is_deleted.is_(False),
         )
         .order_by(ContractRecord.id.asc())
@@ -1126,12 +1125,12 @@ async def apply_candidate_portal_contract_statuses(
 ) -> None:
     now = _utc_now()
     for key, contract in contracts_by_key.items():
-        desired_status = desired_status_by_key.get(key) or "Active"
+        desired_status = (desired_status_by_key.get(key) or "active").strip().lower().replace(" ", "_")
         contract.contract_status = desired_status
-        contract.is_current = desired_status not in {"Terminated", "Expired"}
+        contract.is_current = desired_status not in {"terminated", "expired"}
         contract.updated_at = now
         contract.updated_by_admin_user_id = admin.id
-        if desired_status in {"Terminated", "Expired"} and contract.end_date is None:
+        if desired_status in {"terminated", "expired"} and contract.end_date is None:
             contract.end_date = date.today() - timedelta(days=14)
     await session.flush()
 
@@ -1326,7 +1325,7 @@ async def count_active_contracts(
             ContractRecord.job_id == job_id,
             ContractRecord.is_deleted.is_(False),
             ContractRecord.is_current.is_(True),
-            ContractRecord.contract_status == "Active",
+            ContractRecord.contract_status == "active",
         )
     )
     return int(result.scalar() or 0)

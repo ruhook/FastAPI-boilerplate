@@ -91,9 +91,7 @@ async def test_reached_referral_milestones_materialize_capped_payables(
     payables = list(
         (
             await db_session.scalars(
-                select(Payable)
-                .where(Payable.payment_type == "referral_reward")
-                .order_by(Payable.source_key.asc())
+                select(Payable).where(Payable.payment_type == "referral_reward").order_by(Payable.source_key.asc())
             )
         ).all()
     )
@@ -122,9 +120,7 @@ async def test_referral_paid_and_reversed_totals_are_ledger_projections(
     referral_payables = list(
         (
             await db_session.scalars(
-                select(Payable)
-                .where(Payable.referral_record_id == referral.id)
-                .order_by(Payable.id.asc())
+                select(Payable).where(Payable.referral_record_id == referral.id).order_by(Payable.id.asc())
             )
         ).all()
     )
@@ -224,9 +220,7 @@ async def test_candidate_referrals_read_the_same_payable_projection(
     )
     referrer = await db_session.get(User, referral.referrer_user_id)
     referred_contract = (
-        await db_session.scalars(
-            select(ContractRecord).where(ContractRecord.user_id == referral.referred_user_id)
-        )
+        await db_session.scalars(select(ContractRecord).where(ContractRecord.user_id == referral.referred_user_id))
     ).one()
     job = await db_session.get(Job, referred_contract.job_id)
     assert referrer is not None and job is not None
@@ -262,25 +256,25 @@ async def test_candidate_referrals_read_the_same_payable_projection(
     db_session.add(progress)
     await db_session.flush()
     referrer_contract = ContractRecord(
-            user_id=referrer.id,
-            user_snapshot_name=referrer.name,
-            user_snapshot_email=referrer.email,
-            talent_profile_id=talent.id,
-            application_id=application.id,
-            job_id=job.id,
-            job_progress_id=progress.id,
-            service_customer_company_id=referred_contract.service_customer_company_id,
-            service_customer_project_id=referred_contract.service_customer_project_id,
-            agreement_ref_no=f"REFERRER-{referrer.id}",
-            contract_status="Active",
-            contract_type="normal",
-            contractor_name=referrer.name,
-            rate=Decimal("5.00"),
-            legal_entity="T-Maxx International",
-            worker_type="Contractor",
-            effective_date=date(2026, 7, 1),
-            data={},
-        )
+        user_id=referrer.id,
+        user_snapshot_name=referrer.name,
+        user_snapshot_email=referrer.email,
+        talent_profile_id=talent.id,
+        application_id=application.id,
+        job_id=job.id,
+        job_progress_id=progress.id,
+        service_customer_company_id=referred_contract.service_customer_company_id,
+        service_customer_project_id=referred_contract.service_customer_project_id,
+        agreement_ref_no=f"REFERRER-{referrer.id}",
+        contract_status="active",
+        contract_type="normal",
+        contractor_name=referrer.name,
+        rate=Decimal("5.00"),
+        legal_entity="T-Maxx International",
+        worker_type="Contractor",
+        effective_date=date(2026, 7, 1),
+        data={},
+    )
     db_session.add(referrer_contract)
     await db_session.flush()
     await ensure_user_referral_profile_from_job(

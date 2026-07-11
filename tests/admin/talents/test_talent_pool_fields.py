@@ -179,7 +179,7 @@ async def _create_talent_with_sources(
             service_customer_company_id=job.company_id,
             service_customer_project_id=job.project_id,
             agreement_ref_no="CON-009",
-            contract_status="Active",
+            contract_status="active",
             contract_type="normal",
             contractor_name=user.name,
             rate=Decimal("9.25"),

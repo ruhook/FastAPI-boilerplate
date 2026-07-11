@@ -452,7 +452,7 @@ async def test_web_me_contracts_only_lists_company_signed_active_contracts(
         job_snapshot_title=job.title,
         service_customer_project_id=job.project_id,
         agreement_ref_no=f"ACTIVE-ONLY-{suffix}",
-        contract_status="Pending Activation",
+        contract_status="pending_activation",
         contractor_name=user.name,
         draft_contract_asset_id=draft_asset.id,
         candidate_signed_contract_asset_id=signed_asset.id,
@@ -466,7 +466,7 @@ async def test_web_me_contracts_only_lists_company_signed_active_contracts(
     assert all(int(item["application_id"]) != application_id for item in pending_response.json()["items"])
 
     contract.company_sealed_contract_asset_id = sealed_asset.id
-    contract.contract_status = "Active"
+    contract.contract_status = "active"
     progress.current_stage = "active"
     await db_session.commit()
 

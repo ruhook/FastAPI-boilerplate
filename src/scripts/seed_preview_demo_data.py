@@ -587,7 +587,6 @@ async def _seed_contract_case(db: AsyncSession, *, job: Job, admin: AdminUser) -
     progress.data = {
         **(progress.data or {}),
         JobProgressDataKey.ACCEPTED_RATE.value: "8.50",
-        JobProgressDataKey.SIGNING_STATUS.value: "已通知人选签合同",
         JobProgressDataKey.CONTRACT_NUMBER.value: "PV-CONTRACT-001",
         JobProgressDataKey.SUBMITTED_CONTRACT_AT.value: submitted_at.isoformat(),
         JobProgressDataKey.NOTE.value: "Candidate signed contract is an xlsx file for Feishu preview.",
@@ -605,6 +604,8 @@ async def _seed_contract_case(db: AsyncSession, *, job: Job, admin: AdminUser) -
         service_customer_project_id=job.project_id,
         agreement_ref_no="PV-CONTRACT-001",
         contract_status=CONTRACT_STATUS_PENDING_ACTIVATION,
+        contract_review_status="pending",
+        signing_status="candidate_signed",
         contract_type=CONTRACT_TYPE_NORMAL,
         contractor_name=user.name,
         rate=Decimal("8.50"),
@@ -628,8 +629,6 @@ async def _seed_contract_case(db: AsyncSession, *, job: Job, admin: AdminUser) -
             "candidate_signed_contract_submitted_at": submitted_at.isoformat(),
             "company_sealed_contract_attachment_name": company_return.original_name,
             "contract_attachment_name": company_return.original_name,
-            "contract_review": "待审核",
-            "signing_status": "已通知人选签合同",
         },
     )
     db.add(record)
@@ -749,6 +748,8 @@ async def _seed_generic_case(db: AsyncSession, *, job: Job, admin: AdminUser) ->
         service_customer_project_id=job.project_id,
         agreement_ref_no="PV-ACTIVE-001",
         contract_status=CONTRACT_STATUS_ACTIVE,
+        contract_review_status="approved",
+        signing_status="company_sealed",
         contract_type=CONTRACT_TYPE_NORMAL,
         contractor_name=user.name,
         rate=Decimal("9.00"),
@@ -772,8 +773,6 @@ async def _seed_generic_case(db: AsyncSession, *, job: Job, admin: AdminUser) ->
             "candidate_signed_contract_submitted_at": submitted_at.isoformat(),
             "company_sealed_contract_attachment_name": contract_sheet.original_name,
             "contract_attachment_name": contract_sheet.original_name,
-            "contract_review": "审核通过",
-            "signing_status": "已完成签约",
         },
     )
     db.add(record)

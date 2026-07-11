@@ -207,7 +207,7 @@ async def check_candidate_my_jobs_and_contract_views(context: SuiteContext) -> s
             "Active detail is missing company sealed contract.",
         )
         assert_true(
-            active_contract.get("contract_status") == "Active", "Active detail did not return Active contract status."
+            active_contract.get("contract_status") == "active", "Active detail did not return Active contract status."
         )
     return f"applications={applications['total']} needs_action={needs_action['total']} stages_ok={len(expected_stages)}"
 
@@ -304,7 +304,7 @@ async def check_candidate_signed_contract_guardrails(context: SuiteContext) -> s
                 if item.get("current_stage") == "screening_passed"
                 or (
                     item.get("current_stage") == "contract_pool"
-                    and (item.get("contract_record_data") or {}).get("contract_review") == "待修改"
+                    and (item.get("contract_record_data") or {}).get("contract_review_status") == "changes_requested"
                 )
             ),
             None,
@@ -417,7 +417,7 @@ async def check_inactive_contract_upload_block(context: SuiteContext) -> str:
         )
         contract_record = target.get("contract_record_data") or {}
         contract_record_id = int(contract_record["id"])
-        original_status = str(contract_record.get("contract_status") or "Pending Activation")
+        original_status = str(contract_record.get("contract_status") or "pending_activation")
         job_id = int(target["job_id"])
 
         try:
@@ -479,7 +479,7 @@ async def check_candidate_timesheet_dashboard(context: SuiteContext) -> str:
         assert_true(bool(payload.get("team_leader_bonus")), "Team leader bonus payload is missing.")
         statuses = {str(item.get("contract_status")) for item in contracts}
         assert_true(
-            "Active" in statuses and "Terminated" in statuses,
+            "active" in statuses and "terminated" in statuses,
             f"Unexpected timesheet contract statuses: {sorted(statuses)}",
         )
 
@@ -497,7 +497,7 @@ async def check_candidate_timesheet_dashboard(context: SuiteContext) -> str:
     return f"contracts={len(contracts)} statuses={sorted(statuses)} bonus_month={payload.get('bonus_month')}"
 
 
-async def check_candidate_referrals_and_earnings(context: SuiteContext) -> str:
+async def check_candidate_referrals_and_payments(context: SuiteContext) -> str:
     async with httpx.AsyncClient(base_url=context.web_base_url, timeout=30.0) as client:
         token = await login_candidate(
             client,
@@ -513,10 +513,10 @@ async def check_candidate_referrals_and_earnings(context: SuiteContext) -> str:
             "Candidate referral dashboard should have active referrals.",
         )
 
-        earnings_response = await client.get("/me/earnings", headers=headers, params={"payment_type": "invalid_type"})
+        payments_response = await client.get("/me/payments", headers=headers, params={"month": "invalid"})
         assert_true(
-            earnings_response.status_code == 400,
-            f"Candidate earnings invalid payment_type should return 400, got {earnings_response.status_code}.",
+            payments_response.status_code == 422,
+            f"Candidate payments invalid month should return 422, got {payments_response.status_code}.",
         )
     return f"milestones_ok={len(milestones)} active_referrals={referral_payload.get('active_referral_count')}"
 
@@ -537,12 +537,10 @@ async def check_admin_referrals_and_payment_filters(context: SuiteContext) -> st
             int(referrals_payload.get("total") or 0) > 0, "Admin referrals should contain seeded referral records."
         )
 
-        payment_response = await client.get(
-            "/v1/payment-records", headers=headers, params={"payment_type": "invalid_type"}
-        )
+        payment_response = await client.get("/v1/payments", headers=headers, params={"month": "invalid"})
         assert_true(
-            payment_response.status_code == 400,
-            f"Admin payment invalid payment_type should return 400, got {payment_response.status_code}.",
+            payment_response.status_code == 422,
+            f"Admin payments invalid month should return 422, got {payment_response.status_code}.",
         )
     return f"milestones_ok={len(milestones)} referrals_total={referrals_payload.get('total')}"
 
@@ -640,17 +638,14 @@ async def check_admin_timesheet_and_progress_endpoints(context: SuiteContext) ->
     return f"overview_items={len(overview_items)}"
 
 
-async def check_admin_payment_record_mutations(context: SuiteContext) -> str:
+async def check_admin_payment_mutations(context: SuiteContext) -> str:
     assert_true(context.seed_summary is not None, "Payment mutation check requires seed summary.")
     worker = context.seed_summary["seed_payloads"]["timesheet_demo"]["workers"][0]
     worker_email = str(worker["email"])
 
     async with (
         httpx.AsyncClient(base_url=context.admin_base_url, timeout=30.0) as admin_client,
-        httpx.AsyncClient(
-            base_url=context.web_base_url,
-            timeout=30.0,
-        ) as web_client,
+        httpx.AsyncClient(base_url=context.web_base_url, timeout=30.0) as web_client,
     ):
         admin_token = await login_admin(
             admin_client,
@@ -665,7 +660,7 @@ async def check_admin_payment_record_mutations(context: SuiteContext) -> str:
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
         candidate_headers = {"Authorization": f"Bearer {candidate_token}"}
 
-        worker_contracts_payload = await fetch_json(
+        contracts_payload = await fetch_json(
             admin_client,
             "GET",
             "/v1/contracts",
@@ -673,105 +668,80 @@ async def check_admin_payment_record_mutations(context: SuiteContext) -> str:
             params={"keyword": worker_email, "page_size": 20},
         )
         worker_contract = next(
-            item for item in worker_contracts_payload.get("items", []) if item.get("contract_status") == "Active"
+            item
+            for item in contracts_payload.get("items", [])
+            if item.get("contract_status") == "active" and bool(item.get("is_current"))
         )
         worker_user_id = int(worker_contract["user_id"])
         marker = f"V2PAY-{timestamp_tag()}"
-        create_payload = {
-            "items": [
-                {
+        payable_ids: list[int] = []
+        for payment_type, amount in [("salary", "128.55"), ("team_leader_bonus", "9.90")]:
+            payable = await fetch_json(
+                admin_client,
+                "POST",
+                "/v1/payables/manual",
+                headers=admin_headers,
+                json={
+                    "payment_type": payment_type,
+                    "settlement_month": date.today().strftime("%Y-%m"),
                     "user_id": worker_user_id,
-                    "payment_type": "salary",
-                    "amount": "128.55",
+                    "amount": amount,
                     "currency": "USD",
                     "contract_record_id": int(worker_contract["id"]),
-                    "external_platform": "manual_test",
-                    "external_transaction_no": f"{marker}-SALARY",
-                    "remark": "V2 salary regression payout.",
+                    "remark": marker,
                 },
-                {
-                    "user_id": worker_user_id,
-                    "payment_type": "team_leader_bonus",
-                    "amount": "9.90",
-                    "currency": "USD",
-                    "contract_record_id": int(worker_contract["id"]),
-                    "external_platform": "manual_test",
-                    "external_transaction_no": f"{marker}-TL",
-                    "remark": "V2 team leader regression payout.",
-                },
-            ]
-        }
-        create_result = await fetch_json(
+            )
+            payable_ids.append(int(payable["id"]))
+
+        await fetch_json(
             admin_client,
             "POST",
-            "/v1/payment-records/batch",
+            "/v1/payables/processing",
             headers=admin_headers,
-            json=create_payload,
+            json={"payable_ids": payable_ids},
         )
-        created_items = create_result.get("items", [])
-        assert_true(int(create_result.get("created_count") or 0) == 2, "Expected two payment records to be created.")
-        assert_true(len(created_items) == 2, "Payment batch response returned an unexpected item count.")
-
-        invalid_referral_payload = {
-            "items": [
-                {
-                    "user_id": worker_user_id,
-                    "payment_type": "referral_reward",
-                    "amount": "12.00",
-                    "currency": "USD",
-                    "referral_record_id": 1,
-                    "external_transaction_no": f"{marker}-REFERRAL",
-                }
-            ]
-        }
-        invalid_response = await admin_client.post(
-            "/v1/payment-records/batch",
+        payout = await fetch_json(
+            admin_client,
+            "POST",
+            "/v1/payables/pay",
             headers=admin_headers,
-            json=invalid_referral_payload,
+            json={
+                "payable_ids": payable_ids,
+                "external_platform": "manual_test",
+                "external_transaction_no": marker,
+                "remark": "V2 payment regression payout.",
+            },
         )
-        assert_true(
-            invalid_response.status_code == 400,
-            f"Manual referral reward creation should be rejected, got {invalid_response.status_code}: {invalid_response.text}",
-        )
-        assert_true(
-            "referral rewards page" in invalid_response.text,
-            f"Unexpected manual referral payment rejection: {invalid_response.text}",
-        )
+        assert_true(int(payout.get("paid_count") or 0) == 2, "Expected two payables to be paid.")
 
-        payment_list_payload = await fetch_json(
+        payment_list = await fetch_json(
             admin_client,
             "GET",
-            "/v1/payment-records",
+            "/v1/payments",
             headers=admin_headers,
             params={"keyword": marker, "page_size": 20},
         )
-        matching_payment_records = payment_list_payload.get("items", [])
-        assert_true(
-            len(matching_payment_records) >= 2,
-            f"Expected at least two payment records for marker {marker}, got {len(matching_payment_records)}.",
-        )
+        payment_matches = payment_list.get("items", [])
+        assert_true(len(payment_matches) == 2, f"Expected two immutable payments for {marker}.")
 
-        earnings_payload = await fetch_json(
+        candidate_payments = await fetch_json(
             web_client,
             "GET",
-            "/me/earnings",
+            "/me/payments",
             headers=candidate_headers,
             params={"month": date.today().strftime("%Y-%m"), "page_size": 100},
         )
-        earnings_matches = [
+        candidate_matches = [
             item
-            for item in earnings_payload.get("items", [])
+            for item in candidate_payments.get("items", [])
             if marker in str(item.get("external_transaction_no") or "")
         ]
-        assert_true(
-            len(earnings_matches) >= 2,
-            f"Candidate earnings did not surface both new manual payments for marker {marker}.",
-        )
-    return f"payment_marker={marker} user={worker_email} created=2 earnings_matches={len(earnings_matches)}"
+        assert_true(len(candidate_matches) == 2, "Candidate payment history did not surface both payouts.")
+    return f"payment_marker={marker} user={worker_email} paid=2"
 
 
-async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
-    assert_true(context.seed_summary is not None, "Referral mark-paid mutation check requires seed summary.")
+async def check_admin_referral_payable_mutation(context: SuiteContext) -> str:
+    assert_true(context.seed_summary is not None, "Referral payable mutation check requires seed summary.")
     timesheet_seed = context.seed_summary["seed_payloads"]["timesheet_demo"]
     company_id = int(timesheet_seed["company"]["id"])
     project_id = int(timesheet_seed["project"]["id"])
@@ -917,55 +887,85 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
             )
 
         referral_record_id = int(target_record["id"])
-        referred_email = str(target_record.get("referred_email") or "")
-
-        mark_paid_payload = await fetch_json(
+        settlement_month = date.today().strftime("%Y-%m")
+        await fetch_json(
             admin_client,
             "POST",
-            f"/v1/referrals/{referral_record_id}/mark-paid",
+            "/v1/payables/sync",
             headers=admin_headers,
+            json={"settlement_month": settlement_month},
         )
-        marked_item = mark_paid_payload.get("item") or {}
-        assert_true(str(marked_item.get("payout_status")) == "paid", "Marked referral did not move to paid status.")
-        assert_true(
-            quantize_decimal(marked_item.get("payable_reward_amount")) == Decimal("0.00"),
-            "Marked referral still has a payable balance.",
-        )
-        assert_true(
-            quantize_decimal(marked_item.get("paid_reward_amount"))
-            == quantize_decimal(marked_item.get("referral_earnings")),
-            "Paid referral did not close the paid/reward amounts.",
-        )
-
-        duplicate_response = await admin_client.post(
-            f"/v1/referrals/{referral_record_id}/mark-paid",
-            headers=admin_headers,
-        )
-        assert_true(
-            duplicate_response.status_code == 400,
-            f"Duplicate referral mark-paid should fail with 400, got {duplicate_response.status_code}: {duplicate_response.text}",
-        )
-        assert_true(
-            "no unpaid referral reward" in duplicate_response.text.lower(),
-            f"Unexpected duplicate mark-paid rejection: {duplicate_response.text}",
-        )
-
-        payment_records_payload = await fetch_json(
+        payables_payload = await fetch_json(
             admin_client,
             "GET",
-            "/v1/payment-records",
+            "/v1/payables",
             headers=admin_headers,
-            params={"payment_type": "referral_reward", "keyword": referred_email, "page_size": 20},
+            params={
+                "settlement_month": settlement_month,
+                "payment_type": "referral_reward",
+                "page_size": 100,
+            },
         )
-        payment_match = next(
+        referral_payable = next(
             (
                 item
-                for item in payment_records_payload.get("items", [])
+                for item in payables_payload.get("items", [])
                 if int(item.get("referral_record_id") or 0) == referral_record_id
             ),
             None,
         )
-        assert_true(payment_match is not None, "Referral mark-paid did not create a matching payment record.")
+        assert_true(referral_payable is not None, "Payable sync did not create the referral payable.")
+        payable_id = int(referral_payable["id"])
+        await fetch_json(
+            admin_client,
+            "POST",
+            "/v1/payables/processing",
+            headers=admin_headers,
+            json={"payable_ids": [payable_id]},
+        )
+        marker = f"V2-REFERRAL-PAY-{timestamp_tag()}"
+        payout = await fetch_json(
+            admin_client,
+            "POST",
+            "/v1/payables/pay",
+            headers=admin_headers,
+            json={
+                "payable_ids": [payable_id],
+                "external_platform": "manual_test",
+                "external_transaction_no": marker,
+                "remark": "V2 referral reward payout.",
+            },
+        )
+        assert_true(int(payout.get("paid_count") or 0) == 1, "Referral payable was not paid.")
+
+        duplicate = await fetch_json(
+            admin_client,
+            "POST",
+            "/v1/payables/pay",
+            headers=admin_headers,
+            json={"payable_ids": [payable_id]},
+        )
+        assert_true(
+            int(duplicate.get("failed_count") or 0) == 1,
+            "Paying an already-paid payable should return one failed item.",
+        )
+
+        payments_payload = await fetch_json(
+            admin_client,
+            "GET",
+            "/v1/payments",
+            headers=admin_headers,
+            params={"payment_type": "referral_reward", "keyword": marker, "page_size": 20},
+        )
+        payment_match = next(
+            (
+                item
+                for item in payments_payload.get("items", [])
+                if int(item.get("referral_record_id") or 0) == referral_record_id
+            ),
+            None,
+        )
+        assert_true(payment_match is not None, "Referral payout did not create an immutable payment.")
 
         candidate_referrals_payload = await fetch_json(
             web_client,
@@ -982,13 +982,13 @@ async def check_admin_referral_mark_paid_mutation(context: SuiteContext) -> str:
             None,
         )
         assert_true(
-            candidate_record is not None, "Candidate referral dashboard did not return the marked referral record."
+            candidate_record is not None, "Candidate referral dashboard did not return the paid referral record."
         )
         assert_true(
             str(candidate_record.get("payout_status")) == "paid",
             "Candidate referral dashboard did not reflect paid status.",
         )
-    return f"referral_record_id={referral_record_id} paid_amount={marked_item.get('paid_reward_amount')}"
+    return f"referral_record_id={referral_record_id} payment_id={payment_match.get('id')}"
 
 
 async def check_admin_contract_mutations(context: SuiteContext) -> str:
@@ -1009,18 +1009,18 @@ async def check_admin_contract_mutations(context: SuiteContext) -> str:
         )
         portal_contracts = portal_contracts_payload.get("items", [])
         pending_contract = next(
-            item for item in portal_contracts if item.get("contract_status") == "Pending Activation"
+            item for item in portal_contracts if item.get("contract_status") == "pending_activation"
         )
         active_contract = next(
             item
             for item in portal_contracts
-            if item.get("contract_status") == "Active" and bool(item.get("is_current"))
+            if item.get("contract_status") == "active" and bool(item.get("is_current"))
         )
 
         invalid_activate_response = await client.patch(
             f"/v1/contracts/{pending_contract['id']}",
             headers=headers,
-            json={"contract_status": "Active"},
+            json={"contract_status": "active"},
         )
         assert_true(
             invalid_activate_response.status_code == 400,
@@ -1039,8 +1039,8 @@ async def check_admin_contract_mutations(context: SuiteContext) -> str:
             params={"keyword": DEFAULT_TIMESHEET_CANDIDATE_EMAIL, "page_size": 100},
         )
         timesheet_contracts = timesheet_contracts_payload.get("items", [])
-        terminated_contract = next(item for item in timesheet_contracts if item.get("contract_status") == "Terminated")
-        patch_marker = f"V2-LEGACY-{timestamp_tag()}"
+        terminated_contract = next(item for item in timesheet_contracts if item.get("contract_status") == "terminated")
+        patch_marker = f"V2-CONTRACT-{timestamp_tag()}"
         patched_payload = await fetch_json(
             client,
             "PATCH",
@@ -1067,7 +1067,7 @@ async def check_admin_contract_mutations(context: SuiteContext) -> str:
             headers=headers,
             data={
                 "agreement_ref_no": resign_marker,
-                "contract_status": "Active",
+                "contract_status": "active",
                 "contract_type": active_contract.get("contract_type") or "normal",
                 "contractor_name": active_contract.get("contractor_name") or "Portal Candidate",
                 "rate": active_contract.get("rate") or "18.00",
@@ -1458,15 +1458,16 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
                     f"Candidate signed contract upload should move the record into contract_pool, got {signed_payload.get('current_stage')}.",
                 )
                 assert_true(
-                    str((signed_payload.get("contract_record_data") or {}).get("contract_review") or "") == "待审核",
-                    "Candidate signed contract upload should reset contract review to 待审核.",
+                    str((signed_payload.get("contract_record_data") or {}).get("contract_review_status") or "")
+                    == "pending",
+                    "Candidate signed contract upload should reset contract review to pending.",
                 )
 
             progress_item = await fetch_candidate_progress_item()
             contract_record = progress_item.get("contract_record_data") or {}
 
             if not contract_record.get("company_sealed_contract_attachment"):
-                if str(contract_record.get("contract_review") or "") != "审核通过":
+                if str(contract_record.get("contract_review_status") or "") != "approved":
                     blocked_company_sealed_response = await admin_client.post(
                         f"/v1/jobs/{job_id}/progress/company-sealed-contract/upload",
                         headers=admin_headers,
@@ -1488,19 +1489,15 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
                         f"Unexpected company sealed pre-review rejection: {blocked_company_sealed_response.text}",
                     )
 
-                    contract_review_payload = await fetch_json(
+                    contract_review_status_payload = await fetch_json(
                         admin_client,
-                        "PATCH",
-                        f"/v1/jobs/{job_id}/progress/contract-record",
+                        "POST",
+                        f"/v1/contracts/{int(contract_record['id'])}/review",
                         headers=admin_headers,
-                        json={
-                            "progress_ids": [progress_id],
-                            "contract_review": "审核通过",
-                        },
+                        json={"target": "approved"},
                     )
-                    reviewed_item = (contract_review_payload.get("items") or [{}])[0].get("contract_record_data") or {}
                     assert_true(
-                        str(reviewed_item.get("contract_review") or "") == "审核通过",
+                        str(contract_review_status_payload.get("contract_review_status") or "") == "approved",
                         "Contract review approval did not persist.",
                     )
 
@@ -1526,7 +1523,7 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
                     "Company sealed upload should move the record to active.",
                 )
                 assert_true(
-                    str((company_payload.get("contract_record_data") or {}).get("contract_status") or "") == "Active",
+                    str((company_payload.get("contract_record_data") or {}).get("contract_status") or "") == "active",
                     "Company sealed upload did not activate the contract.",
                 )
 
@@ -1541,7 +1538,7 @@ async def check_progress_contract_flow_mutations(context: SuiteContext) -> str:
             "Active progress record is missing the company sealed contract attachment.",
         )
         assert_true(
-            str(final_contract_record.get("contract_status") or "") == "Active",
+            str(final_contract_record.get("contract_status") or "") == "active",
             "Active progress record did not carry an Active contract status.",
         )
 
@@ -1625,12 +1622,12 @@ async def main_async() -> int:
         ("candidate_contract_asset_downloads", check_candidate_contract_asset_downloads),
         ("inactive_contract_upload_block", check_inactive_contract_upload_block),
         ("candidate_timesheet_dashboard", check_candidate_timesheet_dashboard),
-        ("candidate_referrals_and_earnings", check_candidate_referrals_and_earnings),
+        ("candidate_referrals_and_payments", check_candidate_referrals_and_payments),
         ("admin_referrals_and_payment_filters", check_admin_referrals_and_payment_filters),
         ("admin_contracts_and_talents_queries", check_admin_contracts_and_talents_queries),
         ("admin_timesheet_and_progress_endpoints", check_admin_timesheet_and_progress_endpoints),
-        ("admin_payment_record_mutations", check_admin_payment_record_mutations),
-        ("admin_referral_mark_paid_mutation", check_admin_referral_mark_paid_mutation),
+        ("admin_payment_mutations", check_admin_payment_mutations),
+        ("admin_referral_payable_mutation", check_admin_referral_payable_mutation),
         ("admin_contract_mutations", check_admin_contract_mutations),
         ("admin_timesheet_mutations", check_admin_timesheet_mutations),
         ("progress_contract_flow_mutations", check_progress_contract_flow_mutations),

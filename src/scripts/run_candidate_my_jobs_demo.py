@@ -1016,7 +1016,9 @@ async def refresh_active_contract_attachment(
         )
         contract.company_sealed_contract_asset_id = int(asset.id)
         contract.contract_attachment_asset_id = int(asset.id)
-        contract.contract_status = "Active"
+        contract.contract_status = "active"
+        contract.contract_review_status = "approved"
+        contract.signing_status = "company_sealed"
         contract.updated_by_admin_user_id = admin_user_id
         contract.effective_date = contract.effective_date or datetime.now(UTC).date()
         next_contract_data = dict(contract.data or {})
@@ -1087,17 +1089,12 @@ async def admin_update_contract_record(
     job_id: int,
     progress_ids: list[int],
     agreement_ref_no: str | None = None,
-    signing_status: str | None = None,
-    contract_review: str | None = None,
+    contract_review_status: str | None = None,
     rate: str | None = None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {"progress_ids": progress_ids}
+    payload: dict[str, Any] = {"progress_ids": progress_ids, "ensure_contract_record": True}
     if agreement_ref_no is not None:
         payload["agreement_ref_no"] = agreement_ref_no
-    if signing_status is not None:
-        payload["signing_status"] = signing_status
-    if contract_review is not None:
-        payload["contract_review"] = contract_review
     if rate is not None:
         payload["rate"] = rate
     response = await client.patch(
@@ -1105,7 +1102,19 @@ async def admin_update_contract_record(
         headers={"Authorization": f"Bearer {access_token}"},
         json=payload,
     )
-    return ensure_ok(response, "Update contract record failed")
+    result = ensure_ok(response, "Update contract record failed")
+    if contract_review_status is not None:
+        for item in result.get("items", []):
+            contract_id = int((item.get("contract_record_data") or {}).get("id") or 0)
+            if contract_id < 1:
+                raise RuntimeError("Update contract record did not return a contract ID for review.")
+            review_response = await client.post(
+                f"/contracts/{contract_id}/review",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"target": contract_review_status},
+            )
+            ensure_ok(review_response, "Review contract failed")
+    return result
 
 
 async def fetch_existing_application(user_id: int, job_id: int) -> dict[str, int] | None:
@@ -1465,13 +1474,13 @@ def assert_candidate_demo_item_matches_definition(item: dict[str, Any], definiti
     elif key == "signed_contract_under_review":
         if not contract_data.get("candidate_signed_contract_attachment"):
             raise RuntimeError("Signed contract under-review demo is missing candidate signed attachment.")
-        if contract_data.get("contract_review") == "待修改":
-            raise RuntimeError("Signed contract under-review demo should not be in 待修改.")
+        if contract_data.get("contract_review_status") == "changes_requested":
+            raise RuntimeError("Signed contract under-review demo should not be in changes_requested.")
     elif key == "signed_contract_revision_required":
         if not contract_data.get("candidate_signed_contract_attachment"):
             raise RuntimeError("Signed contract revision demo is missing candidate signed attachment.")
-        if contract_data.get("contract_review") != "待修改":
-            raise RuntimeError("Signed contract revision demo should have contract_review=待修改.")
+        if contract_data.get("contract_review_status") != "changes_requested":
+            raise RuntimeError("Signed contract revision demo should have contract_review_status=changes_requested.")
     elif key == "onboarding_preparation":
         if not contract_data.get("company_sealed_contract_attachment"):
             raise RuntimeError("Onboarding preparation demo is missing company sealed contract.")
@@ -1728,7 +1737,6 @@ async def main() -> None:  # noqa: C901
             job_id=int(signed_action_case["job"].id),
             progress_ids=[int(signed_action_case["job_progress_id"])],
             agreement_ref_no="SIGN-ACTION-2026-001",
-            signing_status="已通知人选签合同",
             rate="4.20",
         )
         await admin_upload_contract_draft(
@@ -1754,7 +1762,6 @@ async def main() -> None:  # noqa: C901
             job_id=int(signed_review_case["job"].id),
             progress_ids=[int(signed_review_case["job_progress_id"])],
             agreement_ref_no="SIGN-REVIEW-2026-002",
-            signing_status="已通知人选签合同",
             rate="6.80",
         )
         failed_signed_upload = await candidate_upload_signed_contract_response(
@@ -1792,7 +1799,7 @@ async def main() -> None:  # noqa: C901
             access_token=admin_access_token,
             job_id=int(signed_review_case["job"].id),
             progress_ids=[int(signed_review_case["job_progress_id"])],
-            contract_review="待审核",
+            contract_review_status="pending",
         )
         signed_review_case["detail"]["current_stage"] = "contract_pool"
         print_detail("signed-contract under-review job now has a submitted signed contract")
@@ -1811,7 +1818,6 @@ async def main() -> None:  # noqa: C901
             job_id=int(signed_revision_case["job"].id),
             progress_ids=[int(signed_revision_case["job_progress_id"])],
             agreement_ref_no="SIGN-REVISION-2026-003",
-            signing_status="已通知人选签合同",
             rate="7.20",
         )
         await admin_upload_contract_draft(
@@ -1837,7 +1843,7 @@ async def main() -> None:  # noqa: C901
             access_token=admin_access_token,
             job_id=int(signed_revision_case["job"].id),
             progress_ids=[int(signed_revision_case["job_progress_id"])],
-            contract_review="待修改",
+            contract_review_status="changes_requested",
         )
         signed_revision_case["detail"]["current_stage"] = "contract_pool"
         print_detail("signed-contract revision job now has a submitted contract returned for revision")
@@ -1900,7 +1906,6 @@ async def main() -> None:  # noqa: C901
                 job_id=int(active_case["job"].id),
                 progress_ids=[int(active_case["job_progress_id"])],
                 agreement_ref_no=ref_no,
-                signing_status="已通知人选签合同",
                 rate="3500",
             )
             await admin_upload_contract_draft(
@@ -1926,7 +1931,7 @@ async def main() -> None:  # noqa: C901
                 access_token=admin_access_token,
                 job_id=int(active_case["job"].id),
                 progress_ids=[int(active_case["job_progress_id"])],
-                contract_review="审核通过",
+                contract_review_status="approved",
             )
             await admin_upload_company_sealed_contract(
                 admin_client,
@@ -1967,7 +1972,6 @@ async def main() -> None:  # noqa: C901
             job_id=int(rejected_late_case["job"].id),
             progress_ids=[int(rejected_late_case["job_progress_id"])],
             agreement_ref_no="REJECT-LATE-2026-008",
-            signing_status="已通知人选签合同",
             rate="8.10",
         )
         await admin_upload_contract_draft(
@@ -2084,7 +2088,7 @@ async def main() -> None:  # noqa: C901
             raise RuntimeError("Signed-contract under-review detail is missing the candidate signed contract.")
         if not (task_group_detail.get("contract_record_data") or {}).get("company_sealed_contract_attachment"):
             raise RuntimeError("Task group detail is missing the company returned contract attachment.")
-        if (task_group_detail.get("contract_record_data") or {}).get("contract_status") != "Active":
+        if (task_group_detail.get("contract_record_data") or {}).get("contract_status") != "active":
             raise RuntimeError("Task group detail should already be marked Active.")
         if not (onboarded_detail.get("process_data") or {}).get("onboarding_date"):
             raise RuntimeError("Successfully onboarded detail is missing onboarding_date.")
