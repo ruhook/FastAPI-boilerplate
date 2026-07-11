@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from src.app.modules.job_progress import commands as job_progress_commands
-from src.app.modules.job_progress import service as job_progress_service
+from src.app.modules.job_progress import contract_workflow as job_progress_contract_workflow
 from src.app.modules.job_progress.const import JobProgressDataKey, RecruitmentStage
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.no_database_cleanup]
@@ -100,15 +100,15 @@ async def test_contract_number_can_be_cleared_with_explicit_null(monkeypatch: py
             agreement_ref_no=kwargs["field_updates"].get("agreement_ref_no"),
         )
 
-    monkeypatch.setattr(job_progress_service, "get_job_progress_models", fake_get_job_progress_models)
+    monkeypatch.setattr(job_progress_contract_workflow, "get_job_progress_models", fake_get_job_progress_models)
     monkeypatch.setattr(
-        job_progress_service,
+        job_progress_contract_workflow,
         "upsert_contract_record_for_progress",
         fake_upsert_contract_record_for_progress,
     )
-    monkeypatch.setattr(job_progress_service, "create_operation_log", _noop_operation_log)
+    monkeypatch.setattr(job_progress_contract_workflow, "create_operation_log", _noop_operation_log)
 
-    response = await job_progress_service.update_job_progress_contract_record(
+    response = await job_progress_contract_workflow.update_job_progress_contract_record(
         job_id=12,
         progress_ids=[101],
         admin_user_id=1,
@@ -136,15 +136,15 @@ async def test_accepted_rate_can_be_cleared_with_explicit_null(monkeypatch: pyte
             rate=kwargs["field_updates"].get("rate"),
         )
 
-    monkeypatch.setattr(job_progress_service, "get_job_progress_models", fake_get_job_progress_models)
+    monkeypatch.setattr(job_progress_contract_workflow, "get_job_progress_models", fake_get_job_progress_models)
     monkeypatch.setattr(
-        job_progress_service,
+        job_progress_contract_workflow,
         "upsert_contract_record_for_progress",
         fake_upsert_contract_record_for_progress,
     )
-    monkeypatch.setattr(job_progress_service, "create_operation_log", _noop_operation_log)
+    monkeypatch.setattr(job_progress_contract_workflow, "create_operation_log", _noop_operation_log)
 
-    response = await job_progress_service.update_job_progress_contract_record(
+    response = await job_progress_contract_workflow.update_job_progress_contract_record(
         job_id=12,
         progress_ids=[101],
         admin_user_id=1,
