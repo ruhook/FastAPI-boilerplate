@@ -141,7 +141,7 @@ async def get_job_progress_models(
     expected_versions: dict[int, int] | None = None,
 ) -> list[JobProgress]:
     result = await db.execute(build_locked_job_progress_query(job_id=job_id, progress_ids=progress_ids))
-    items = result.scalars().all()
+    items = list(result.scalars().all())
     if len(items) != len(set(progress_ids)):
         raise NotFoundException("Job progress record not found.")
     ensure_expected_progress_versions(items, expected_versions=expected_versions)

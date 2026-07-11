@@ -76,7 +76,7 @@ def serialize_job_progress(progress: JobProgress) -> dict[str, Any]:
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
         screening_mode=progress.screening_mode,
         entered_stage_at=_ensure_utc_datetime(progress.entered_stage_at),
-        created_at=_ensure_utc_datetime(progress.created_at),
+        created_at=_ensure_utc_datetime(progress.created_at or progress.entered_stage_at),
         updated_at=_ensure_utc_datetime(progress.updated_at),
         data=_serialize_process_data(progress.data or {}, {}, exclude_contract_fields=True),
         process_assets={},
@@ -227,7 +227,7 @@ def _extract_id_attachment_asset_id(user_data: dict[str, Any] | None) -> int | N
     if not isinstance(payment_info, dict):
         return None
     raw_asset_id = payment_info.get("id_attachment_asset_id")
-    if raw_asset_id in (None, "", 0):
+    if raw_asset_id is None or raw_asset_id == "" or raw_asset_id == 0:
         return None
     try:
         return int(raw_asset_id)
@@ -289,7 +289,7 @@ def _extract_contract_record_asset_ids(contract_record: ContractRecord | None) -
         contract_record.company_sealed_contract_asset_id,
         contract_record.contract_attachment_asset_id,
     ]
-    return [int(asset_id) for asset_id in asset_ids if asset_id not in (None, "")]
+    return [int(asset_id) for asset_id in asset_ids if asset_id is not None]
 
 
 def _build_contract_asset_read(

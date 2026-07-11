@@ -272,10 +272,12 @@ async def sync_assessment_sent_at_from_mail_task(mail_task_id: int) -> bool:
         progress: JobProgress | None = None
         if isinstance(job_progress_context, dict) and job_progress_context.get("purpose") == "assessment_invite":
             raw_progress_id = job_progress_context.get("id")
-            try:
-                progress_id = int(raw_progress_id)
-            except (TypeError, ValueError):
-                progress_id = 0
+            progress_id = 0
+            if raw_progress_id is not None:
+                try:
+                    progress_id = int(raw_progress_id)
+                except (TypeError, ValueError):
+                    progress_id = 0
             if progress_id:
                 progress = await db.get(JobProgress, progress_id, with_for_update=True)
 
@@ -361,12 +363,13 @@ async def notify_job_progress_sign_contract(
         )
     )
     user_map = {int(user.id): user for user in user_result.scalars().all()}
+
+    def has_candidate_email(progress: JobProgress) -> bool:
+        candidate = user_map.get(progress.user_id)
+        return bool(candidate is not None and (candidate.email or "").strip())
+
     missing_email = next(
-        (
-            progress
-            for progress in progress_items
-            if not ((user_map.get(progress.user_id).email if user_map.get(progress.user_id) else "") or "").strip()
-        ),
+        (progress for progress in progress_items if not has_candidate_email(progress)),
         None,
     )
     if missing_email is not None:
@@ -384,7 +387,9 @@ async def notify_job_progress_sign_contract(
     mail_task_ids: list[int] = []
     updated_contract_records: dict[int, ContractRecord] = {}
     for progress in progress_items:
-        candidate = user_map[progress.user_id]
+        candidate = user_map.get(progress.user_id)
+        if candidate is None:
+            raise BadRequestException("Candidate email is required for sign contract notification.")
         candidate_email = (candidate.email or "").strip()
         candidate_name = (candidate.name or candidate_email).strip()
         contract_upload_url = _build_candidate_contract_upload_url(progress.application_id)

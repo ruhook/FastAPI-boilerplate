@@ -20,18 +20,8 @@ jobs:
     - name: Sync locked dependencies
       run: uv sync --frozen --all-extras --all-groups
 
-    - name: Run mypy for hardened core modules
-      run: >-
-        uv run --frozen mypy
-        src/app/core
-        src/app/event
-        src/app/modules/auth_refresh_session
-        src/app/modules/event_outbox
-        src/app/modules/admin/mail_account
-        src/app/modules/admin/mail_task
-        src/app/modules/admin/role
-        src/app/modules/assets
-        --config-file pyproject.toml
+    - name: Run mypy for hardened core and business modules
+      run: uv run --frozen mypy --config-file pyproject.toml
       env:
         ENVIRONMENT: local
         SECRET_KEY: test-secret-key-for-testing-only

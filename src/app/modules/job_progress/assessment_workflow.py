@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..admin.admin_user.model import AdminUser
 from ..admin.internal_notification.service import create_admin_internal_notification
-from ..assets.schema import AssetUploadPayload
+from ..assets.schema import AssetRead, AssetUploadPayload
 from ..assets.service import upload_asset
 from ..candidate_application.model import CandidateApplication
 from ..job.model import Job
@@ -408,7 +408,7 @@ async def submit_job_progress_assessment(
         application_id=progress.application_id,
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
-        assessment_asset=asset_payload,
+        assessment_asset=AssetRead.model_validate(asset_payload),
         process_data=_serialize_process_data(next_data, {int(asset_payload["id"]): asset_payload}),
         process_assets={},
     ).model_dump()

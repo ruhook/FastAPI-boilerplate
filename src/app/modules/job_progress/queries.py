@@ -1,9 +1,10 @@
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from ...core.advanced_filter import (
     build_advanced_filter_query_sql_condition,
@@ -36,6 +37,8 @@ from .schema import (
     CandidateJobApplicationDetailRead,
     CandidateJobApplicationListItemRead,
     CandidateJobApplicationListPage,
+    CandidateJobApplicationSummaryRead,
+    ContractRecordDataRead,
     JobProgressListItemRead,
     JobProgressListPage,
 )
@@ -204,13 +207,17 @@ async def list_job_progress(
                 contract_record=contract_records.get(progress.id),
                 asset_map=asset_map,
                 current_company_name=(
-                    contract_company_name_map.get(contract_records[progress.id].service_customer_company_id)
+                    contract_company_name_map.get(
+                        int(contract_records[progress.id].service_customer_company_id or 0)
+                    )
                     if contract_records.get(progress.id) is not None
                     and contract_records[progress.id].service_customer_company_id is not None
                     else None
                 ),
                 current_project_name=(
-                    contract_project_name_map.get(contract_records[progress.id].service_customer_project_id)
+                    contract_project_name_map.get(
+                        int(contract_records[progress.id].service_customer_project_id or 0)
+                    )
                     if contract_records.get(progress.id) is not None
                     and contract_records[progress.id].service_customer_project_id is not None
                     else None
@@ -241,7 +248,8 @@ async def list_job_progress(
         if advanced_filter_condition is not None:
             matched_conditions.append(advanced_filter_condition)
         if normalized_active_stage not in {"", "all"}:
-            matched_conditions.append(field_map["current_stage"].sql_expression == normalized_active_stage)
+            stage_expression = cast(ColumnElement[Any], field_map["current_stage"].sql_expression)
+            matched_conditions.append(stage_expression == normalized_active_stage)
         matched_result = await db.execute(
             select(JobProgress.id)
             .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
@@ -340,12 +348,12 @@ async def list_candidate_job_applications(
                 contract_records[int(progress.id)] = contract_record
 
     total_action_required = contract_uploads + other_actions
-    summary = {
-        "contract_uploads": contract_uploads,
-        "other_actions": other_actions,
-        "monitoring": total - total_action_required,
-        "total_action_required": total_action_required,
-    }
+    summary = CandidateJobApplicationSummaryRead(
+        contract_uploads=contract_uploads,
+        other_actions=other_actions,
+        monitoring=total - total_action_required,
+        total_action_required=total_action_required,
+    )
     if not rows:
         return CandidateJobApplicationListPage(
             items=[],
@@ -535,12 +543,15 @@ async def list_candidate_contracts(
             applied_at=_ensure_utc_datetime(application.submitted_at),
             compensation_unit=job.compensation_unit,
             process_data=_serialize_process_data(progress.data or {}, asset_map, exclude_contract_fields=True),
-            contract_record_data=_serialize_contract_record_data(
-                progress=progress,
-                contract_record=contract_record,
-                asset_map=asset_map,
-                current_company_name=None,
-                current_project_name=None,
+            contract_record_data=cast(
+                ContractRecordDataRead,
+                _serialize_contract_record_data(
+                    progress=progress,
+                    contract_record=contract_record,
+                    asset_map=asset_map,
+                    current_company_name=None,
+                    current_project_name=None,
+                ),
             ),
         )
         for progress, application, job, contract_record in rows

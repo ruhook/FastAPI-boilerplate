@@ -126,6 +126,25 @@ dev = [
 
 [tool.mypy]
 python_version = "3.11"
+files = [
+    "src/app/core",
+    "src/app/event",
+    "src/app/application",
+    "src/app/modules/auth_refresh_session",
+    "src/app/modules/event_outbox",
+    "src/app/modules/admin/mail_account",
+    "src/app/modules/admin/mail_task",
+    "src/app/modules/admin/role",
+    "src/app/modules/assets",
+    "src/app/modules/payable",
+    "src/app/modules/payment",
+    "src/app/modules/project_timesheet_record",
+    "src/app/modules/referral",
+    "src/app/modules/contract_record",
+    "src/app/modules/job_progress",
+    "src/app/modules/talent_profile",
+    "src/app/modules/job",
+]
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true

@@ -3,7 +3,7 @@ from typing import Any
 
 from sqlalchemy import and_, case, func, or_, select
 
-from ...core.advanced_filter import AdvancedFilterFieldDefinition
+from ...core.advanced_filter import AdvancedFilterFieldDefinition, AdvancedFilterFieldKind
 from ..candidate_application.model import CandidateApplication
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
 from ..contract_record.model import ContractRecord
@@ -87,7 +87,7 @@ def _serialize_rejected_from_stage_for_filter(item: JobProgressListItemRead) -> 
     return "" if mapped_stage == "eliminated" else mapped_stage
 
 
-def _normalize_progress_filter_field_kind(field_type: str | None) -> str:
+def _normalize_progress_filter_field_kind(field_type: str | None) -> AdvancedFilterFieldKind:
     normalized = _normalize_text(field_type).lower()
     if normalized in {"boolean", "select"}:
         return "select"
@@ -338,12 +338,13 @@ def _serialize_filter_record_datetime(value: Any) -> str:
 def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dict[str, Any]:
     contract_record = item.contract_record_data
     assessment_submissions = item.process_data.get(JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value)
-    has_latest_assessment_submission = (
+    latest_assessment_submission: dict[str, Any] = {}
+    if (
         isinstance(assessment_submissions, list)
-        and bool(assessment_submissions)
+        and assessment_submissions
         and isinstance(assessment_submissions[-1], dict)
-    )
-    latest_assessment_submission = assessment_submissions[-1] if has_latest_assessment_submission else None
+    ):
+        latest_assessment_submission = assessment_submissions[-1]
     draft_attachment_name = (
         contract_record.draft_contract_attachment.name
         if contract_record is not None and contract_record.draft_contract_attachment is not None

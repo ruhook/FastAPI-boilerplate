@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, overload
 
 from .const import JobProgressDataKey
 from .model import JobProgress
@@ -45,6 +45,14 @@ def _normalize_decimal(value: Any) -> Decimal | None:
         return Decimal(str(value).strip())
     except Exception:
         return None
+
+
+@overload
+def _ensure_utc_datetime(value: datetime) -> datetime: ...
+
+
+@overload
+def _ensure_utc_datetime(value: None) -> None: ...
 
 
 def _ensure_utc_datetime(value: datetime | None) -> datetime | None:

@@ -1,8 +1,10 @@
 import hashlib
 import hmac
 import logging
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any, cast
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -113,11 +115,14 @@ async def enforce_auth_rate_limit(
             identifier=identifier,
         ):
             key = _build_key(action=action, dimension=rule.dimension, value=rule.value)
-            raw_result = await redis_client.eval(
-                RATE_LIMIT_LUA,
-                1,
-                key,
-                rule.window_seconds,
+            raw_result = await cast(
+                Awaitable[Any],
+                redis_client.eval(
+                    RATE_LIMIT_LUA,
+                    1,
+                    key,
+                    str(rule.window_seconds),
+                ),
             )
             count, ttl = int(raw_result[0]), int(raw_result[1])
             if count > rule.limit:

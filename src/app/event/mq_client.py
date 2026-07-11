@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum, StrEnum
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as redis
 
@@ -271,22 +271,25 @@ class AsyncMQClient:
         ]
         error_summary = type(exc).__name__[: settings.EVENT_DEAD_LETTER_ERROR_MAX_CHARS]
         failure_category = "malformed" if message.decode_error else type(exc).__name__
-        await message.redis_client.eval(
-            DEAD_LETTER_LUA,
-            2,
-            self._queue,
-            self._dead_letter_queue,
-            settings.EVENT_DEAD_LETTER_MAXLEN,
-            message.id,
-            str(data.get("event_id") or ""),
-            str(data.get("type") or ""),
-            raw_payload,
-            delivery_count,
-            failure_category,
-            error_summary,
-            self._first_seen_at(message.id),
-            datetime.now(UTC).isoformat(),
-            self._group,
+        await cast(
+            Awaitable[Any],
+            message.redis_client.eval(
+                DEAD_LETTER_LUA,
+                2,
+                self._queue,
+                self._dead_letter_queue,
+                str(settings.EVENT_DEAD_LETTER_MAXLEN),
+                message.id,
+                str(data.get("event_id") or ""),
+                str(data.get("type") or ""),
+                raw_payload,
+                str(delivery_count),
+                failure_category,
+                error_summary,
+                self._first_seen_at(message.id),
+                datetime.now(UTC).isoformat(),
+                self._group,
+            ),
         )
         logger.error(
             "Event moved to dead-letter stream",

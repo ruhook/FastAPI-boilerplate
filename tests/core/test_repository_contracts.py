@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -52,3 +53,26 @@ def test_production_env_example_lists_required_foundation_settings() -> None:
     assert all(f"{name}=" in content for name in required)
     assert "ACCESS_TOKEN_EXPIRE_MINUTES=15" in content
     assert "ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES=15" in content
+
+
+def test_business_layer_modules_are_part_of_the_mypy_gate() -> None:
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    checked_paths = set(config["tool"]["mypy"]["files"])
+    expected_business_paths = {
+        "src/app/application",
+        "src/app/modules/payable",
+        "src/app/modules/payment",
+        "src/app/modules/project_timesheet_record",
+        "src/app/modules/referral",
+        "src/app/modules/contract_record",
+        "src/app/modules/job_progress",
+        "src/app/modules/talent_profile",
+        "src/app/modules/job",
+    }
+
+    assert expected_business_paths <= checked_paths
+
+
+def test_decomposed_business_modules_have_no_service_facades() -> None:
+    for module_name in ("project_timesheet_record", "talent_profile", "contract_record", "job"):
+        assert not (ROOT / "src/app/modules" / module_name / "service.py").exists()

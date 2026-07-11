@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...application.contracting import activate_contract
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..assets.model import Asset
-from ..assets.schema import AssetUploadPayload
+from ..assets.schema import AssetRead, AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
 from ..candidate_application.model import CandidateApplication
 from ..candidate_internal_notification.service import create_candidate_internal_notification
@@ -337,7 +337,7 @@ async def submit_job_progress_candidate_signed_contract(
         application_id=progress.application_id,
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
-        candidate_signed_contract_asset=asset_payload,
+        candidate_signed_contract_asset=AssetRead.model_validate(asset_payload),
         process_data=_serialize_process_data(progress_data, {}, exclude_contract_fields=True),
         process_assets=_serialize_process_assets(progress_data, {}, exclude_contract_assets=True),
         contract_record_data=_serialize_contract_record_data(
@@ -454,7 +454,7 @@ async def upload_job_progress_contract_draft(
         application_id=progress.application_id,
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
-        contract_draft_asset=asset_payload,
+        contract_draft_asset=AssetRead.model_validate(asset_payload),
         process_data=_serialize_process_data(current_process_data, {}, exclude_contract_fields=True),
         process_assets=_serialize_process_assets(current_process_data, {}, exclude_contract_assets=True),
         contract_record_data=_serialize_contract_record_data(
@@ -605,7 +605,7 @@ async def upload_job_progress_company_sealed_contract(
         application_id=progress.application_id,
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
-        company_sealed_contract_asset=asset_payload,
+        company_sealed_contract_asset=AssetRead.model_validate(asset_payload),
         process_data=_serialize_process_data(progress.data or {}, {}, exclude_contract_fields=True),
         process_assets=_serialize_process_assets(progress.data or {}, {}, exclude_contract_assets=True),
         contract_record_data=_serialize_contract_record_data(
