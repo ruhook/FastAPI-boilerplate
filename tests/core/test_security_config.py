@@ -95,9 +95,11 @@ def test_production_rejects_local_auth_bypass() -> None:
         production_settings(ENABLE_LOCAL_AUTH_BYPASS=True)
 
 
-@pytest.mark.parametrize(
-    "setting_name",
-    [
+def test_central_auth_rate_limit_settings_are_not_part_of_runtime_config() -> None:
+    configured = Settings(_env_file=None, ENVIRONMENT="local")
+
+    removed_names = {
+        "AUTH_RATE_LIMIT_PREFIX",
         "AUTH_LOGIN_WINDOW_SECONDS",
         "AUTH_LOGIN_IP_LIMIT",
         "AUTH_LOGIN_IDENTIFIER_LIMIT",
@@ -108,11 +110,9 @@ def test_production_rejects_local_auth_bypass() -> None:
         "AUTH_VERIFICATION_CHECK_WINDOW_SECONDS",
         "AUTH_VERIFICATION_CHECK_IP_LIMIT",
         "AUTH_VERIFICATION_CHECK_IDENTIFIER_LIMIT",
-    ],
-)
-def test_auth_abuse_limits_must_be_positive(setting_name: str) -> None:
-    with pytest.raises(ValidationError, match=setting_name):
-        Settings(_env_file=None, ENVIRONMENT="local", **{setting_name: 0})
+    }
+
+    assert removed_names.isdisjoint(type(configured).model_fields)
 
 
 @pytest.mark.parametrize(

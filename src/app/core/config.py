@@ -151,20 +151,6 @@ class RedisCacheSettings(BaseSettings):
         return f"redis://{self.REDIS_CACHE_HOST}:{self.REDIS_CACHE_PORT}"
 
 
-class AuthAbuseSettings(BaseSettings):
-    AUTH_RATE_LIMIT_PREFIX: str = "auth:rate-limit:"
-    AUTH_LOGIN_WINDOW_SECONDS: int = 300
-    AUTH_LOGIN_IP_LIMIT: int = 30
-    AUTH_LOGIN_IDENTIFIER_LIMIT: int = 10
-    AUTH_LOGIN_PAIR_LIMIT: int = 5
-    AUTH_VERIFICATION_SEND_WINDOW_SECONDS: int = 3600
-    AUTH_VERIFICATION_SEND_IP_LIMIT: int = 10
-    AUTH_VERIFICATION_SEND_IDENTIFIER_LIMIT: int = 3
-    AUTH_VERIFICATION_CHECK_WINDOW_SECONDS: int = 600
-    AUTH_VERIFICATION_CHECK_IP_LIMIT: int = 30
-    AUTH_VERIFICATION_CHECK_IDENTIFIER_LIMIT: int = 10
-
-
 class EventSettings(BaseSettings):
     EVENT_QUEUE_PREFIX: str = "hr-mq:"
     EVENT_CONSUMER_GROUP: str = "hr_event_consumer"
@@ -281,7 +267,6 @@ class Settings(
     CryptSettings,
     TestSettings,
     RedisCacheSettings,
-    AuthAbuseSettings,
     EventSettings,
     MailDeliverySettings,
     MailCredentialSettings,
@@ -306,16 +291,6 @@ class Settings(
     @model_validator(mode="after")
     def validate_runtime_security(self) -> "Settings":
         positive_setting_names = (
-            "AUTH_LOGIN_WINDOW_SECONDS",
-            "AUTH_LOGIN_IP_LIMIT",
-            "AUTH_LOGIN_IDENTIFIER_LIMIT",
-            "AUTH_LOGIN_PAIR_LIMIT",
-            "AUTH_VERIFICATION_SEND_WINDOW_SECONDS",
-            "AUTH_VERIFICATION_SEND_IP_LIMIT",
-            "AUTH_VERIFICATION_SEND_IDENTIFIER_LIMIT",
-            "AUTH_VERIFICATION_CHECK_WINDOW_SECONDS",
-            "AUTH_VERIFICATION_CHECK_IP_LIMIT",
-            "AUTH_VERIFICATION_CHECK_IDENTIFIER_LIMIT",
             "EVENT_CONSUMER_CONCURRENCY",
             "EVENT_CONSUMER_BUFFER_SIZE",
             "EVENT_CONSUMER_MAX_DELIVERIES",

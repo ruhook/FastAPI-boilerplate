@@ -1,7 +1,7 @@
 import asyncio
 import os
 import shutil
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -51,27 +51,6 @@ def event_loop() -> AsyncIterator[asyncio.AbstractEventLoop]:
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def configure_test_rate_limit_defaults() -> Iterator[None]:
-    setting_names = (
-        "AUTH_LOGIN_IP_LIMIT",
-        "AUTH_LOGIN_IDENTIFIER_LIMIT",
-        "AUTH_LOGIN_PAIR_LIMIT",
-        "AUTH_VERIFICATION_SEND_IP_LIMIT",
-        "AUTH_VERIFICATION_SEND_IDENTIFIER_LIMIT",
-        "AUTH_VERIFICATION_CHECK_IP_LIMIT",
-        "AUTH_VERIFICATION_CHECK_IDENTIFIER_LIMIT",
-    )
-    original_values = {name: getattr(settings, name) for name in setting_names}
-    for name in setting_names:
-        setattr(settings, name, 100_000)
-    try:
-        yield
-    finally:
-        for name, value in original_values.items():
-            setattr(settings, name, value)
 
 
 def _assert_safe_test_cleanup() -> None:

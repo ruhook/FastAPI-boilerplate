@@ -24,11 +24,3 @@ class TooManyRequestsException(HTTPException):
             detail=detail,
             headers={"Retry-After": str(max(1, retry_after))},
         )
-
-
-class AuthRateLimitUnavailableException(HTTPException):
-    def __init__(self):
-        super().__init__(
-            status_code=503,
-            detail="Authentication service is temporarily unavailable.",
-        )
