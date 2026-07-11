@@ -285,6 +285,7 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
     await db_session.commit()
 
     payload = ProjectTimesheetBatchCreateRequest(
+        idempotency_key=f"timesheet-{suffix}",
         sub_project_name="Cross company support",
         language="Arabic",
         project_link="",
@@ -315,7 +316,16 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
         admin_user_id=admin.id,
     )
 
+    duplicate_result = await create_project_timesheet_records(
+        company_id=current_company.id,
+        project_id=current_project.id,
+        payload=payload,
+        db=db_session,
+        admin_user_id=admin.id,
+    )
+
     assert result["created_count"] == 1
+    assert result["record_ids"] == duplicate_result["record_ids"]
     timesheet_result = await db_session.execute(
         select(ProjectTimesheetRecord).where(
             ProjectTimesheetRecord.company_id == current_company.id,

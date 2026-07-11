@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Integer, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.db.database import Base
@@ -54,3 +54,7 @@ class ProjectTimesheetRecord(DataBackedSoftDeleteEntityMixin, Base):
         nullable=True,
         index=True,
     )
+
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+
+    __mapper_args__ = {"version_id_col": version}

@@ -1201,6 +1201,9 @@ async def seed_timesheet_records(
     created_count = 0
     for batch in DEMO_TIMESHEET_BATCHES:
         payload = ProjectTimesheetBatchCreateRequest(
+            idempotency_key=(
+                f"seed-timesheet:{company_id}:{project_id}:{batch['sub_project_name']}:{batch['work_date_offset']}"
+            ),
             sub_project_name=batch["sub_project_name"],
             language=batch["language"],
             project_link=batch["project_link"],
@@ -1271,6 +1274,9 @@ async def seed_candidate_portal_timesheet_records(
     for batch in DEMO_CANDIDATE_PORTAL_TIMESHEET_BATCHES:
         contract = contracts_by_key[str(batch["contract_key"])]
         payload = ProjectTimesheetBatchCreateRequest(
+            idempotency_key=(
+                f"seed-candidate-timesheet:{contract.id}:{batch['sub_project_name']}:{batch['work_date_offset']}"
+            ),
             sub_project_name=batch["sub_project_name"],
             language=batch["language"],
             project_link=batch["project_link"],

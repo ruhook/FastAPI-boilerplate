@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from ...core.advanced_filter import (
     AdvancedFilterFieldDefinition,
@@ -14,7 +15,7 @@ from ...core.advanced_filter import (
     parse_advanced_filter_query,
     validate_advanced_filter_query,
 )
-from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
+from ...core.exceptions.http_exceptions import BadRequestException, ConflictException, NotFoundException
 from ..admin.admin_user.model import AdminUser
 from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.company.service import (
@@ -34,6 +35,7 @@ from ..job.const import JOB_DATA_LANGUAGES_KEY
 from ..job.model import Job
 from ..talent_profile.model import TalentProfile
 from ..user.model import User
+from .idempotency import claim_timesheet_request, complete_timesheet_request
 from .model import ProjectTimesheetRecord
 from .schema import (
     CandidateTimesheetContractRead,
@@ -384,6 +386,7 @@ def _serialize_timesheet_record(
     registrar = admin_user_map.get(int(record.created_by_admin_user_id or 0)) if admin_user_map else None
     return ProjectTimesheetRecordRead(
         id=record.id,
+        version=record.version,
         company_id=record.company_id,
         project_id=record.project_id,
         sub_project_name=record.sub_project_name,
@@ -1553,6 +1556,18 @@ async def create_project_timesheet_records(
     admin_user_id: int,
 ) -> dict[str, Any]:
     company, project = await _get_company_and_project(company_id=company_id, project_id=project_id, db=db)
+    claim = await claim_timesheet_request(
+        db=db,
+        company_id=company_id,
+        project_id=project_id,
+        admin_user_id=admin_user_id,
+        payload=payload,
+    )
+    if claim.replayed_record_ids is not None:
+        return ProjectTimesheetBatchCreateResponse(
+            created_count=len(claim.replayed_record_ids),
+            record_ids=claim.replayed_record_ids,
+        ).model_dump()
 
     timesheet_languages = _get_company_timesheet_languages(company)
     if timesheet_languages and payload.language not in timesheet_languages:
@@ -1582,7 +1597,7 @@ async def create_project_timesheet_records(
         admin_user_id=admin_user_id,
     )
 
-    created_count = 0
+    created_records: list[ProjectTimesheetRecord] = []
     for entry in payload.entries:
         worker = worker_map.get(int(entry.contract_record_id))
         if worker is None:
@@ -1627,10 +1642,22 @@ async def create_project_timesheet_records(
         )
         record.team_leader_user_id = int(payload.team_leader_user_id) or None
         db.add(record)
-        created_count += 1
+        created_records.append(record)
 
     await db.flush()
-    return ProjectTimesheetBatchCreateResponse(created_count=created_count).model_dump()
+    record_ids = [record.id for record in created_records]
+    await complete_timesheet_request(db=db, request=claim.request, record_ids=record_ids)
+    return ProjectTimesheetBatchCreateResponse(
+        created_count=len(created_records),
+        record_ids=record_ids,
+    ).model_dump()
+
+
+async def _flush_timesheet_write(db: AsyncSession) -> None:
+    try:
+        await db.flush()
+    except StaleDataError as exc:
+        raise ConflictException("Timesheet record was changed by another request.") from exc
 
 
 async def update_project_timesheet_record(
@@ -1654,6 +1681,8 @@ async def update_project_timesheet_record(
     record = result.scalar_one_or_none()
     if record is None:
         raise NotFoundException("Timesheet record not found.")
+    if record.version != payload.version:
+        raise ConflictException("Timesheet record was changed by another request.")
 
     timesheet_languages = _get_company_timesheet_languages(company)
     if timesheet_languages and payload.language not in timesheet_languages:
@@ -1720,7 +1749,7 @@ async def update_project_timesheet_record(
         "note_asset_ids": list(payload.note_asset_ids),
     }
 
-    await db.flush()
+    await _flush_timesheet_write(db)
     await db.refresh(record)
     asset_map = await _load_note_asset_payload_map(
         db=db,

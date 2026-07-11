@@ -40,6 +40,7 @@ from src.app.modules.operation_log.model import OperationLog
 from src.app.modules.payable.model import Payable, PayableTimesheetSource
 from src.app.modules.payment.model import Payment
 from src.app.modules.payment_record.model import PaymentRecord
+from src.app.modules.project_timesheet_record.idempotency import ProjectTimesheetBatchRequest
 from src.app.modules.project_timesheet_record.model import ProjectTimesheetRecord
 from src.app.modules.referral.model import ReferralRecord
 from src.app.modules.referral_bonus_model.model import ReferralBonusModel, UserReferralProfile
@@ -131,6 +132,7 @@ async def _clear_tables() -> None:
         await session.execute(delete(PayableTimesheetSource))
         await session.execute(delete(Payable))
         await session.execute(delete(PaymentRecord))
+        await session.execute(delete(ProjectTimesheetBatchRequest))
         await session.execute(delete(ProjectTimesheetRecord))
         await session.execute(delete(ReferralRecord))
         await session.execute(delete(UserReferralProfile))

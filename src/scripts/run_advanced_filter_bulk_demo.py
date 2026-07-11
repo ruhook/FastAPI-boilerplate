@@ -664,6 +664,7 @@ async def seed_timesheet_workers_and_records(
                 )
 
             payload = ProjectTimesheetBatchCreateRequest(
+                idempotency_key=f"advanced-filter-bulk:{timesheet_job.id}:{batch_index}",
                 sub_project_name=str(template["sub_project_name"]),
                 language=str(template["language"]),
                 project_link=str(template["project_link"]),

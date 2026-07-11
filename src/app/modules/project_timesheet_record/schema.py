@@ -37,6 +37,7 @@ class ProjectTimesheetDashboardItemRead(BaseModel):
 
 class ProjectTimesheetRecordRead(BaseModel):
     id: int
+    version: int
     company_id: int
     project_id: int
     sub_project_name: str
@@ -210,6 +211,7 @@ class ProjectTimesheetBatchCreateEntry(BaseModel):
 
 
 class ProjectTimesheetBatchCreateRequest(BaseModel):
+    idempotency_key: str = Field(..., min_length=8, max_length=191)
     sub_project_name: str = Field(..., min_length=1, max_length=160)
     language: str = Field(..., min_length=1, max_length=64)
     project_link: str | None = Field(default=None, max_length=2048)
@@ -239,6 +241,7 @@ class ProjectTimesheetBatchCreateRequest(BaseModel):
 
 
 class ProjectTimesheetUpdateRequest(BaseModel):
+    version: int = Field(..., ge=1)
     sub_project_name: str = Field(..., min_length=1, max_length=160)
     work_date: date
     language: str = Field(..., min_length=1, max_length=64)
@@ -297,6 +300,7 @@ class ProjectTimesheetUpdateRequest(BaseModel):
 
 class ProjectTimesheetBatchCreateResponse(BaseModel):
     created_count: int
+    record_ids: list[int] = Field(default_factory=list)
 
 
 class ProjectTimesheetBatchDeleteRequest(BaseModel):
