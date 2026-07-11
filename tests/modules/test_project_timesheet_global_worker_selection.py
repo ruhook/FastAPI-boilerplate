@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.core.exceptions.http_exceptions import BadRequestException
 from src.app.modules.admin.admin_user.model import AdminUser
 from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from src.app.modules.admin.form_template.model import AdminFormTemplate
@@ -367,3 +368,68 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
     assert workspace["records"][0]["project_manager_name"] == project_manager.name
     assert workspace["records"][0]["registrar_admin_user_id"] == admin.id
     assert workspace["records"][0]["registrar_name"] == admin.name
+
+
+@pytest.mark.parametrize(
+    ("work_date", "message"),
+    [
+        (date(2025, 12, 31), "earlier than the contract effective date"),
+        (date(2027, 1, 1), "later than the contract end date"),
+    ],
+)
+async def test_create_timesheet_rejects_work_date_outside_contract_period(
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+    work_date: date,
+    message: str,
+) -> None:
+    suffix = uuid4().hex[:8]
+    admin = await _get_superadmin(db_session)
+    company, project = await _create_company_project(db_session, suffix=suffix, name="Boundary")
+    worker = _create_user(suffix=f"boundary{suffix}", name="Boundary Worker")
+    project_manager = _create_admin_user(suffix=f"boundary{suffix}", name="Boundary Manager")
+    db_session.add_all([worker, project_manager])
+    await db_session.flush()
+    contract = await _create_active_contract(
+        db_session,
+        suffix=f"boundary{suffix}",
+        name=worker.name,
+        user=worker,
+        company=company,
+        project=project,
+        admin=admin,
+    )
+    await db_session.commit()
+
+    payload = ProjectTimesheetBatchCreateRequest(
+        idempotency_key=f"boundary-{suffix}-{work_date.isoformat()}",
+        sub_project_name="Contract boundary",
+        language="Arabic",
+        project_link="",
+        customer_human_efficiency_minutes=Decimal("5"),
+        candidate_human_efficiency_minutes=Decimal("6"),
+        team_leader_user_id=0,
+        project_manager_admin_user_id=project_manager.id,
+        entries=[
+            {
+                "work_date": work_date,
+                "contract_record_id": contract.id,
+                "user_id": worker.id,
+                "work_type": "Production",
+                "output_quantity": Decimal("1"),
+                "customer_duration_hours": Decimal("1"),
+                "candidate_duration_hours": Decimal("1"),
+                "role_name": "Annotator",
+                "non_operational_duration_hours": Decimal("0"),
+            }
+        ],
+    )
+
+    with pytest.raises(BadRequestException, match=message):
+        await create_project_timesheet_records(
+            company_id=company.id,
+            project_id=project.id,
+            payload=payload,
+            db=db_session,
+            admin_user_id=admin.id,
+        )

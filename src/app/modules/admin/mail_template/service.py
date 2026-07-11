@@ -9,6 +9,7 @@ from ...assets.service import ensure_assets_belong_to_owner, ensure_assets_exist
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
 from ..admin_audit_log.service import create_admin_audit_log
 from ..admin_user.model import AdminUser
+from ..mail_reference_policy import ensure_mail_resource_not_used_by_job
 from ..mail_template_category.service import ensure_category_exists
 from .model import MailTemplate
 from .schema import (
@@ -214,6 +215,7 @@ async def update_mail_template(
 
 async def delete_mail_template(template_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     template = await get_mail_template_model(template_id, db, admin_user_id=admin_user_id)
+    await ensure_mail_resource_not_used_by_job(db=db, resource_type="template", resource_id=template_id)
     template.is_deleted = True
     template.deleted_at = datetime.now(UTC)
     template.updated_at = datetime.now(UTC)

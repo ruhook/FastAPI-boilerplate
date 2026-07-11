@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -15,7 +15,7 @@ from ..assets.model import Asset
 from ..assets.schema import AssetUploadPayload
 from ..assets.service import serialize_asset, upload_asset
 from ..job.model import Job
-from ..job_progress.const import RecruitmentStage, get_recruitment_stage_cn_name
+from ..job_progress.const import JobProgressDataKey, RecruitmentStage, get_recruitment_stage_cn_name
 from ..job_progress.model import JobProgress
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
@@ -304,6 +304,116 @@ async def upsert_contract_record_for_progress(
     return current
 
 
+async def _sync_progress_after_contract_close(
+    *,
+    db: AsyncSession,
+    record: ContractRecord,
+    job: Job,
+    progress: JobProgress | None,
+    admin_user_id: int,
+) -> None:
+    if progress is None:
+        return
+    previous_stage = progress.current_stage
+    target_stage: RecruitmentStage | None = None
+    if previous_stage == RecruitmentStage.ACTIVE.value:
+        target_stage = RecruitmentStage.REPLACED
+    elif previous_stage in {
+        RecruitmentStage.SCREENING_PASSED.value,
+        RecruitmentStage.CONTRACT_POOL.value,
+    }:
+        target_stage = RecruitmentStage.REJECTED
+    if target_stage is None:
+        return
+
+    next_progress_data = dict(progress.data or {})
+    if target_stage == RecruitmentStage.REPLACED:
+        next_progress_data[JobProgressDataKey.REPLACEMENT_REASON.value] = "contract_closed"
+    else:
+        next_progress_data[JobProgressDataKey.REJECTED_FROM_STAGE.value] = previous_stage
+    progress.current_stage = target_stage.value
+    progress.entered_stage_at = datetime.now(UTC)
+    progress.data = next_progress_data
+    await create_operation_log(
+        db=db,
+        user_id=progress.user_id,
+        job_id=progress.job_id,
+        application_id=progress.application_id,
+        talent_profile_id=progress.talent_profile_id,
+        log_type=OperationLogType.JOB_PROGRESS_STAGE_CHANGED.value,
+        data={
+            "job_progress_id": progress.id,
+            "job_id": job.id,
+            "job_title": job.title,
+            "from_stage": previous_stage,
+            "from_stage_cn_name": get_recruitment_stage_cn_name(previous_stage),
+            "to_stage": target_stage.value,
+            "to_stage_cn_name": get_recruitment_stage_cn_name(target_stage.value),
+            "reason": f"contract_{record.contract_status}",
+            "operator_admin_user_id": admin_user_id,
+        },
+    )
+
+
+def _apply_admin_contract_status(
+    *,
+    record: ContractRecord,
+    contract_status: str | None,
+    admin_user_id: int,
+    updated_fields: list[str],
+) -> None:
+    if contract_status is None:
+        return
+    next_contract_status = _normalize_contract_status_or_400(contract_status)
+    if next_contract_status == CONTRACT_STATUS_ACTIVE and record.contract_status != CONTRACT_STATUS_ACTIVE:
+        raise BadRequestException("Active contracts must be activated by the company signed contract workflow.")
+    ensure_status_transition(
+        ContractStatus(record.contract_status),
+        ContractStatus(next_contract_status),
+    )
+    record.contract_status = next_contract_status
+    record.updated_by_admin_user_id = admin_user_id
+    updated_fields.append("contract_status")
+
+
+async def _replace_pending_contract_attachment(
+    *,
+    db: AsyncSession,
+    record: ContractRecord,
+    upload: UploadFile | None,
+    admin_user_id: int,
+    updated_fields: list[str],
+) -> None:
+    if upload is None:
+        return
+    if not record.is_current:
+        raise BadRequestException("Historical contract attachments cannot be replaced.")
+    if record.contract_status != CONTRACT_STATUS_PENDING_ACTIVATION:
+        raise BadRequestException(
+            "Only pending contract attachments can be replaced; signed or closed contracts must use a new version."
+        )
+    asset_payload = await upload_asset(
+        db=db,
+        payload=AssetUploadPayload(
+            type="contract_attachment",
+            module="contract",
+            owner_type="admin_user",
+            owner_id=admin_user_id,
+        ),
+        upload=upload,
+    )
+    asset_id = int(asset_payload["id"])
+    record.contract_attachment_asset_id = asset_id
+    record.company_sealed_contract_asset_id = asset_id
+    record.updated_by_admin_user_id = admin_user_id
+    record.data = {
+        **(record.data or {}),
+        "contract_attachment_name": asset_payload["original_name"],
+        "company_sealed_contract_attachment_name": asset_payload["original_name"],
+    }
+    updated_fields.append("contract_attachment")
+
+
 async def update_contract_record_for_admin(
     *,
     contract_record_id: int,
@@ -340,7 +450,7 @@ async def update_contract_record_for_admin(
             ContractRecord.id == contract_record_id,
             ContractRecord.is_deleted.is_(False),
             Job.is_deleted.is_(False),
-        )
+        ).with_for_update()
     )
     row = result.first()
     if row is None:
@@ -350,13 +460,12 @@ async def update_contract_record_for_admin(
     previous_effective_date = record.effective_date
     previous_end_date = record.end_date
     updated_fields: list[str] = []
-    if contract_status is not None:
-        next_contract_status = _normalize_contract_status_or_400(contract_status)
-        if next_contract_status == CONTRACT_STATUS_ACTIVE and record.contract_status != CONTRACT_STATUS_ACTIVE:
-            raise BadRequestException("Active contracts must be activated by the company signed contract workflow.")
-        record.contract_status = next_contract_status
-        record.updated_by_admin_user_id = admin_user_id
-        updated_fields.append("contract_status")
+    _apply_admin_contract_status(
+        record=record,
+        contract_status=contract_status,
+        admin_user_id=admin_user_id,
+        updated_fields=updated_fields,
+    )
     if update_contract_type:
         record.contract_type = normalize_contract_type(contract_type)
         record.updated_by_admin_user_id = admin_user_id
@@ -408,27 +517,25 @@ async def update_contract_record_for_admin(
             if "end_date" not in updated_fields:
                 updated_fields.append("end_date")
 
-    if latest_contract_upload is not None:
-        asset_payload = await upload_asset(
+    await _replace_pending_contract_attachment(
+        db=db,
+        record=record,
+        upload=latest_contract_upload,
+        admin_user_id=admin_user_id,
+        updated_fields=updated_fields,
+    )
+
+    if contract_status is not None and record.contract_status in {
+        ContractStatus.TERMINATED.value,
+        ContractStatus.EXPIRED.value,
+    }:
+        await _sync_progress_after_contract_close(
             db=db,
-            payload=AssetUploadPayload(
-                type="contract_attachment",
-                module="contract",
-                owner_type="admin_user",
-                owner_id=admin_user_id,
-            ),
-            upload=latest_contract_upload,
+            record=record,
+            job=job,
+            progress=progress,
+            admin_user_id=admin_user_id,
         )
-        asset_id = int(asset_payload["id"])
-        record.contract_attachment_asset_id = asset_id
-        record.company_sealed_contract_asset_id = asset_id
-        record.updated_by_admin_user_id = admin_user_id
-        record.data = {
-            **(record.data or {}),
-            "contract_attachment_name": asset_payload["original_name"],
-            "company_sealed_contract_attachment_name": asset_payload["original_name"],
-        }
-        updated_fields.append("contract_attachment")
 
     await flush_contract_write(db)
     if {"rate", "base_pay", "contract_type", "contract_status"}.intersection(updated_fields):

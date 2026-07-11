@@ -28,13 +28,15 @@ async def _get_web_user_by_id(
 
 
 def _serialize_authenticated_user(user: User) -> dict[str, Any]:
+    public_data = dict(user.data or {})
+    public_data.pop("payment_info", None)
     return UserAuth(
         id=user.id,
         name=user.name,
         username=user.username,
         email=user.email,
         profile_image_url=user.profile_image_url,
-        data=user.data or {},
+        data=public_data,
     ).model_dump()
 
 

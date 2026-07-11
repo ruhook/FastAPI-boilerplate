@@ -31,6 +31,31 @@ from .schema import JobCreate, JobUpdate
 from .serialization import _job_data_from_payload, _merge_job_data, serialize_job
 
 
+def _ensure_owner_transfer_mail_config(
+    *,
+    owner_is_changing: bool,
+    job: Job,
+    payload: JobUpdate,
+) -> None:
+    if not owner_is_changing:
+        return
+    current_rejection_config = (job.data or {}).get(JOB_DATA_REJECTION_MAIL_CONFIG_KEY) or {}
+    if payload.assessment_config is None and job.assessment_enabled:
+        raise BadRequestException(
+            "Owner transfer requires an assessment mail configuration owned by the new owner, "
+            "or assessment must be disabled."
+        )
+    if (
+        payload.rejection_mail_config is None
+        and isinstance(current_rejection_config, dict)
+        and current_rejection_config.get("enabled")
+    ):
+        raise BadRequestException(
+            "Owner transfer requires a rejection mail configuration owned by the new owner, "
+            "or rejection mail must be disabled."
+        )
+
+
 async def _ensure_mail_dependencies_exist(
     *,
     enabled: bool,
@@ -182,6 +207,9 @@ async def update_job(
     if payload.owner_admin_user_id is not None:
         next_owner_admin_user = await _get_enabled_admin_user(payload.owner_admin_user_id, db)
         next_owner_admin_user_id = int(next_owner_admin_user.id)
+    owner_is_changing = next_owner_admin_user_id != int(job.owner_admin_user_id)
+
+    _ensure_owner_transfer_mail_config(owner_is_changing=owner_is_changing, job=job, payload=payload)
 
     if payload.form_strategy is not None:
         await _ensure_form_template_exists(payload.form_strategy.template_id, db)
@@ -195,7 +223,7 @@ async def update_job(
             mail_signature_id=payload.assessment_config.mail_signature_id,
             config_label="Assessment",
             db=db,
-            admin_user_id=int(job.owner_admin_user_id),
+            admin_user_id=next_owner_admin_user_id,
         )
         job.assessment_enabled = payload.assessment_config.enabled
         job.assessment_mail_account_id = (
@@ -216,7 +244,7 @@ async def update_job(
             mail_signature_id=payload.rejection_mail_config.mail_signature_id,
             config_label="Rejection",
             db=db,
-            admin_user_id=int(job.owner_admin_user_id),
+            admin_user_id=next_owner_admin_user_id,
         )
 
     if payload.company_id is not None:
@@ -299,4 +327,3 @@ async def update_job(
         referral_bonus_model_name_map.get(job.referral_bonus_model_id),
         current_admin=current_admin,
     )
-

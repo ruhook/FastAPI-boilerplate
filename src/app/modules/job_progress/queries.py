@@ -13,6 +13,7 @@ from ...core.advanced_filter import (
     validate_advanced_filter_query,
 )
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
+from ..admin.company.model import AdminCompany, AdminCompanyProject
 from ..admin.dictionary.service import get_dictionary_option_label_map_by_key
 from ..assets.model import Asset
 from ..assets.service import serialize_asset
@@ -24,7 +25,7 @@ from ..contract_record.queries import (
     get_current_contract_record_by_progress_id,
     list_current_contract_records_by_progress_ids,
 )
-from ..job.const import JOB_DATA_CONTRACT_EXAMPLE_KEY
+from ..job.const import JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY, JOB_DATA_CONTRACT_EXAMPLE_KEY
 from ..job.model import Job
 from .candidate_presentation import CandidatePresentation
 from .const import RecruitmentStage, get_recruitment_stage_cn_name
@@ -394,6 +395,17 @@ async def list_candidate_job_applications(
         asset_map = {int(asset.id): serialize_asset(asset) for asset in asset_result.scalars().all()}
 
     country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
+    job_ids = sorted({int(job.id) for _, _, job, _ in rows})
+    company_project_result = await db.execute(
+        select(Job.id, AdminCompany.name, AdminCompanyProject.name)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .outerjoin(AdminCompanyProject, AdminCompanyProject.id == Job.project_id)
+        .where(Job.id.in_(job_ids))
+    )
+    company_project_map = {
+        int(job_id): (company_name, project_name)
+        for job_id, company_name, project_name in company_project_result.all()
+    }
 
     items = [
         CandidateJobApplicationListItemRead(
@@ -401,7 +413,8 @@ async def list_candidate_job_applications(
             job_progress_id=progress.id,
             job_id=progress.job_id,
             job_title=application.job_snapshot_title,
-            job_company_name=None,
+            job_company_name=company_project_map.get(int(job.id), (None, None))[0],
+            job_project_name=company_project_map.get(int(job.id), (None, None))[1],
             job_status=job.status,
             current_stage=progress.current_stage,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
@@ -422,8 +435,8 @@ async def list_candidate_job_applications(
                 progress=progress,
                 contract_record=contract_records.get(progress.id),
                 asset_map=asset_map,
-                current_company_name=None,
-                current_project_name=None,
+                current_company_name=company_project_map.get(int(job.id), (None, None))[0],
+                current_project_name=company_project_map.get(int(job.id), (None, None))[1],
             ),
         )
         for progress, application, job, presentation in rows
@@ -516,6 +529,18 @@ async def list_candidate_contracts(
     if not rows:
         return CandidateContractListPage(items=[], total=total, page=page, page_size=page_size).model_dump()
 
+    job_ids = sorted({int(job.id) for _, _, job, _ in rows})
+    company_project_result = await db.execute(
+        select(Job.id, AdminCompany.name, AdminCompanyProject.name)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .outerjoin(AdminCompanyProject, AdminCompanyProject.id == Job.project_id)
+        .where(Job.id.in_(job_ids))
+    )
+    company_project_map = {
+        int(job_id): (company_name, project_name)
+        for job_id, company_name, project_name in company_project_result.all()
+    }
+
     asset_ids: set[int] = set()
     for _, _, _, contract_record in rows:
         asset_ids.update(_extract_contract_record_asset_ids(contract_record))
@@ -536,7 +561,8 @@ async def list_candidate_contracts(
             job_progress_id=progress.id,
             job_id=job.id,
             job_title=application.job_snapshot_title,
-            job_company_name=None,
+            job_company_name=company_project_map.get(int(job.id), (None, None))[0],
+            job_project_name=company_project_map.get(int(job.id), (None, None))[1],
             job_status=job.status,
             current_stage=progress.current_stage,
             current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
@@ -549,8 +575,8 @@ async def list_candidate_contracts(
                     progress=progress,
                     contract_record=contract_record,
                     asset_map=asset_map,
-                    current_company_name=None,
-                    current_project_name=None,
+                    current_company_name=company_project_map.get(int(job.id), (None, None))[0],
+                    current_project_name=company_project_map.get(int(job.id), (None, None))[1],
                 ),
             ),
         )
@@ -567,9 +593,11 @@ async def get_candidate_job_application_detail(
 ) -> dict[str, Any]:
     country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
     result = await db.execute(
-        select(JobProgress, CandidateApplication, Job)
+        select(JobProgress, CandidateApplication, Job, AdminCompany, AdminCompanyProject)
         .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
         .join(Job, Job.id == JobProgress.job_id)
+        .outerjoin(AdminCompany, AdminCompany.id == Job.company_id)
+        .outerjoin(AdminCompanyProject, AdminCompanyProject.id == Job.project_id)
         .where(
             JobProgress.user_id == user_id,
             JobProgress.application_id == application_id,
@@ -582,7 +610,7 @@ async def get_candidate_job_application_detail(
     if row is None:
         raise NotFoundException("Application not found.")
 
-    progress, application, job = row
+    progress, application, job, company, project = row
     field_result = await db.execute(
         select(CandidateApplicationFieldValue)
         .where(CandidateApplicationFieldValue.application_id == application.id)
@@ -619,7 +647,8 @@ async def get_candidate_job_application_detail(
         job_progress_id=progress.id,
         job_id=job.id,
         job_title=application.job_snapshot_title,
-        job_company_name=None,
+        job_company_name=company.name if company is not None else None,
+        job_project_name=project.name if project is not None else None,
         job_status=job.status,
         current_stage=progress.current_stage,
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
@@ -638,6 +667,9 @@ async def get_candidate_job_application_detail(
             _build_candidate_compensation_label(job) if _should_show_candidate_compensation(job) else "-"
         ),
         assessment_enabled=job.assessment_enabled,
+        assessment_external_url=(
+            str((job.data or {}).get(JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY) or "").strip() or None
+        ),
         **presentation,
         application_snapshot=_serialize_application_snapshot(field_rows),
         application_assets=_serialize_application_assets(field_rows, asset_map),
@@ -647,7 +679,7 @@ async def get_candidate_job_application_detail(
             progress=progress,
             contract_record=contract_record,
             asset_map=asset_map,
-            current_company_name=None,
-            current_project_name=None,
+            current_company_name=company.name if company is not None else None,
+            current_project_name=project.name if project is not None else None,
         ),
     ).model_dump()

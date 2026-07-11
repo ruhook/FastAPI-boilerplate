@@ -246,7 +246,7 @@ async def create_application_and_sync_talent(
     auto_merged = False
     talent_created = False
     if talent is None:
-        talent = TalentProfile(
+        candidate_talent = TalentProfile(
             user_id=current_user["id"],
             full_name=current_user.get("name"),
             email=current_user.get("email"),
@@ -258,43 +258,60 @@ async def create_application_and_sync_talent(
             last_merged_at=application.submitted_at,
             data={},
         )
-        db.add(talent)
-        await db.flush()
+        savepoint = await db.begin_nested()
+        db.add(candidate_talent)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await savepoint.rollback()
+            talent = (
+                await db.scalars(
+                    select(TalentProfile).where(
+                        TalentProfile.user_id == current_user["id"],
+                        TalentProfile.is_deleted.is_(False),
+                    ).with_for_update()
+                )
+            ).one_or_none()
+            if talent is None:
+                raise
+        else:
+            await savepoint.commit()
+            talent = candidate_talent
+            field_rows = await _list_application_field_rows(application.id, db)
+            merged_fields = _merge_fields_into_profile(talent, field_rows)
+            if CandidateFieldKey.EMAIL.value not in merged_fields and current_user.get("email"):
+                talent.email = current_user["email"]
+            if CandidateFieldKey.FULL_NAME.value not in merged_fields and current_user.get("name"):
+                talent.full_name = current_user["name"]
 
-        field_rows = await _list_application_field_rows(application.id, db)
-        merged_fields = _merge_fields_into_profile(talent, field_rows)
-        if CandidateFieldKey.EMAIL.value not in merged_fields and current_user.get("email"):
-            talent.email = current_user["email"]
-        if CandidateFieldKey.FULL_NAME.value not in merged_fields and current_user.get("name"):
-            talent.full_name = current_user["name"]
-
-        db.add(
-            TalentProfileMergeLog(
-                talent_profile_id=talent.id,
-                application_id=application.id,
-                operator_admin_user_id=None,
-                merge_strategy=TalentMergeStrategy.INITIAL_AUTO.value,
-                merged_fields=merged_fields,
+            db.add(
+                TalentProfileMergeLog(
+                    talent_profile_id=talent.id,
+                    application_id=application.id,
+                    operator_admin_user_id=None,
+                    merge_strategy=TalentMergeStrategy.INITIAL_AUTO.value,
+                    merged_fields=merged_fields,
+                )
             )
-        )
-        await create_operation_log(
-            db=db,
-            user_id=current_user["id"],
-            job_id=job.id,
-            application_id=application.id,
-            talent_profile_id=talent.id,
-            log_type=OperationLogType.TALENT_PROFILE_INITIAL_AUTO_MERGE.value,
-            data={
-                "talent_profile_id": talent.id,
-                "application_id": application.id,
-                "job_id": job.id,
-                "job_title": job.title,
-                "merged_fields": merged_fields,
-            },
-        )
-        auto_merged = True
-        talent_created = True
-    else:
+            await create_operation_log(
+                db=db,
+                user_id=current_user["id"],
+                job_id=job.id,
+                application_id=application.id,
+                talent_profile_id=talent.id,
+                log_type=OperationLogType.TALENT_PROFILE_INITIAL_AUTO_MERGE.value,
+                data={
+                    "talent_profile_id": talent.id,
+                    "application_id": application.id,
+                    "job_id": job.id,
+                    "job_title": job.title,
+                    "merged_fields": merged_fields,
+                },
+            )
+            auto_merged = True
+            talent_created = True
+
+    if not talent_created:
         talent.latest_applied_job_id = job.id
         talent.latest_applied_job_title = job.title
         talent.latest_applied_at = application.submitted_at

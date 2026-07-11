@@ -17,6 +17,7 @@ from .const import (
     JobStatus,
 )
 from .model import Job
+from .queries import _get_company_name_map
 
 
 class WebJobListItemRead(BaseModel):
@@ -108,11 +109,12 @@ def _serialize_job_list_item(
     job: Job,
     *,
     country_label_map: dict[str, str],
+    company_name: str,
 ) -> dict[str, Any]:
     return WebJobListItemRead(
         id=job.id,
         title=job.title,
-        company="",
+        company=company_name,
         status=job.status,
         country=job.country,
         country_label=_resolve_country_label(job.country, country_label_map),
@@ -131,6 +133,7 @@ async def _serialize_job_detail(
     job: Job,
     *,
     country_label_map: dict[str, str],
+    company_name: str,
     db: AsyncSession,
 ) -> dict[str, Any]:
     data = job.data or {}
@@ -141,7 +144,7 @@ async def _serialize_job_detail(
     return WebJobDetailRead(
         id=job.id,
         title=job.title,
-        company="",
+        company=company_name,
         status=job.status,
         country=job.country,
         country_label=_resolve_country_label(job.country, country_label_map),
@@ -189,10 +192,18 @@ async def list_public_jobs(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
+    jobs = list(result.scalars().all())
+    company_name_map = await _get_company_name_map(db, [job.company_id for job in jobs])
     return WebJobListPage(
         items=[
-            WebJobListItemRead.model_validate(_serialize_job_list_item(job, country_label_map=country_label_map))
-            for job in result.scalars().all()
+            WebJobListItemRead.model_validate(
+                _serialize_job_list_item(
+                    job,
+                    country_label_map=country_label_map,
+                    company_name=company_name_map.get(job.company_id, ""),
+                )
+            )
+            for job in jobs
         ],
         total=total,
         page=page,
@@ -213,7 +224,12 @@ async def get_public_job(*, job_id: int, db: AsyncSession) -> WebJobDetailRead:
     if job is None:
         raise NotFoundException("Job not found.")
     country_label_map = await get_dictionary_option_label_map_by_key(key="country", db=db)
+    company_name_map = await _get_company_name_map(db, [job.company_id])
     return WebJobDetailRead.model_validate(
-        await _serialize_job_detail(job, country_label_map=country_label_map, db=db)
+        await _serialize_job_detail(
+            job,
+            country_label_map=country_label_map,
+            company_name=company_name_map.get(job.company_id, ""),
+            db=db,
+        )
     )
-

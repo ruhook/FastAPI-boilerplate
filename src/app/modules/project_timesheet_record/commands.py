@@ -41,6 +41,13 @@ from .serialization import (
 )
 
 
+def _ensure_work_date_within_contract(*, contract: Any, work_date: Any) -> None:
+    if contract.effective_date is not None and work_date < contract.effective_date:
+        raise BadRequestException("Work date cannot be earlier than the contract effective date.")
+    if contract.end_date is not None and work_date > contract.end_date:
+        raise BadRequestException("Work date cannot be later than the contract end date.")
+
+
 async def create_project_timesheet_records(
     *,
     company_id: int,
@@ -98,6 +105,13 @@ async def create_project_timesheet_records(
             raise BadRequestException("Selected worker must have an active contract.")
         if entry.user_id is not None and int(entry.user_id) != int(worker["user_id"]):
             raise BadRequestException("Selected worker does not match the selected contract.")
+        contract_record, _, _ = await _resolve_timesheet_worker(
+            db=db,
+            company_id=company.id,
+            project_id=project.id,
+            contract_record_id=int(entry.contract_record_id),
+        )
+        _ensure_work_date_within_contract(contract=contract_record, work_date=entry.work_date)
         if timesheet_work_types and entry.work_type not in timesheet_work_types:
             raise BadRequestException("Selected work type is not configured for this company.")
         role_name = (entry.role_name or "").strip() or None
@@ -210,6 +224,7 @@ async def update_project_timesheet_record(
         project_id=project.id,
         contract_record_id=int(payload.contract_record_id),
     )
+    _ensure_work_date_within_contract(contract=contract_record, work_date=payload.work_date)
     if (
         int(payload.contract_record_id) != int(record.contract_record_id or 0)
         and contract_record.contract_status != CONTRACT_STATUS_ACTIVE

@@ -80,6 +80,18 @@ class TalentStatusUpdateRequest(BaseModel):
     status: str = Field(min_length=1, max_length=32)
 
 
+class TalentJoinJobRequest(BaseModel):
+    job_id: int = Field(ge=1)
+
+
+class TalentJoinJobResponse(BaseModel):
+    talent_profile_id: int
+    application_id: int
+    job_progress_id: int
+    job_id: int
+    current_stage: str
+
+
 class TalentNoteUpdateRequest(BaseModel):
     note: str | None = None
 

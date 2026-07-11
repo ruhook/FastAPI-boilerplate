@@ -8,6 +8,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.modules.candidate_application.model import CandidateApplication
+from src.app.modules.contract_record.const import ContractStatus
 from src.app.modules.contract_record.model import ContractRecord
 from src.app.modules.job_progress.const import JobProgressDataKey, RecruitmentStage
 from src.app.modules.job_progress.model import JobProgress
@@ -166,30 +168,29 @@ async def _create_talent_with_sources(
     sealed = await create_resume_asset(db_session, suffix=f"{suffix}-sealed", original_name="sealed-contract.pdf")
     sealed.owner_id = user.id
     sealed.module = "contract_record"
-    db_session.add(
-        ContractRecord(
-            user_id=user.id,
-            user_snapshot_name=user.name,
-            user_snapshot_email=user.email,
-            talent_profile_id=talent.id,
-            application_id=payload["application_id"],
-            job_id=job.id,
-            job_progress_id=progress.id,
-            job_snapshot_title=job.title,
-            service_customer_company_id=job.company_id,
-            service_customer_project_id=job.project_id,
-            agreement_ref_no="CON-009",
-            contract_status="active",
-            contract_type="normal",
-            contractor_name=user.name,
-            rate=Decimal("9.25"),
-            effective_date=date(2026, 6, 16),
-            end_date=date(2026, 12, 31),
-            company_sealed_contract_asset_id=sealed.id,
-            is_current=True,
-            data={},
-        )
+    contract = ContractRecord(
+        user_id=user.id,
+        user_snapshot_name=user.name,
+        user_snapshot_email=user.email,
+        talent_profile_id=talent.id,
+        application_id=payload["application_id"],
+        job_id=job.id,
+        job_progress_id=progress.id,
+        job_snapshot_title=job.title,
+        service_customer_company_id=job.company_id,
+        service_customer_project_id=job.project_id,
+        agreement_ref_no="CON-009",
+        contract_status="active",
+        contract_type="normal",
+        contractor_name=user.name,
+        rate=Decimal("9.25"),
+        effective_date=date(2026, 6, 16),
+        end_date=date(2026, 12, 31),
+        company_sealed_contract_asset_id=sealed.id,
+        is_current=True,
+        data={},
     )
+    db_session.add(contract)
     db_session.add(
         ProjectTimesheetRecord(
             company_id=job.company_id,
@@ -218,7 +219,7 @@ async def _create_talent_with_sources(
     )
     await db_session.commit()
 
-    return {"talent": talent, "progress": progress, "user": user, "job": job}
+    return {"talent": talent, "progress": progress, "contract": contract, "user": user, "job": job}
 
 
 async def test_admin_talent_pool_returns_aggregated_b_side_fields(
@@ -333,6 +334,7 @@ async def test_talent_status_update_to_replaced_moves_progress_stage(
     )
     talent = context["talent"]
     progress = context["progress"]
+    contract = context["contract"]
 
     response = await admin_client.patch(
         f"/api/v1/talents/{talent.id}/status",
@@ -343,7 +345,97 @@ async def test_talent_status_update_to_replaced_moves_progress_stage(
     assert response.json()["talent_status"] == "replaced"
 
     await db_session.refresh(progress)
+    await db_session.refresh(contract)
     assert progress.current_stage == RecruitmentStage.REPLACED.value
+    assert contract.contract_status == ContractStatus.TERMINATED.value
+
+
+async def test_admin_contract_close_syncs_progress_and_terminal_contract_cannot_revive(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict[str, str],
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    context = await _create_talent_with_sources(
+        web_client=web_client,
+        db_session=db_session,
+        superadmin_credentials=superadmin_credentials,
+    )
+    progress = context["progress"]
+    contract = context["contract"]
+
+    close_response = await admin_client.patch(
+        f"/api/v1/contracts/{contract.id}",
+        headers=admin_auth_headers,
+        json={"contract_status": ContractStatus.TERMINATED.value},
+    )
+    assert close_response.status_code == 200, close_response.text
+
+    await db_session.refresh(progress)
+    await db_session.refresh(contract)
+    assert progress.current_stage == RecruitmentStage.REPLACED.value
+    assert contract.contract_status == ContractStatus.TERMINATED.value
+
+    revive_response = await admin_client.patch(
+        f"/api/v1/contracts/{contract.id}",
+        headers=admin_auth_headers,
+        json={"contract_status": ContractStatus.PENDING_ACTIVATION.value},
+    )
+    assert revive_response.status_code == 409, revive_response.text
+
+
+async def test_admin_can_join_existing_talent_to_another_job_once(
+    admin_client: AsyncClient,
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    admin_auth_headers: dict[str, str],
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    context = await _create_talent_with_sources(
+        web_client=web_client,
+        db_session=db_session,
+        superadmin_credentials=superadmin_credentials,
+    )
+    talent = context["talent"]
+    talent_id = int(talent.id)
+    source_job = context["job"]
+    suffix = uuid4().hex[:8]
+    target_job = await create_open_job(
+        db_session,
+        suffix=f"join-{suffix}",
+        title=f"Talent Join Target {suffix}",
+        owner_admin_user_id=int(superadmin_credentials["id"]),
+        form_template_id=source_job.form_template_id,
+        form_fields=_build_talent_pool_form_fields(),
+        assessment_enabled=False,
+    )
+
+    response = await admin_client.post(
+        f"/api/v1/talents/{talent_id}/join-job",
+        headers=admin_auth_headers,
+        json={"job_id": target_job.id},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["talent_profile_id"] == talent_id
+    assert payload["job_id"] == target_job.id
+    assert payload["current_stage"] == RecruitmentStage.PENDING_SCREENING.value
+
+    await db_session.rollback()
+    application = await db_session.get(CandidateApplication, payload["application_id"])
+    progress = await db_session.get(JobProgress, payload["job_progress_id"])
+    await db_session.refresh(target_job)
+    assert application is not None and application.data["source"] == "admin_talent_join"
+    assert progress is not None and progress.talent_profile_id == talent_id
+    assert target_job.applicant_count == 1
+
+    duplicate_response = await admin_client.post(
+        f"/api/v1/talents/{talent_id}/join-job",
+        headers=admin_auth_headers,
+        json={"job_id": target_job.id},
+    )
+    assert duplicate_response.status_code == 400, duplicate_response.text
 
 
 async def test_talent_note_update_syncs_progress_and_profile_note(

@@ -2,8 +2,11 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.config import settings
+from src.app.modules.user.model import User
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -22,6 +25,7 @@ async def test_web_application_registers_one_logout_route() -> None:
 
 async def test_web_register_login_me_refresh_and_logout_flow(
     web_client: AsyncClient,
+    db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "CANDIDATE_REGISTER_VERIFICATION_ENABLED", False)
@@ -43,6 +47,14 @@ async def test_web_register_login_me_refresh_and_logout_flow(
     assert register_payload["name"] == "Web Auth Candidate"
     assert register_payload["email"] == email
     assert register_payload["username"]
+
+    user = (await db_session.scalars(select(User).where(User.email == email))).one()
+    user.data = {
+        **(user.data or {}),
+        "public_preference": "visible",
+        "payment_info": {"bank_card_number": "4111 1111 1111 1111"},
+    }
+    await db_session.commit()
 
     duplicate_register_response = await web_client.post(
         "/api/v1/user/register",
@@ -74,6 +86,15 @@ async def test_web_register_login_me_refresh_and_logout_flow(
     me_payload = me_response.json()
     assert me_payload["email"] == email
     assert me_payload["name"] == "Web Auth Candidate"
+    assert me_payload["data"]["public_preference"] == "visible"
+    assert "payment_info" not in me_payload["data"]
+
+    payment_settings_response = await web_client.get(
+        "/api/v1/me/payment-settings",
+        headers={"Authorization": f"Bearer {login_payload['access_token']}"},
+    )
+    assert payment_settings_response.status_code == 200, payment_settings_response.text
+    assert payment_settings_response.json()["bank_card_number"] == "4111 1111 1111 1111"
 
     refresh_response = await web_client.post("/api/v1/refresh")
     assert refresh_response.status_code == 200, refresh_response.text

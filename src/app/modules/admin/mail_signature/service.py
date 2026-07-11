@@ -9,6 +9,7 @@ from ....core.exceptions.http_exceptions import DuplicateValueException, NotFoun
 from ...assets.service import ensure_assets_belong_to_owner, ensure_assets_exist, serialize_asset
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
 from ..admin_audit_log.service import create_admin_audit_log
+from ..mail_reference_policy import ensure_mail_resource_not_used_by_job
 from .model import MailSignature
 from .schema import MailSignatureCreate, MailSignatureRead, MailSignatureUpdate
 
@@ -271,6 +272,7 @@ async def update_mail_signature(
 
 async def delete_mail_signature(signature_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     signature = await get_mail_signature_model(signature_id, db, admin_user_id=admin_user_id)
+    await ensure_mail_resource_not_used_by_job(db=db, resource_type="signature", resource_id=signature_id)
     signature.is_deleted = True
     signature.deleted_at = datetime.now(UTC)
     signature.updated_at = datetime.now(UTC)

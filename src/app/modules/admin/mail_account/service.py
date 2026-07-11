@@ -10,6 +10,7 @@ from ...assets.model import Asset
 from ..admin_audit_log.const import AdminAuditLogActionType, AdminAuditLogTargetType
 from ..admin_audit_log.service import create_admin_audit_log
 from ..mail_account.const import MAIL_ACCOUNT_PROVIDER_PRESETS
+from ..mail_reference_policy import ensure_mail_resource_not_used_by_job
 from ..mail_task.model import MailTask
 from .model import MailAccount
 from .schema import MailAccountCreate, MailAccountRead, MailAccountUpdate, resolve_mail_provider_settings
@@ -165,6 +166,8 @@ async def update_mail_account(
 
 async def delete_mail_account(account_id: int, db: AsyncSession, *, admin_user_id: int) -> dict[str, str]:
     account = await get_mail_account_model(account_id, db, admin_user_id=admin_user_id)
+
+    await ensure_mail_resource_not_used_by_job(db=db, resource_type="account", resource_id=account_id)
 
     task_result = await db.execute(select(MailTask.id).where(MailTask.account_id == account_id))
     if task_result.first() is not None:

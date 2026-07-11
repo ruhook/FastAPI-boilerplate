@@ -7,9 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.db.database import local_session
+from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
 from src.app.modules.admin.dictionary.model import AdminDictionary
 from src.app.modules.assets.model import Asset
 from src.app.modules.contract_record.model import ContractRecord
+from src.app.modules.job.const import JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY
 from src.app.modules.job_progress.model import JobProgress
 from src.app.modules.job_progress.service import mark_job_progress_assessment_invited
 from tests.helpers.talent import (
@@ -79,6 +81,15 @@ async def test_web_me_applications_returns_current_users_records(
         form_template_id=template.id,
         form_fields=fields,
     )
+    assessment_external_url = f"https://assessment.example.com/{suffix}"
+    job.data = {
+        **(job.data or {}),
+        JOB_DATA_ASSESSMENT_EXTERNAL_URL_KEY: assessment_external_url,
+    }
+    company = await db_session.get(AdminCompany, job.company_id)
+    project = await db_session.get(AdminCompanyProject, job.project_id)
+    assert company is not None and project is not None
+    await db_session.commit()
 
     user, password = await create_candidate_user(db_session, suffix=f"me{suffix}", name="My Jobs Candidate")
     auth_headers = await login_web_user(web_client, username=user.email, password=password)
@@ -112,6 +123,8 @@ async def test_web_me_applications_returns_current_users_records(
     assert item is not None
     assert item["job_id"] == job.id
     assert item["job_title"] == job.title
+    assert item["job_company_name"] == company.name
+    assert item["job_project_name"] == project.name
     assert item["current_stage"]
     assert item["country"] == "Brazil"
     assert item["country_label"] == "Brazil Label"
@@ -139,6 +152,9 @@ async def test_web_me_applications_returns_current_users_records(
     assert detail_payload["application_id"] == application_id
     assert detail_payload["job_id"] == job.id
     assert detail_payload["job_title"] == job.title
+    assert detail_payload["job_company_name"] == company.name
+    assert detail_payload["job_project_name"] == project.name
+    assert detail_payload["assessment_external_url"] == assessment_external_url
     assert detail_payload["country_label"] == "Brazil Label"
     assert detail_payload["candidate_status"] == "under_review"
     assert detail_payload["candidate_stage"] == "application_review"
@@ -401,6 +417,9 @@ async def test_web_me_contracts_only_lists_company_signed_active_contracts(
         form_template_id=template.id,
         form_fields=fields,
     )
+    company = await db_session.get(AdminCompany, job.company_id)
+    project = await db_session.get(AdminCompanyProject, job.project_id)
+    assert company is not None and project is not None
 
     user, password = await create_candidate_user(
         db_session,
@@ -477,4 +496,6 @@ async def test_web_me_contracts_only_lists_company_signed_active_contracts(
         None,
     )
     assert active_item is not None
+    assert active_item["job_company_name"] == company.name
+    assert active_item["job_project_name"] == project.name
     assert active_item["contract_record_data"]["company_sealed_contract_attachment"]["name"] == "company-signed.docx"

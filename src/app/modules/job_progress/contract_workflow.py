@@ -495,11 +495,10 @@ async def upload_job_progress_company_sealed_contract(
     progress = progress_result.scalar_one_or_none()
     if progress is None:
         raise NotFoundException("Job progress not found.")
-    if progress.current_stage not in {
-        RecruitmentStage.CONTRACT_POOL.value,
-        RecruitmentStage.ACTIVE.value,
-    }:
-        raise BadRequestException("Company signed contract can only be uploaded in 合同库 or Active.")
+    if progress.current_stage != RecruitmentStage.CONTRACT_POOL.value:
+        raise BadRequestException(
+            "Company signed contract can only be uploaded in 合同库; active contracts must use the re-sign workflow."
+        )
 
     contract_record = await get_current_contract_record_by_progress_id(progress_id=progress.id, db=db, for_update=True)
     if contract_record is None:

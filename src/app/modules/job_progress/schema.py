@@ -270,6 +270,7 @@ class CandidateJobApplicationListItemRead(BaseModel):
     job_id: int
     job_title: str
     job_company_name: str | None = None
+    job_project_name: str | None = None
     job_status: str
     current_stage: str
     current_stage_cn_name: str
@@ -317,6 +318,7 @@ class CandidateContractListItemRead(BaseModel):
     job_id: int
     job_title: str
     job_company_name: str | None = None
+    job_project_name: str | None = None
     job_status: str
     current_stage: str
     current_stage_cn_name: str
@@ -339,6 +341,7 @@ class CandidateJobApplicationDetailRead(BaseModel):
     job_id: int
     job_title: str
     job_company_name: str | None = None
+    job_project_name: str | None = None
     job_status: str
     current_stage: str
     current_stage_cn_name: str
@@ -355,6 +358,7 @@ class CandidateJobApplicationDetailRead(BaseModel):
     compensation_unit: str
     compensation_label: str
     assessment_enabled: bool
+    assessment_external_url: str | None = None
     candidate_status: str
     candidate_stage: str
     candidate_action: str

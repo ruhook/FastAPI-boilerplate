@@ -67,6 +67,7 @@ async def test_web_jobs_list_only_shows_open_jobs_and_supports_basic_filters(
     assert open_job.id in item_ids
     assert paused_job.id not in item_ids
     open_item = next(item for item in list_payload["items"] if item["id"] == open_job.id)
+    assert open_item["company"]
     assert open_item["country_label"] == "Brazil Label"
     assert open_item["show_compensation"] is True
 
@@ -126,6 +127,7 @@ async def test_web_job_detail_returns_public_fields_and_form_snapshot(
     )
     assert detail_payload["id"] == job.id
     assert detail_payload["title"] == job.title
+    assert detail_payload["company"]
     assert detail_payload["status"] == "在招"
     assert detail_payload["country_label"] == "Brazil Label"
     assert detail_payload["show_compensation"] is True

@@ -174,6 +174,29 @@ async def test_referral_paid_and_reversed_totals_are_ledger_projections(
     assert reversed_item.last_paid_at is not None
 
 
+async def test_admin_active_referral_count_excludes_inactive_referrals(
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    referral = await _create_referral_with_reached_milestones(
+        db_session,
+        owner_admin_user_id=int(superadmin_credentials["id"]),
+    )
+    contract = (
+        await db_session.scalars(
+            select(ContractRecord).where(ContractRecord.user_id == referral.referred_user_id)
+        )
+    ).one()
+    contract.contract_status = "terminated"
+    await db_session.flush()
+
+    page = await list_referrals_for_admin(db=db_session)
+    assert page["total"] == 1
+    assert page["items"][0].children[0].status == "Inactive"
+    assert page["items"][0].active_referral_count == 0
+    assert page["summary"].active_referral_count == 0
+
+
 async def test_admin_referrals_read_ledger_projection_and_old_mark_paid_is_removed(
     client: AsyncClient,
     db_session: AsyncSession,

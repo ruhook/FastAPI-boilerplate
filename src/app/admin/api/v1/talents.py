@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.db.database import async_get_db
 from ....modules.talent_profile.commands import (
+    join_talent_to_job,
     update_talent_pool_note,
     update_talent_pool_status,
 )
@@ -15,6 +16,8 @@ from ....modules.talent_profile.queries import (
     list_talent_profiles,
 )
 from ....modules.talent_profile.schema import (
+    TalentJoinJobRequest,
+    TalentJoinJobResponse,
     TalentNoteUpdateRequest,
     TalentProfileListPage,
     TalentProfileMergeRequest,
@@ -24,6 +27,25 @@ from ....modules.talent_profile.schema import (
 from ..dependencies import get_current_admin_user, require_admin_permission
 
 router = APIRouter(prefix="/talents", tags=["admin-talents"])
+
+
+@router.post(
+    "/{talent_id}/join-job",
+    response_model=TalentJoinJobResponse,
+    dependencies=[Depends(require_admin_permission("总人才库"))],
+)
+async def join_talent_to_job_endpoint(
+    talent_id: int,
+    payload: TalentJoinJobRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> dict[str, Any]:
+    return await join_talent_to_job(
+        talent_id=talent_id,
+        job_id=payload.job_id,
+        current_admin=current_admin,
+        db=db,
+    )
 
 
 @router.get("", response_model=TalentProfileListPage, dependencies=[Depends(require_admin_permission("总人才库"))])

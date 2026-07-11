@@ -450,6 +450,7 @@ async def get_candidate_referral_dashboard(*, user_id: int, db: AsyncSession) ->
     profile_snapshot = build_referral_bonus_snapshot(profile)
     items = await _list_referral_records(db=db, referrer_user_id=user_id)
     total_rewards = sum((item.referral_earnings for item in items), Decimal("0.00"))
+    active_referral_count = sum(item.status == "Active" for item in items)
     return {
         "eligible": True,
         "ineligible_reason": None,
@@ -458,7 +459,7 @@ async def get_candidate_referral_dashboard(*, user_id: int, db: AsyncSession) ->
         "currency": profile_snapshot["currency"],
         "bonus_model_name": profile_snapshot["model_snapshot_name"],
         "total_rewards": quantize_decimal(total_rewards),
-        "active_referral_count": len(items),
+        "active_referral_count": active_referral_count,
         "milestones": _build_milestones(milestones=profile_snapshot["milestones"]),
         "items": items,
     }
@@ -494,7 +495,8 @@ async def list_referrals_for_admin(
             },
         )
         group["children"].append(item)
-        group["active_referral_count"] += 1
+        if item.status == "Active":
+            group["active_referral_count"] += 1
         group["total_rewards"] += item.referral_earnings
         group["paid_rewards"] += item.paid_reward_amount
         group["payable_rewards"] += item.payable_reward_amount

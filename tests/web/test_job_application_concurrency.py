@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.db.database import local_session
 from src.app.modules.candidate_application.model import CandidateApplication
 from src.app.modules.job.model import Job
+from src.app.modules.talent_profile.model import TalentProfile
 from tests.helpers.talent import (
     build_application_items,
     build_form_fields,
@@ -138,3 +139,47 @@ async def test_different_candidates_concurrent_apply_preserves_both_count_increm
         stored_job = await assertion_db.get(Job, job.id)
         assert count == 2
         assert stored_job is not None and stored_job.applicant_count == 2
+
+
+async def test_same_candidate_first_applies_to_different_jobs_concurrently_with_one_talent_profile(
+    web_client: AsyncClient,
+    db_session: AsyncSession,
+    superadmin_credentials: dict[str, str | int],
+) -> None:
+    suffix = uuid4().hex[:8]
+    first_job = await _seed_job(db_session, int(superadmin_credentials["id"]), f"{suffix}a")
+    second_job = await _seed_job(db_session, int(superadmin_credentials["id"]), f"{suffix}b")
+    user, password = await create_candidate_user(
+        db_session,
+        suffix=f"{suffix}same",
+        name="Concurrent Candidate",
+    )
+    headers = await login_web_user(web_client, username=user.email, password=password)
+    resume = await create_resume_asset(db_session, suffix=f"{suffix}same", original_name="same.pdf")
+    resume.owner_id = user.id
+    resume.module = "candidate_application"
+    await db_session.commit()
+    payload = _items(user.name, user.email, resume.id)
+
+    responses = await asyncio.gather(
+        web_client.post(f"/api/v1/jobs/{first_job.id}/apply", headers=headers, json=payload),
+        web_client.post(f"/api/v1/jobs/{second_job.id}/apply", headers=headers, json=payload),
+    )
+
+    assert [response.status_code for response in responses] == [200, 200]
+    async with local_session() as assertion_db:
+        application_count = await assertion_db.scalar(
+            select(func.count(CandidateApplication.id)).where(
+                CandidateApplication.user_id == user.id,
+                CandidateApplication.job_id.in_([first_job.id, second_job.id]),
+                CandidateApplication.is_deleted.is_(False),
+            )
+        )
+        talent_count = await assertion_db.scalar(
+            select(func.count(TalentProfile.id)).where(
+                TalentProfile.user_id == user.id,
+                TalentProfile.is_deleted.is_(False),
+            )
+        )
+        assert application_count == 2
+        assert talent_count == 1
