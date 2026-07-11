@@ -1,22 +1,16 @@
-import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from redis.asyncio import Redis
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.auth_sessions import revoke_account_refresh_sessions
 from ...core.config import settings
 from ...core.db.database import async_get_db
-from ...core.exceptions.http_exceptions import BadRequestException, DuplicateValueException
+from ...core.exceptions.http_exceptions import BadRequestException
 from ...core.passwords import validate_password_strength
-from ...core.security import get_password_hash
 from ...core.utils.cache import async_get_redis
-from ...modules.referral.service import create_referral_from_code
-from ...modules.user.crud import crud_users
-from ...modules.user.model import User
+from ...modules.user.auth_commands import register_candidate, reset_candidate_password
 from ...modules.user.register_verification_service import (
     is_register_verification_enabled,
     send_password_reset_verification_code,
@@ -24,7 +18,7 @@ from ...modules.user.register_verification_service import (
     verify_password_reset_verification_code,
     verify_register_verification_code,
 )
-from ...modules.user.schema import UserAuth, UserCreateInternal, UserRead
+from ...modules.user.schema import UserAuth, UserRead
 from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/user", tags=["web-user"])
@@ -98,17 +92,6 @@ def _build_candidate_data(payload: WebRegisterRequest) -> dict[str, Any]:
     }
 
 
-async def _generate_available_username(email: str, db: AsyncSession) -> str:
-    base = re.sub(r"[^a-z0-9]", "", email.split("@", 1)[0].lower())[:20] or "candidate"
-    candidate = base
-    suffix = 1
-    while await crud_users.exists(db=db, username=candidate):
-        tail = str(suffix)
-        candidate = f"{base[: max(1, 20 - len(tail))]}{tail}"
-        suffix += 1
-    return candidate
-
-
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register_user(
     request: Request,
@@ -124,29 +107,15 @@ async def register_user(
             client_ip=request.client.host if request.client else "unknown",
         )
 
-    if await crud_users.exists(db=db, email=payload.email):
-        raise DuplicateValueException("Email is already registered")
-
-    username = await _generate_available_username(payload.email, db)
-    hashed_password = get_password_hash(payload.password)
-    created = await crud_users.create(
-        db=db,
-        object=UserCreateInternal(
-            name=payload.name,
-            username=username,
-            email=payload.email,
-            hashed_password=hashed_password,
-            profile_image_url="https://www.profileimageurl.com",
-            data=_build_candidate_data(payload),
-        ),
-        schema_to_select=UserRead,
-    )
-    await create_referral_from_code(
-        db=db,
+    created = await register_candidate(
+        name=payload.name,
+        email=str(payload.email),
+        password=payload.password,
+        profile_data=_build_candidate_data(payload),
         referral_code=payload.referral_code,
-        referred_user_id=int(created["id"]),
+        db=db,
     )
-    return created
+    return created.model_dump()
 
 
 @router.post("/register/send-code", response_model=RegisterVerificationCodeResponse)
@@ -210,25 +179,7 @@ async def confirm_password_reset(
         client_ip=request.client.host if request.client else "unknown",
     )
 
-    result = await db.execute(
-        select(User).where(
-            func.lower(User.email) == normalized_email,
-            User.is_deleted.is_(False),
-        )
-    )
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise BadRequestException("No candidate account was found for this email.")
-
-    user.hashed_password = get_password_hash(payload.password)
-    user.token_version += 1
-    await revoke_account_refresh_sessions(
-        db,
-        portal="web",
-        account_id=user.id,
-        reason="password_reset",
-    )
-    await db.flush()
+    await reset_candidate_password(email=normalized_email, password=payload.password, db=db)
     return {"message": "Password reset successfully."}
 
 

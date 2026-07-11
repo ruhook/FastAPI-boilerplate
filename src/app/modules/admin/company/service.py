@@ -192,6 +192,7 @@ async def create_company(payload: CompanyCreate, db: AsyncSession, *, admin_user
 
     await _validate_company_logo(payload.logo_asset_id, db)
 
+    savepoint = await db.begin_nested()
     company = AdminCompany(
         name=payload.name,
         description=payload.description,
@@ -206,8 +207,10 @@ async def create_company(payload: CompanyCreate, db: AsyncSession, *, admin_user
     try:
         await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
+        await savepoint.rollback()
         _raise_company_integrity_error(exc)
+    else:
+        await savepoint.commit()
 
     await create_admin_audit_log(
         db=db,
@@ -230,6 +233,7 @@ async def update_company(
 ) -> dict[str, Any]:
     company = await get_company_model(company_id, db)
 
+    next_name = company.name
     if payload.name and payload.name != company.name:
         existing = await db.execute(
             select(AdminCompany).where(
@@ -240,13 +244,16 @@ async def update_company(
         )
         if existing.scalar_one_or_none() is not None:
             raise DuplicateValueException("Company name already exists.")
-        company.name = payload.name
-
-    if "description" in payload.model_fields_set:
-        company.description = payload.description
+        next_name = payload.name
 
     if "logo_asset_id" in payload.model_fields_set:
         await _validate_company_logo(payload.logo_asset_id, db)
+
+    savepoint = await db.begin_nested()
+    company.name = next_name
+    if "description" in payload.model_fields_set:
+        company.description = payload.description
+    if "logo_asset_id" in payload.model_fields_set:
         company.logo_asset_id = payload.logo_asset_id
 
     next_data = dict(company.data or {})
@@ -262,8 +269,10 @@ async def update_company(
     try:
         await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
+        await savepoint.rollback()
         _raise_company_integrity_error(exc)
+    else:
+        await savepoint.commit()
 
     await create_admin_audit_log(
         db=db,
@@ -295,13 +304,16 @@ async def create_company_project(
     if existing.scalar_one_or_none() is not None:
         raise DuplicateValueException("Project name already exists in this company.")
 
+    savepoint = await db.begin_nested()
     project = AdminCompanyProject(company_id=company_id, name=payload.name, data={})
     db.add(project)
     try:
         await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
+        await savepoint.rollback()
         _raise_company_project_integrity_error(exc)
+    else:
+        await savepoint.commit()
 
     await create_admin_audit_log(
         db=db,
@@ -325,6 +337,7 @@ async def update_company_project(
 ) -> dict[str, Any]:
     project = await get_company_project_model(company_id, project_id, db)
 
+    next_name = project.name
     if payload.name is not None and payload.name != project.name:
         existing = await db.execute(
             select(AdminCompanyProject).where(
@@ -336,14 +349,18 @@ async def update_company_project(
         )
         if existing.scalar_one_or_none() is not None:
             raise DuplicateValueException("Project name already exists in this company.")
-        project.name = payload.name
+        next_name = payload.name
 
+    savepoint = await db.begin_nested()
+    project.name = next_name
     project.updated_at = datetime.now(UTC)
     try:
         await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
+        await savepoint.rollback()
         _raise_company_project_integrity_error(exc)
+    else:
+        await savepoint.commit()
 
     await create_admin_audit_log(
         db=db,

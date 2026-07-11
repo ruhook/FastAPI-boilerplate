@@ -6,10 +6,10 @@ import pytest
 from fastapi.responses import StreamingResponse
 
 from src.app.admin.api.v1.settings import assets as admin_assets_api
-from src.app.api.v1.assets import ensure_current_user_can_access_asset
 from src.app.core.config import settings
 from src.app.core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from src.app.modules.assets import service as asset_service
+from src.app.modules.assets.access_policy import ensure_current_user_can_access_asset
 from src.app.modules.assets.model import Asset
 from src.app.modules.assets.schema import AssetUploadPayload
 from src.app.modules.assets.service import (

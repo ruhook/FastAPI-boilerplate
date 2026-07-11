@@ -113,6 +113,7 @@ async def create_dictionary(payload: DictionaryCreate, db: AsyncSession, *, admi
     if existing.scalar_one_or_none() is not None:
         raise DuplicateValueException("Dictionary label already exists.")
 
+    savepoint = await db.begin_nested()
     dictionary = AdminDictionary(
         key=payload.key,
         label=payload.label,
@@ -123,8 +124,10 @@ async def create_dictionary(payload: DictionaryCreate, db: AsyncSession, *, admi
     try:
         await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
+        await savepoint.rollback()
         _raise_dictionary_integrity_error(exc)
+    else:
+        await savepoint.commit()
     await create_admin_audit_log(
         db=db,
         admin_user_id=admin_user_id,
@@ -145,6 +148,7 @@ async def update_dictionary(
     admin_user_id: int,
 ) -> dict[str, Any]:
     dictionary = await get_dictionary_model(dictionary_id, db)
+    next_key = dictionary.key
     if payload.key != dictionary.key:
         if payload.key:
             existing_by_key = await db.execute(
@@ -156,8 +160,9 @@ async def update_dictionary(
             )
             if existing_by_key.scalar_one_or_none() is not None:
                 raise DuplicateValueException("Dictionary key already exists.")
-        dictionary.key = payload.key
+        next_key = payload.key
 
+    next_label = dictionary.label
     if payload.label and payload.label != dictionary.label:
         existing = await db.execute(
             select(AdminDictionary).where(
@@ -168,17 +173,21 @@ async def update_dictionary(
         )
         if existing.scalar_one_or_none() is not None:
             raise DuplicateValueException("Dictionary label already exists.")
-        dictionary.label = payload.label
+        next_label = payload.label
 
+    savepoint = await db.begin_nested()
+    dictionary.key = next_key
+    dictionary.label = next_label
     if payload.options is not None:
         dictionary.options = [option.model_dump() for option in payload.options]
-
     dictionary.updated_at = datetime.now(UTC)
     try:
         await db.flush()
     except IntegrityError as exc:
-        await db.rollback()
+        await savepoint.rollback()
         _raise_dictionary_integrity_error(exc)
+    else:
+        await savepoint.commit()
     await create_admin_audit_log(
         db=db,
         admin_user_id=admin_user_id,
