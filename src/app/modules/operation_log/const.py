@@ -23,3 +23,5 @@ class OperationLogType(StrEnum):
     REFERRAL_CREATED = "referral_created"
     REFERRAL_REWARD_MARKED_PAID = "referral_reward_marked_paid"
     PAYMENT_RECORD_BATCH_CREATED = "payment_record_batch_created"
+    PAYABLES_PAID = "payables_paid"
+    PAYMENT_REVERSED = "payment_reversed"

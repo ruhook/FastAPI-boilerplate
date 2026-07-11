@@ -126,6 +126,7 @@ async def _clear_tables() -> None:
         await session.execute(delete(EventOutbox))
         await session.execute(delete(CandidateInternalNotification))
         await session.execute(delete(AdminInternalNotification))
+        await session.execute(update(Payment).values(reversal_of_payment_id=None))
         await session.execute(delete(Payment))
         await session.execute(delete(PayableTimesheetSource))
         await session.execute(delete(Payable))
