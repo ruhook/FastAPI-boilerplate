@@ -33,6 +33,7 @@ from ..contract_record.const import (
 from ..contract_record.model import ContractRecord
 from ..job.const import JOB_DATA_LANGUAGES_KEY
 from ..job.model import Job
+from ..payable.source_policy import ensure_timesheets_editable
 from ..talent_profile.model import TalentProfile
 from ..user.model import User
 from .idempotency import claim_timesheet_request, complete_timesheet_request
@@ -1683,6 +1684,7 @@ async def update_project_timesheet_record(
         raise NotFoundException("Timesheet record not found.")
     if record.version != payload.version:
         raise ConflictException("Timesheet record was changed by another request.")
+    await ensure_timesheets_editable(db, [record.id])
 
     timesheet_languages = _get_company_timesheet_languages(company)
     if timesheet_languages and payload.language not in timesheet_languages:
@@ -1789,6 +1791,7 @@ async def delete_project_timesheet_records(
         )
     )
     records = result.scalars().all()
+    await ensure_timesheets_editable(db, [record.id for record in records])
     now = datetime.now(UTC)
     for record in records:
         record.is_deleted = True
