@@ -31,7 +31,7 @@ from ..referral.model import ReferralRecord
 from .model import TalentProfile
 from .pool_fields import build_talent_pool_extra_fields, load_talent_pool_sources
 from .schema import (
-    TalentPaymentRecordRead,
+    TalentPaymentRead,
     TalentPendingMergeFieldRead,
     TalentPendingMergeRead,
     TalentProfileListItemRead,
@@ -348,7 +348,7 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
     )
     logs = await _list_talent_operation_logs(talent=talent, db=db)
     timesheet_records = await _list_talent_timesheet_records(talent=talent, db=db)
-    payment_records = await _list_talent_payment_records(talent=talent, db=db)
+    payments = await _list_talent_payments(talent=talent, db=db)
 
     return TalentProfileRead(
         id=talent.id,
@@ -373,7 +373,7 @@ async def _serialize_talent_profile(talent: TalentProfile, db: AsyncSession) -> 
         last_merged_at=talent.last_merged_at,
         applications=applications,
         timesheet_records=timesheet_records,
-        payment_records=payment_records,
+        payments=payments,
         pending_merge=pending_merge,
         logs=logs,
         **extra_fields,
@@ -414,11 +414,11 @@ async def _list_talent_timesheet_records(
     ]
 
 
-async def _list_talent_payment_records(
+async def _list_talent_payments(
     *,
     talent: TalentProfile,
     db: AsyncSession,
-) -> list[TalentPaymentRecordRead]:
+) -> list[TalentPaymentRead]:
     result = await db.execute(
         select(Payment)
         .where(
@@ -431,7 +431,7 @@ async def _list_talent_payment_records(
         .limit(50)
     )
     return [
-        TalentPaymentRecordRead(
+        TalentPaymentRead(
             id=record.id,
             paid_at=record.paid_at,
             payment_type=record.payment_type,

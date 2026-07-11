@@ -97,7 +97,7 @@ class TalentTimesheetRecordRead(BaseModel):
     extra_notes: str | None = None
 
 
-class TalentPaymentRecordRead(BaseModel):
+class TalentPaymentRead(BaseModel):
     id: int
     paid_at: datetime
     payment_type: str
@@ -117,6 +117,6 @@ class TalentProfileRead(TalentProfileListItemRead):
     last_merged_at: datetime | None = None
     applications: list[CandidateApplicationSummaryRead] = Field(default_factory=list)
     timesheet_records: list[TalentTimesheetRecordRead] = Field(default_factory=list)
-    payment_records: list[TalentPaymentRecordRead] = Field(default_factory=list)
+    payments: list[TalentPaymentRead] = Field(default_factory=list)
     pending_merge: TalentPendingMergeRead | None = None
     logs: list[OperationLogRead] = Field(default_factory=list)

@@ -268,12 +268,6 @@ async def upsert_contract_record_for_progress(
         current.service_customer_company_id = job.company_id
         current.service_customer_project_id = job.project_id
         current.contractor_name = contractor_name
-        if not current.contract_status or current.contract_status in {
-            "draft_uploaded",
-            "candidate_signed_uploaded",
-            "company_sealed_uploaded",
-        }:
-            current.contract_status = CONTRACT_STATUS_PENDING_ACTIVATION
         if not current.legal_entity:
             current.legal_entity = "T-Maxx International"
         if not current.worker_type:

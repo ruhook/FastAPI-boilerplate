@@ -11,6 +11,7 @@ from src.app.modules.talent_profile.pool_fields import (
     TALENT_STATUS_OVERRIDE_KEY,
     derive_talent_status,
 )
+from src.app.modules.talent_profile.schema import TalentProfileRead
 
 pytestmark = pytest.mark.no_database_cleanup
 
@@ -40,6 +41,11 @@ def test_talent_profile_module_has_explicit_use_case_boundaries() -> None:
     assert "merge" not in _relative_imports("queries")
     assert "application_submission" not in _relative_imports("queries")
     assert "application_submission" not in _relative_imports("merge")
+
+
+def test_talent_detail_uses_payment_domain_name() -> None:
+    assert "payments" in TalentProfileRead.model_fields
+    assert "payment_records" not in TalentProfileRead.model_fields
 
 
 def test_talent_status_override_is_an_indexed_typed_column() -> None:
