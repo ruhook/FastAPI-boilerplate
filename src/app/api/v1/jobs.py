@@ -31,7 +31,7 @@ from ...modules.job_progress.service import (
     submit_job_progress_assessment,
     submit_job_progress_candidate_signed_contract,
 )
-from ...modules.talent_profile.service import create_application_and_sync_talent
+from ...modules.talent_profile.application_submission import create_application_and_sync_talent
 from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/jobs", tags=["web-jobs"])

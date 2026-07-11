@@ -23,6 +23,7 @@ class TalentProfile(DataBackedSoftDeleteEntityMixin, Base):
     latest_applied_job_id: Mapped[int | None] = mapped_column(ForeignKey("job.id"), nullable=True, index=True)
     latest_applied_job_title: Mapped[str | None] = mapped_column(String(160), nullable=True)
     latest_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    status_override: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_application_id: Mapped[int | None] = mapped_column(
         ForeignKey("candidate_application.id"),

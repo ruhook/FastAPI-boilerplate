@@ -4,20 +4,22 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.db.database import async_get_db
+from ....modules.talent_profile.commands import (
+    update_talent_pool_note,
+    update_talent_pool_status,
+)
+from ....modules.talent_profile.merge import merge_application_into_talent
+from ....modules.talent_profile.queries import (
+    get_talent_profile,
+    get_talent_profile_by_user_id,
+    list_talent_profiles,
+)
 from ....modules.talent_profile.schema import (
     TalentNoteUpdateRequest,
     TalentProfileListPage,
     TalentProfileMergeRequest,
     TalentProfileRead,
     TalentStatusUpdateRequest,
-)
-from ....modules.talent_profile.service import (
-    get_talent_profile,
-    get_talent_profile_by_user_id,
-    list_talent_profiles,
-    merge_application_into_talent,
-    update_talent_pool_note,
-    update_talent_pool_status,
 )
 from ..dependencies import get_current_admin_user, require_admin_permission
 

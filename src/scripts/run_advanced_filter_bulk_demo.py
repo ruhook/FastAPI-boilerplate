@@ -32,8 +32,8 @@ from ..app.modules.project_timesheet_record.schema import (
     ProjectTimesheetBatchCreateEntry,
     ProjectTimesheetBatchCreateRequest,
 )
+from ..app.modules.talent_profile.application_submission import create_application_and_sync_talent
 from ..app.modules.talent_profile.model import TalentProfile
-from ..app.modules.talent_profile.service import create_application_and_sync_talent
 from .demo_assets import build_demo_resume_pdf_bytes, refresh_demo_resume_asset_if_needed
 from .seed_apply_demo_flow import (
     DICTIONARY_DEFINITIONS,

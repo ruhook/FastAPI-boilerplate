@@ -98,7 +98,7 @@ def _extract_id_attachment_asset_id(user_data: dict[str, Any] | None) -> int | N
     if not isinstance(payment_info, dict):
         return None
     raw_asset_id = payment_info.get("id_attachment_asset_id")
-    if raw_asset_id in (None, "", 0):
+    if raw_asset_id is None or raw_asset_id == "" or raw_asset_id == 0:
         return None
     try:
         return int(raw_asset_id)
@@ -363,7 +363,7 @@ def derive_talent_status(*, talent: TalentProfile, progress: JobProgress | None)
         return TALENT_STATUS_REPLACED, TALENT_STATUS_LABELS[TALENT_STATUS_REPLACED], bool(onboarding_date)
     if not onboarding_date:
         return TALENT_STATUS_RECRUITING, TALENT_STATUS_LABELS[TALENT_STATUS_RECRUITING], False
-    override = normalize_display_value((talent.data or {}).get(TALENT_STATUS_OVERRIDE_KEY))
+    override = normalize_display_value(talent.status_override)
     status = override if override in TALENT_STATUS_LABELS else TALENT_STATUS_ACTIVE
     return status, TALENT_STATUS_LABELS[status], True
 
