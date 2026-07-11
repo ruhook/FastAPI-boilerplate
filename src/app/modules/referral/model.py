@@ -1,7 +1,6 @@
-from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, text
+from sqlalchemy import ForeignKey, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.db.database import Base
@@ -42,24 +41,4 @@ class ReferralRecord(DataBackedSoftDeleteEntityMixin, Base):
         nullable=False,
         default=Decimal("0.00"),
         server_default=text("0.00"),
-    )
-
-    paid_reward_amount: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2),
-        nullable=False,
-        default=Decimal("0.00"),
-        server_default=text("0.00"),
-    )
-    payout_status: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="tracking",
-        server_default=text("'tracking'"),
-        index=True,
-    )
-    last_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    last_paid_by_admin_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("admin_user.id"),
-        nullable=True,
-        index=True,
     )

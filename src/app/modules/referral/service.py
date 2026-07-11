@@ -1,19 +1,22 @@
 import secrets
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..contract_record.const import CONTRACT_STATUS_ACTIVE
 from ..contract_record.model import ContractRecord
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
-from ..payment_record.service import create_referral_reward_payment_record
+from ..payable.const import PayableStatus
+from ..payable.model import Payable
+from ..payment.const import PaymentEntryType
+from ..payment.model import Payment
 from ..project_timesheet_record.model import ProjectTimesheetRecord
 from ..referral_bonus_model.const import DEFAULT_REFERRAL_BONUS_CAP
 from ..referral_bonus_model.service import (
@@ -27,6 +30,7 @@ from ..user.model import User
 from .const import (
     REFERRAL_STATUS_PAID,
     REFERRAL_STATUS_READY_TO_PAY,
+    REFERRAL_STATUS_REVERSED,
     REFERRAL_STATUS_TRACKING,
     quantize_decimal,
 )
@@ -125,7 +129,6 @@ async def create_referral_from_code(
         model_snapshot_name=referral_snapshot["model_snapshot_name"],
         currency=referral_snapshot["currency"],
         reward_cap=quantize_decimal(referral_snapshot["reward_cap"]),
-        payout_status=REFERRAL_STATUS_TRACKING,
         data={REFERRAL_BONUS_MILESTONES_DATA_KEY: referral_snapshot["milestones"]},
     )
     db.add(record)
@@ -223,23 +226,91 @@ async def _load_metrics_for_referred_users(
     return metrics
 
 
+async def _load_settlement_metrics(
+    *,
+    db: AsyncSession,
+    referral_record_ids: Sequence[int],
+) -> dict[int, dict[str, Any]]:
+    normalized_ids = sorted({int(record_id) for record_id in referral_record_ids})
+    if not normalized_ids:
+        return {}
+    metrics: dict[int, dict[str, Any]] = {
+        record_id: {
+            "paid_reward_amount": Decimal("0.00"),
+            "payable_reward_amount": Decimal("0.00"),
+            "last_paid_at": None,
+            "has_reversal": False,
+        }
+        for record_id in normalized_ids
+    }
+    payable_result = await db.execute(
+        select(
+            Payable.referral_record_id,
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            Payable.status.in_(
+                                (PayableStatus.PENDING.value, PayableStatus.PROCESSING.value)
+                            ),
+                            Payable.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+            func.max(case((Payable.status == PayableStatus.REVERSED.value, 1), else_=0)),
+        )
+        .where(Payable.referral_record_id.in_(normalized_ids))
+        .group_by(Payable.referral_record_id)
+    )
+    for referral_record_id, payable_amount, has_reversal in payable_result.all():
+        item = metrics[int(referral_record_id)]
+        item["payable_reward_amount"] = quantize_decimal(payable_amount)
+        item["has_reversal"] = bool(has_reversal)
+
+    payment_result = await db.execute(
+        select(
+            Payment.referral_record_id,
+            func.coalesce(func.sum(Payment.amount), 0),
+            func.max(
+                case(
+                    (Payment.entry_type == PaymentEntryType.PAYMENT.value, Payment.paid_at),
+                    else_=None,
+                )
+            ),
+        )
+        .where(Payment.referral_record_id.in_(normalized_ids))
+        .group_by(Payment.referral_record_id)
+    )
+    for referral_record_id, paid_amount, last_paid_at in payment_result.all():
+        item = metrics[int(referral_record_id)]
+        item["paid_reward_amount"] = max(quantize_decimal(paid_amount), Decimal("0.00"))
+        item["last_paid_at"] = last_paid_at
+    return metrics
+
+
 def _serialize_referral_record(
     *,
     record: ReferralRecord,
     referrer: User | None,
     referred: User | None,
     metrics: dict[str, Any],
+    settlement_metrics: dict[str, Any],
 ) -> ReferralRecordRead:
     work_hours = quantize_decimal(metrics.get("work_hours"))
     referral_earnings = calculate_referral_reward_from_record(record, work_hours)
-    paid_reward_amount = quantize_decimal(record.paid_reward_amount)
-    payable_reward_amount = max(referral_earnings - paid_reward_amount, Decimal("0.00"))
+    paid_reward_amount = quantize_decimal(settlement_metrics.get("paid_reward_amount"))
+    payable_reward_amount = quantize_decimal(settlement_metrics.get("payable_reward_amount"))
     active_contract_count = int(metrics.get("active_contract_count") or 0)
     any_contract_count = int(metrics.get("any_contract_count") or 0)
     if payable_reward_amount > 0:
         payout_status = REFERRAL_STATUS_READY_TO_PAY
-    elif referral_earnings > 0:
+    elif paid_reward_amount > 0:
         payout_status = REFERRAL_STATUS_PAID
+    elif settlement_metrics.get("has_reversal"):
+        payout_status = REFERRAL_STATUS_REVERSED
     else:
         payout_status = REFERRAL_STATUS_TRACKING
 
@@ -265,7 +336,7 @@ def _serialize_referral_record(
             milestones=list((record.data or {}).get(REFERRAL_BONUS_MILESTONES_DATA_KEY) or []),
             work_hours=work_hours,
         ),
-        last_paid_at=record.last_paid_at,
+        last_paid_at=settlement_metrics.get("last_paid_at"),
     )
 
 
@@ -277,7 +348,7 @@ async def _list_referral_records(
 ) -> list[ReferralRecordRead]:
     referrer_alias = aliased(User)
     referred_alias = aliased(User)
-    conditions = [ReferralRecord.is_deleted.is_(False)]
+    conditions: list[ColumnElement[bool]] = [ReferralRecord.is_deleted.is_(False)]
     if referrer_user_id is not None:
         conditions.append(ReferralRecord.referrer_user_id == referrer_user_id)
     if keyword:
@@ -307,6 +378,10 @@ async def _list_referral_records(
         db=db,
         referred_user_ids=[int(record.referred_user_id) for record, _, _ in rows],
     )
+    settlement_metrics_by_record_id = await _load_settlement_metrics(
+        db=db,
+        referral_record_ids=[int(record.id) for record, _, _ in rows],
+    )
     items: list[ReferralRecordRead] = []
     for record, referrer, referred in rows:
         metrics = metrics_by_user_id.get(int(record.referred_user_id), {})
@@ -320,6 +395,7 @@ async def _list_referral_records(
                 referrer=referrer,
                 referred=referred,
                 metrics=metrics,
+                settlement_metrics=settlement_metrics_by_record_id.get(int(record.id), {}),
             )
         )
     return items
@@ -338,6 +414,10 @@ async def _build_referral_read_for_record(
         referred_user_ids=[int(record.referred_user_id)],
     )
     metrics = metrics_by_user_id.get(int(record.referred_user_id), {})
+    settlement_metrics_by_record_id = await _load_settlement_metrics(
+        db=db,
+        referral_record_ids=[int(record.id)],
+    )
     has_active_contract = int(metrics.get("active_contract_count") or 0) > 0
     has_work_hours = quantize_decimal(metrics.get("work_hours")) > 0
     if require_visible and not has_active_contract and not has_work_hours:
@@ -347,6 +427,7 @@ async def _build_referral_read_for_record(
         referrer=referrer if referrer is not None and not referrer.is_deleted else None,
         referred=referred if referred is not None and not referred.is_deleted else None,
         metrics=metrics,
+        settlement_metrics=settlement_metrics_by_record_id.get(int(record.id), {}),
     )
 
 
@@ -457,70 +538,3 @@ async def list_referrals_for_admin(
         "reward_cap": DEFAULT_REFERRAL_BONUS_CAP,
         "milestones": [],
     }
-
-
-async def mark_referral_reward_paid(
-    *,
-    referral_record_id: int,
-    admin_user_id: int,
-    db: AsyncSession,
-) -> dict[str, Any]:
-    record_result = await db.execute(
-        select(ReferralRecord)
-        .where(
-            ReferralRecord.id == referral_record_id,
-            ReferralRecord.is_deleted.is_(False),
-        )
-        .with_for_update()
-    )
-    record = record_result.scalar_one_or_none()
-    if record is None or record.is_deleted:
-        raise NotFoundException("Referral record not found.")
-
-    current_item = await _build_referral_read_for_record(
-        db=db,
-        record=record,
-        require_visible=True,
-    )
-    if current_item.payable_reward_amount <= 0:
-        raise BadRequestException("There is no unpaid referral reward to mark as paid.")
-
-    now = datetime.now(UTC)
-    payment_record = await create_referral_reward_payment_record(
-        db=db,
-        referral_record=record,
-        amount=current_item.payable_reward_amount,
-        admin_user_id=admin_user_id,
-        paid_at=now,
-    )
-    record.paid_reward_amount = current_item.referral_earnings
-    record.payout_status = REFERRAL_STATUS_PAID
-    record.last_paid_at = now
-    record.last_paid_by_admin_user_id = admin_user_id
-    record.data = {
-        **(record.data or {}),
-        "last_payment_record_id": payment_record.id,
-        "last_payment_record_created_at": now.isoformat(),
-        "last_paid_reward_amount": str(current_item.referral_earnings),
-        "last_paid_increment_amount": str(current_item.payable_reward_amount),
-    }
-    await db.flush()
-
-    await create_operation_log(
-        db=db,
-        user_id=record.referrer_user_id,
-        log_type=OperationLogType.REFERRAL_REWARD_MARKED_PAID.value,
-        data={
-            "referral_record_id": record.id,
-            "referrer_user_id": record.referrer_user_id,
-            "referred_user_id": record.referred_user_id,
-            "paid_reward_amount": str(current_item.referral_earnings),
-            "paid_increment_amount": str(current_item.payable_reward_amount),
-            "payment_record_id": payment_record.id,
-            "operator_admin_user_id": admin_user_id,
-            "note": "Referral reward payout marked as completed and payment record created.",
-        },
-    )
-
-    item = await _build_referral_read_for_record(db=db, record=record)
-    return item.model_dump()

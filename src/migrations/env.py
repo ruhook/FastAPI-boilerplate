@@ -29,7 +29,6 @@ from app.modules.job.model import Job
 from app.modules.operation_log.model import OperationLog
 from app.modules.payable.model import Payable, PayableTimesheetSource
 from app.modules.payment.model import Payment
-from app.modules.payment_record.model import PaymentRecord
 from app.modules.project_timesheet_record.idempotency import ProjectTimesheetBatchRequest
 from app.modules.project_timesheet_record.model import ProjectTimesheetRecord
 from app.modules.referral.model import ReferralRecord
@@ -75,7 +74,6 @@ REGISTERED_MODELS = (
     Payable,
     PayableTimesheetSource,
     Payment,
-    PaymentRecord,
     ProjectTimesheetBatchRequest,
     ProjectTimesheetRecord,
     ReferralBonusModel,

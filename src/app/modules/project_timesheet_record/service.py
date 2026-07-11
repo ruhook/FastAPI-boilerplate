@@ -1650,7 +1650,11 @@ async def create_project_timesheet_records(
     record_ids = [record.id for record in created_records]
     await complete_timesheet_request(db=db, request=claim.request, record_ids=record_ids)
     for settlement_month in sorted({record.work_date.strftime("%Y-%m") for record in created_records}):
-        await sync_timesheet_change(db=db, settlement_month=settlement_month)
+        await sync_timesheet_change(
+            db=db,
+            settlement_month=settlement_month,
+            affected_user_ids=[record.user_id for record in created_records],
+        )
     return ProjectTimesheetBatchCreateResponse(
         created_count=len(created_records),
         record_ids=record_ids,
@@ -1689,6 +1693,7 @@ async def update_project_timesheet_record(
         raise ConflictException("Timesheet record was changed by another request.")
     await ensure_timesheets_editable(db, [record.id])
     previous_settlement_month = record.work_date.strftime("%Y-%m")
+    previous_user_id = int(record.user_id)
 
     timesheet_languages = _get_company_timesheet_languages(company)
     if timesheet_languages and payload.language not in timesheet_languages:
@@ -1757,7 +1762,11 @@ async def update_project_timesheet_record(
 
     await _flush_timesheet_write(db)
     for settlement_month in sorted({previous_settlement_month, record.work_date.strftime("%Y-%m")}):
-        await sync_timesheet_change(db=db, settlement_month=settlement_month)
+        await sync_timesheet_change(
+            db=db,
+            settlement_month=settlement_month,
+            affected_user_ids=[previous_user_id, int(record.user_id)],
+        )
     await db.refresh(record)
     asset_map = await _load_note_asset_payload_map(
         db=db,
@@ -1799,6 +1808,7 @@ async def delete_project_timesheet_records(
     records = result.scalars().all()
     await ensure_timesheets_editable(db, [record.id for record in records])
     settlement_months = sorted({record.work_date.strftime("%Y-%m") for record in records})
+    affected_user_ids = [int(record.user_id) for record in records]
     now = datetime.now(UTC)
     for record in records:
         record.is_deleted = True
@@ -1808,5 +1818,9 @@ async def delete_project_timesheet_records(
 
     await _flush_timesheet_write(db)
     for settlement_month in settlement_months:
-        await sync_timesheet_change(db=db, settlement_month=settlement_month)
+        await sync_timesheet_change(
+            db=db,
+            settlement_month=settlement_month,
+            affected_user_ids=affected_user_ids,
+        )
     return ProjectTimesheetBatchDeleteResponse(deleted_count=len(records)).model_dump()

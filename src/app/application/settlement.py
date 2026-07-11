@@ -11,13 +11,23 @@ from ..core.exceptions.http_exceptions import BadRequestException
 from ..modules.admin.company.model import AdminCompany, AdminCompanyProject
 from ..modules.contract_record.const import CONTRACT_STATUS_ACTIVE, CONTRACT_TYPE_TEAM_LEADER
 from ..modules.contract_record.model import ContractRecord
-from ..modules.payable.calculator import calculate_salary, calculate_team_leader_pay
+from ..modules.payable.calculator import (
+    calculate_referral_milestones,
+    calculate_salary,
+    calculate_team_leader_pay,
+)
 from ..modules.payable.commands import upsert_pending_payable
 from ..modules.payable.const import PayableStatus
 from ..modules.payable.model import Payable, PayableTimesheetSource
 from ..modules.payable.schema import PayableDraft
-from ..modules.payable.source_keys import salary_source_key, team_leader_bonus_source_key
+from ..modules.payable.source_keys import (
+    referral_reward_source_key,
+    salary_source_key,
+    team_leader_bonus_source_key,
+)
 from ..modules.project_timesheet_record.model import ProjectTimesheetRecord
+from ..modules.referral.model import ReferralRecord
+from ..modules.referral_bonus_model.service import REFERRAL_BONUS_MILESTONES_DATA_KEY
 from ..modules.talent_profile.model import TalentProfile
 from ..modules.user.model import User
 
@@ -345,6 +355,155 @@ async def _replace_sources(
     await db.flush()
 
 
+async def _build_referral_payables(
+    *,
+    db: AsyncSession,
+    settlement_month: str,
+) -> list[_MaterializedPayable]:
+    referrals = list(
+        (
+            await db.scalars(
+                select(ReferralRecord)
+                .where(ReferralRecord.is_deleted.is_(False))
+                .order_by(ReferralRecord.id.asc())
+            )
+        ).all()
+    )
+    if not referrals:
+        return []
+
+    referrer_ids = {int(record.referrer_user_id) for record in referrals}
+    referred_ids = {int(record.referred_user_id) for record in referrals}
+    users = list(
+        (
+            await db.scalars(
+                select(User).where(
+                    User.id.in_(referrer_ids | referred_ids),
+                    User.is_deleted.is_(False),
+                )
+            )
+        ).all()
+    )
+    user_map = {int(user.id): user for user in users}
+    talent_map = {
+        int(talent.user_id): talent
+        for talent in (
+            await db.scalars(
+                select(TalentProfile).where(
+                    TalentProfile.user_id.in_(referrer_ids),
+                    TalentProfile.is_deleted.is_(False),
+                )
+            )
+        ).all()
+    }
+    timesheets = list(
+        (
+            await db.scalars(
+                select(ProjectTimesheetRecord)
+                .where(
+                    ProjectTimesheetRecord.user_id.in_(referred_ids),
+                    ProjectTimesheetRecord.is_deleted.is_(False),
+                )
+                .order_by(ProjectTimesheetRecord.work_date.asc(), ProjectTimesheetRecord.id.asc())
+            )
+        ).all()
+    )
+    timesheets_by_user: dict[int, list[ProjectTimesheetRecord]] = defaultdict(list)
+    for timesheet in timesheets:
+        if _hours(timesheet) > 0:
+            timesheets_by_user[int(timesheet.user_id)].append(timesheet)
+    company_ids = {int(timesheet.company_id) for timesheet in timesheets}
+    project_ids = {int(timesheet.project_id) for timesheet in timesheets}
+    company_map = {
+        int(company.id): company
+        for company in (await db.scalars(select(AdminCompany).where(AdminCompany.id.in_(company_ids)))).all()
+    }
+    project_map = {
+        int(project.id): project
+        for project in (
+            await db.scalars(select(AdminCompanyProject).where(AdminCompanyProject.id.in_(project_ids)))
+        ).all()
+    }
+
+    materialized: list[_MaterializedPayable] = []
+    for referral in referrals:
+        referrer = user_map.get(int(referral.referrer_user_id))
+        referred = user_map.get(int(referral.referred_user_id))
+        if referrer is None or referred is None:
+            continue
+        source_rows = timesheets_by_user.get(int(referral.referred_user_id), [])
+        total_hours = sum((_hours(row) for row in source_rows), start=_ZERO)
+        milestones = calculate_referral_milestones(
+            work_hours=total_hours,
+            reward_cap=referral.reward_cap,
+            milestones=list((referral.data or {}).get(REFERRAL_BONUS_MILESTONES_DATA_KEY) or []),
+        )
+        for milestone in milestones:
+            cumulative_hours = _ZERO
+            crossing_index: int | None = None
+            for index, row in enumerate(source_rows):
+                cumulative_hours += _hours(row)
+                if cumulative_hours >= milestone.required_hours:
+                    crossing_index = index
+                    break
+            if crossing_index is None:
+                continue
+            crossing_row = source_rows[crossing_index]
+            crossing_month = crossing_row.work_date.strftime("%Y-%m")
+            if crossing_month != settlement_month:
+                continue
+            milestone_sources = source_rows[: crossing_index + 1]
+            snapshots = tuple(
+                _SourceSnapshot(
+                    record_id=int(row.id),
+                    source_version=int(row.version),
+                    work_hours=_hours(row),
+                    amount_contribution=(
+                        milestone.reward_amount if index == crossing_index else _ZERO
+                    ),
+                )
+                for index, row in enumerate(milestone_sources)
+            )
+            company = company_map.get(int(crossing_row.company_id))
+            project = project_map.get(int(crossing_row.project_id))
+            referrer_talent = talent_map.get(int(referrer.id))
+            materialized.append(
+                _MaterializedPayable(
+                    draft=PayableDraft(
+                        source_key=referral_reward_source_key(
+                            referral_record_id=int(referral.id),
+                            milestone_index=milestone.milestone_index,
+                        ),
+                        payment_type="referral_reward",
+                        settlement_month=crossing_month,
+                        user_id=int(referrer.id),
+                        talent_profile_id=referrer_talent.id if referrer_talent is not None else None,
+                        referral_record_id=int(referral.id),
+                        company_id=int(crossing_row.company_id),
+                        project_id=int(crossing_row.project_id),
+                        amount=milestone.reward_amount,
+                        currency=referral.currency,
+                        calculation_snapshot={
+                            "milestone_index": milestone.milestone_index,
+                            "required_hours": str(milestone.required_hours),
+                            "cumulative_hours": str(cumulative_hours),
+                            "reward_cap": str(referral.reward_cap),
+                            "source_record_count": len(snapshots),
+                        },
+                        user_snapshot_name=referrer.name or referral.referrer_snapshot_name,
+                        user_snapshot_email=referrer.email or referral.referrer_snapshot_email,
+                        company_snapshot_name=company.name if company is not None else None,
+                        project_snapshot_name=project.name if project is not None else None,
+                        referral_referred_user_id=int(referred.id),
+                        referral_referred_snapshot_name=referred.name or referral.referred_snapshot_name,
+                        referral_referred_snapshot_email=referred.email or referral.referred_snapshot_email,
+                    ),
+                    sources=snapshots,
+                )
+            )
+    return materialized
+
+
 async def sync_settlement_month(*, db: AsyncSession, settlement_month: str) -> SettlementSyncResult:
     start, end = _month_bounds(settlement_month)
     await db.scalars(
@@ -359,6 +518,7 @@ async def sync_settlement_month(*, db: AsyncSession, settlement_month: str) -> S
     materialized = [
         *(await _build_salary_payables(db=db, settlement_month=settlement_month, start=start, end=end)),
         *(await _build_team_leader_payables(db=db, settlement_month=settlement_month, start=start, end=end)),
+        *(await _build_referral_payables(db=db, settlement_month=settlement_month)),
     ]
     generated_by_key = {item.draft.source_key: item for item in materialized}
     existing = list(
@@ -367,7 +527,7 @@ async def sync_settlement_month(*, db: AsyncSession, settlement_month: str) -> S
                 select(Payable)
                 .where(
                     Payable.settlement_month == settlement_month,
-                    Payable.payment_type.in_(("salary", "team_leader_bonus")),
+                    Payable.payment_type.in_(("salary", "team_leader_bonus", "referral_reward")),
                 )
                 .with_for_update()
             )
@@ -407,8 +567,53 @@ async def sync_settlement_month(*, db: AsyncSession, settlement_month: str) -> S
     )
 
 
-async def sync_timesheet_change(*, db: AsyncSession, settlement_month: str) -> SettlementSyncResult:
-    return await sync_settlement_month(db=db, settlement_month=settlement_month)
+async def sync_timesheet_change(
+    *,
+    db: AsyncSession,
+    settlement_month: str,
+    affected_user_ids: Sequence[int] = (),
+) -> SettlementSyncResult:
+    normalized_user_ids = sorted({int(user_id) for user_id in affected_user_ids})
+    affected_months = {settlement_month}
+    if normalized_user_ids:
+        referral_ids = list(
+            (
+                await db.scalars(
+                    select(ReferralRecord.id).where(
+                        ReferralRecord.referred_user_id.in_(normalized_user_ids),
+                        ReferralRecord.is_deleted.is_(False),
+                    )
+                )
+            ).all()
+        )
+        if referral_ids:
+            existing_months = (
+                await db.scalars(
+                    select(Payable.settlement_month).where(
+                        Payable.referral_record_id.in_(referral_ids),
+                        Payable.payment_type == "referral_reward",
+                    )
+                )
+            ).all()
+            affected_months.update(str(month) for month in existing_months)
+            work_dates = (
+                await db.scalars(
+                    select(ProjectTimesheetRecord.work_date).where(
+                        ProjectTimesheetRecord.user_id.in_(normalized_user_ids),
+                        ProjectTimesheetRecord.is_deleted.is_(False),
+                    )
+                )
+            ).all()
+            affected_months.update(work_date.strftime("%Y-%m") for work_date in work_dates)
+
+    requested_result: SettlementSyncResult | None = None
+    for month in sorted(affected_months):
+        result = await sync_settlement_month(db=db, settlement_month=month)
+        if month == settlement_month:
+            requested_result = result
+    if requested_result is None:
+        raise RuntimeError("Requested settlement month was not synchronized.")
+    return requested_result
 
 
 async def sync_contract_rate_change(*, db: AsyncSession, contract_record_id: int) -> list[SettlementSyncResult]:

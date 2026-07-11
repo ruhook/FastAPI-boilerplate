@@ -3,6 +3,7 @@ from decimal import ROUND_HALF_UP, Decimal
 REFERRAL_STATUS_TRACKING = "tracking"
 REFERRAL_STATUS_READY_TO_PAY = "ready_to_pay"
 REFERRAL_STATUS_PAID = "paid"
+REFERRAL_STATUS_REVERSED = "reversed"
 
 TWO_DECIMALS = Decimal("0.01")
 

@@ -74,7 +74,3 @@ class AdminReferralListPage(BaseModel):
     summary: AdminReferralSummaryRead
     reward_cap: Decimal
     milestones: list[ReferralMilestoneRead] = Field(default_factory=list)
-
-
-class AdminReferralMarkPaidResponse(BaseModel):
-    item: ReferralRecordRead

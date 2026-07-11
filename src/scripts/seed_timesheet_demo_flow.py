@@ -1005,7 +1005,6 @@ async def ensure_candidate_portal_referral_records(
                 model_snapshot_name=referral_snapshot["model_snapshot_name"],
                 currency=referral_snapshot["currency"],
                 reward_cap=Decimal(str(referral_snapshot["reward_cap"])),
-                payout_status="tracking",
                 data={REFERRAL_BONUS_MILESTONES_DATA_KEY: referral_snapshot["milestones"]},
             )
             session.add(record)

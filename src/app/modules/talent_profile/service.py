@@ -301,8 +301,6 @@ def _get_operation_log_title(log_type: str) -> str:
         return "自动邮件创建失败"
     if log_type == OperationLogType.REFERRAL_CREATED.value:
         return "创建邀请关系"
-    if log_type == OperationLogType.REFERRAL_REWARD_MARKED_PAID.value:
-        return "邀请奖励已发放"
     return log_type
 
 
@@ -397,9 +395,6 @@ def _build_operation_log_summary(log: OperationLog, job_title: str | None) -> st
     if log.log_type == OperationLogType.REFERRAL_CREATED.value:
         referrer_email = data.get("referrer_email") or "-"
         return f"通过邀请链接建立推荐关系，邀请者邮箱：{referrer_email}"
-    if log.log_type == OperationLogType.REFERRAL_REWARD_MARKED_PAID.value:
-        paid_amount = data.get("paid_reward_amount") or "-"
-        return f"邀请奖励已标记发放，薪资记录节点已预留：USD {paid_amount}"
     return json.dumps(data, ensure_ascii=False) if data else "-"
 
 
