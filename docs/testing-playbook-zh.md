@@ -41,82 +41,39 @@ npm run dev -- --port 3001
 npm run dev -- --port 3002
 ```
 
-## 3. B 端完整联调
+## 3. 准备统一手工验收数据
 
-推荐脚本：
-
-```bash
-cd /Users/ruanhaokang/workspace/hr/hr-server
-uv run python -m src.scripts.run_recruitment_e2e_demo
-```
-
-这条脚本会覆盖：
-
-- 管理员和判题人准备
-- 岗位与报名表模板准备
-- 候选人注册与投递
-- 测试题回收
-- 判题人分配
-- 判题结果更新
-- 自动化流转
-- 待签合同上传
-- 候选人签回合同上传
-- 公司盖章合同上传
-- 邮件任务创建
-- 人才日志 / 流程日志回查
-
-默认账号：
-
-- 管理员：`flowadmin / FlowAdmin123!`
-- 判题人：`judgereviewer / JudgeReview123!`
-
-跑完后建议人工检查：
-
-- 后台登录是否正常
-- `/jobs` 是否能看到演示岗位
-- `/jobs/:jobId/progress?stage=assessment` 是否能看到测试题候选人
-- 变更判题人后，右上角铃铛内部信是否出现
-- 邮件模板、签名、发送历史是否能正常查看
-
-## 4. C 端完整联调
-
-推荐脚本：
+在 `hr-server` 下执行：
 
 ```bash
-cd /Users/ruanhaokang/workspace/hr/hr-server
-uv run python -m src.scripts.run_candidate_my_jobs_demo
+uv run python -m src.scripts.v2.seed_manual_review_data
 ```
 
-这条脚本会准备 7 个不同状态的岗位和申请：
+该入口会统一准备：
 
-- Pending Screening
-- Assessment Review
-- Screening Passed
-- Contract Pool
-- Active
-- Rejected
-- Replaced
+- 招聘流程、自动筛选和判题账号
+- 合同、工时、收益和邀请奖励
+- Candidate Portal 的 My Jobs / My Contracts 页面状态
+- 后台与候选人端人工检查所需账号
 
-并覆盖：
+脚本会在 `tmp/v2/` 生成 `manual-review-seed-v2-*.json`，其中包含实际账号、页面路径、seed 结果和各子脚本日志。人工验收以该文件输出为准，不在文档中维护第二套默认账号。
 
-- 候选人注册 / 登录
-- 岗位投递
-- 同岗位不可重复投递
-- 测试题多次上传
-- 待签合同下载
-- 签回合同上传
-- `/me/applications` 分页 / 阶段筛选 / `needs_action_only`
+建议人工检查：
 
-默认候选人账号：
+- Admin `/jobs`、招聘进度、合同库、人才库和工时页面
+- 判题人权限隔离与右上角内部通知
+- Candidate `/jobs`、`/my-jobs`、`/my-contracts`、`/working-hours`、`/referral` 和 `/earnings`
+- 测试题上传、待签合同下载、签回合同上传和各状态详情
 
-- `712696306@qq.com / 12345678`
+## 4. 完整回归
 
-跑完后建议人工检查：
+后端、前端和事件消费者都已启动后，在 `hr-server` 下执行：
 
-- `http://localhost:3002/jobs`
-- `http://localhost:3002/my-jobs`
-- `Assessment Review` 详情里测试题上传是否可用
-- `Contract Pool` 详情里待签合同下载和签回上传是否可用
+```bash
+uv run python -m src.scripts.v2.run_full_regression_suite
+```
+
+完整入口会串联 API、批量合同、权限矩阵、注册验证码、下载导出和浏览器 E2E。当前没有可用的 Chromium 环境时可加 `--skip-browser`；各专项入口和产物说明见 `src/scripts/v2/README.md`。
 
 ## 5. 单点脚本
 
@@ -138,13 +95,6 @@ uv run python -m src.scripts.run_client_apply_demo
 ```bash
 cd /Users/ruanhaokang/workspace/hr/hr-server
 uv run python -m src.scripts.run_client_assessment_upload_demo
-```
-
-### 候选人上传签回合同
-
-```bash
-cd /Users/ruanhaokang/workspace/hr/hr-server
-uv run python -m src.scripts.run_client_signed_contract_upload_demo
 ```
 
 ## 6. 邮件测试说明
