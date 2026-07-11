@@ -133,7 +133,7 @@ def build_application_items(
     base = {
         CandidateFieldKey.FULL_NAME.value: candidate_name,
         CandidateFieldKey.EMAIL.value: candidate_email,
-        CandidateFieldKey.NATIONALITY.value: "Brazilian",
+        CandidateFieldKey.NATIONALITY.value: "Brazil",
         CandidateFieldKey.COUNTRY_OF_RESIDENCE.value: "Brazil",
         CandidateFieldKey.CITY.value: "Sao Paulo",
         CandidateFieldKey.NATIVE_LANGUAGES.value: "Portuguese",
