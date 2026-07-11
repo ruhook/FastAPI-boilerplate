@@ -3,12 +3,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse
 
-from ...core.auth_rate_limit import AuthRateLimitAction, enforce_auth_rate_limit
 from ...core.auth_sessions import (
     InvalidRefreshTokenError,
     RefreshSessionError,
@@ -27,7 +25,6 @@ from ...core.security import (
     authenticate_user,
     create_access_token,
 )
-from ...core.utils.cache import async_get_redis
 from ...modules.user.model import User
 
 router = APIRouter(tags=["web-auth"])
@@ -39,15 +36,12 @@ async def login_for_access_token(
     response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    redis: Annotated[Redis, Depends(async_get_redis)],
 ) -> dict[str, str]:
-    await enforce_auth_rate_limit(
-        redis,
-        action=AuthRateLimitAction.LOGIN,
-        client_ip=request.client.host if request.client else "unknown",
-        identifier=form_data.username,
+    user = await authenticate_user(
+        username_or_email=form_data.username,
+        password=form_data.password,
+        db=db,
     )
-    user = await authenticate_user(username_or_email=form_data.username, password=form_data.password, db=db)
     if not user:
         raise UnauthorizedException("Wrong username, email or password.")
 

@@ -1,11 +1,9 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse
 
-from ....core.auth_rate_limit import AuthRateLimitAction, enforce_auth_rate_limit
 from ....core.auth_sessions import (
     InvalidRefreshTokenError,
     RefreshSessionError,
@@ -17,7 +15,6 @@ from ....core.auth_sessions import (
 from ....core.db.database import async_get_db
 from ....core.exceptions.http_exceptions import UnauthorizedException
 from ....core.security import TokenType, admin_oauth2_scheme, verify_token
-from ....core.utils.cache import async_get_redis
 from ....modules.admin.admin_user.crud import crud_admin_users
 from ....modules.admin.admin_user.schema import (
     AdminChangePasswordRequest,
@@ -45,15 +42,7 @@ async def admin_login(
     request: Request,
     payload: AdminLoginRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-    redis: Annotated[Redis, Depends(async_get_redis)],
 ) -> AdminToken:
-    if not is_local_dev_auto_login_admin(payload.username_or_email):
-        await enforce_auth_rate_limit(
-            redis,
-            action=AuthRateLimitAction.LOGIN,
-            client_ip=request.client.host if request.client else "unknown",
-            identifier=payload.username_or_email,
-        )
     return await login_admin_user(
         payload=payload,
         db=db,
