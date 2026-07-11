@@ -20,7 +20,7 @@
 - 候选人申请 summary 改为流式扫描、在线聚合，只保留当前页 ORM 对象和合同记录。
 - 自动筛选文本 `eq` 与数值 `eq` 已分流处理，文本规则不再被数值解析提前判失败。
 - 不保留 bcrypt、客户端 MIME、旧表单 `attachment/single_select`、旧事件 pending 或废弃配置别名等兼容分支；开发数据采用重置、重建或重新上传。
-- 完整测试在专用 `hr_server_codex_test` + 本机 Redis 上通过：`313 passed, 1 skipped`；全仓 Ruff 通过，核心 mypy 覆盖 45 个生产源文件并通过，Alembic 只有 `20260710_000045` 一个 head。
+- 底层加固回归使用专用 `hr_server_codex_test` + 本机 Redis；全仓 Ruff 与核心 mypy 门禁已通过，Alembic 已确认只有 `20260710_000045` 一个 head。
 - CI 使用一次性 MySQL/Redis 并要求显式的测试库清理许可；验证码重发冷却、有效期和单码尝试上限以及取消集中限流后的路由行为由独立测试覆盖。
 
 ## 仍需继续处理

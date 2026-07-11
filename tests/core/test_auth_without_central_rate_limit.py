@@ -1,6 +1,6 @@
 import json
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import Request, Response
@@ -182,6 +182,43 @@ async def test_verification_resend_cooldown_still_returns_retry_after(
 
     assert caught.value.status_code == 429
     assert int(caught.value.headers["Retry-After"]) > 0
+
+
+async def test_password_reset_resend_cooldown_returns_exact_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeVerificationRedis()
+    email = "candidate@example.com"
+    fixed_now = 1_750_000_000
+    cooldown = int(settings.CANDIDATE_REGISTER_VERIFICATION_RESEND_COOLDOWN_SECONDS)
+    key = verification_service._verification_cache_key(
+        email,
+        prefix=settings.CANDIDATE_PASSWORD_RESET_VERIFICATION_REDIS_PREFIX,
+    )
+    redis.storage[key] = json.dumps(
+        {
+            "email": email,
+            "code_hash": "unused",
+            "sent_at": fixed_now,
+            "attempt_count": 0,
+        }
+    )
+    redis.expirations[key] = settings.CANDIDATE_REGISTER_VERIFICATION_CODE_TTL_SECONDS
+    existing_user_result = MagicMock()
+    existing_user_result.scalar_one_or_none.return_value = 123
+    db = AsyncMock()
+    db.execute.return_value = existing_user_result
+    monkeypatch.setattr(verification_service.time, "time", lambda: fixed_now)
+
+    with pytest.raises(TooManyRequestsException) as caught:
+        await verification_service.send_password_reset_verification_code(
+            email=email,
+            redis=redis,  # type: ignore[arg-type]
+            db=db,
+        )
+
+    assert caught.value.status_code == 429
+    assert caught.value.headers["Retry-After"] == str(cooldown)
 
 
 async def test_verification_check_deletes_code_after_five_failed_attempts(
