@@ -50,18 +50,6 @@ async def current_user_can_access_asset(
     if application_asset_result.first() is not None:
         return True
 
-    process_asset_keys = (
-        JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value,
-        JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT_ASSET_ID.value,
-        JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID.value,
-        JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT_ASSET_ID.value,
-    )
-    conditions = " OR ".join(
-        [
-            f"CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(jp.data, '$.{key}')), 'null') AS SIGNED) = :asset_id"
-            for key in process_asset_keys
-        ]
-    )
     process_asset_result = await db.execute(
         text(
             f"""
@@ -69,7 +57,10 @@ async def current_user_can_access_asset(
             FROM job_progress jp
             WHERE jp.user_id = :user_id
               AND jp.is_deleted = 0
-              AND ({conditions})
+              AND JSON_CONTAINS(
+                    JSON_EXTRACT(jp.data, '$.{JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value}'),
+                    JSON_OBJECT('asset_id', :asset_id)
+              )
             LIMIT 1
             """
         ),

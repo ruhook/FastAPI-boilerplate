@@ -113,12 +113,10 @@ async def test_web_candidate_can_upload_assessment_attachment(
     assert upload_payload["application_id"] == application_payload["application_id"]
     assert upload_payload["current_stage"] == "assessment_review"
     assert upload_payload["assessment_asset"]["original_name"] == "assessment-answer.xlsx"
-    assert upload_payload["process_data"]["assessment_attachment"] == "assessment-answer.xlsx"
-    assert upload_payload["process_data"]["assessment_attachment_asset_id"] == upload_payload["assessment_asset"]["id"]
-    assert (
-        upload_payload["process_assets"]["assessment_attachment"]["asset_id"]
-        == upload_payload["assessment_asset"]["id"]
-    )
+    latest_submission = upload_payload["process_data"]["assessment_submissions"][-1]
+    assert latest_submission["asset_id"] == upload_payload["assessment_asset"]["id"]
+    assert latest_submission["name"] == "assessment-answer.xlsx"
+    assert upload_payload["process_assets"] == {}
 
     asset_read_response = await web_client.get(
         f"/api/v1/assets/{upload_payload['assessment_asset']['id']}",
@@ -133,8 +131,7 @@ async def test_web_candidate_can_upload_assessment_attachment(
         )
         progress = progress_result.scalar_one()
         assert progress.current_stage == "assessment_review"
-        assert progress.data["assessment_attachment"] == "assessment-answer.xlsx"
-        assert progress.data["assessment_attachment_asset_id"] == upload_payload["assessment_asset"]["id"]
+        assert progress.data["assessment_submissions"][-1]["asset_id"] == upload_payload["assessment_asset"]["id"]
         assert progress.data["assessment_submitted_at"]
 
         asset_result = await assertion_session.execute(

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..admin.mail_task.schema import MailRecipient
 from ..assets.schema import AssetRead
@@ -92,11 +92,11 @@ class JobProgressOnboardingUpdateResponse(BaseModel):
 
 
 class JobProgressContractRecordUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     progress_ids: list[int] = Field(min_length=1)
     ensure_contract_record: bool = False
     agreement_ref_no: str | None = None
-    signing_status: str | None = None
-    contract_review: str | None = None
     rate: str | None = None
     end_date: date | None = None
 
@@ -166,7 +166,7 @@ class ContractRecordDataRead(BaseModel):
     contract_attachment: JobProgressContractAssetRead | None = None
     submitted_contract_at: str | None = None
     signing_status: str | None = None
-    contract_review: str | None = None
+    contract_review_status: str | None = None
     parse_status: str | None = None
     parse_error: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)

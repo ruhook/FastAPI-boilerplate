@@ -20,6 +20,7 @@ def test_contract_workflow_states_are_typed_columns() -> None:
     assert columns.contract_status.index is True
     assert columns.contract_review_status.index is True
     assert columns.signing_status.index is True
+    assert ContractRecord.__mapper__.version_id_col is columns.version
 
 
 def test_contract_response_exposes_typed_review_field_only() -> None:

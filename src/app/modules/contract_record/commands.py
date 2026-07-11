@@ -2,6 +2,7 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from ...core.exceptions.http_exceptions import ConflictException, NotFoundException
 from .const import ContractReviewStatus, ContractSigningStatus, ContractStatus
@@ -12,6 +13,13 @@ from .policy import (
     ensure_signing_transition,
     ensure_status_transition,
 )
+
+
+async def flush_contract_write(db: AsyncSession) -> None:
+    try:
+        await db.flush()
+    except StaleDataError as exc:
+        raise ConflictException("Contract record was changed by another request.") from exc
 
 
 async def get_locked_contract(*, db: AsyncSession, contract_record_id: int) -> ContractRecord:
@@ -45,7 +53,7 @@ async def record_draft_upload(
     contract.contract_review_status = ContractReviewStatus.PENDING.value
     contract.signing_status = ContractSigningStatus.NOT_SENT.value
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract
 
 
@@ -62,7 +70,7 @@ async def mark_contract_sent(
         raise ConflictException("Contract must have a draft before it can be sent.")
     contract.signing_status = ContractSigningStatus.SENT.value
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract
 
 
@@ -82,7 +90,7 @@ async def record_candidate_signature(
     contract.signing_status = ContractSigningStatus.CANDIDATE_SIGNED.value
     contract.contract_review_status = ContractReviewStatus.PENDING.value
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract
 
 
@@ -99,7 +107,7 @@ async def review_contract(
     ensure_review_transition(ContractReviewStatus(contract.contract_review_status), target)
     contract.contract_review_status = target.value
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract
 
 
@@ -123,7 +131,7 @@ async def seal_contract(
     contract.signing_status = ContractSigningStatus.COMPANY_SEALED.value
     contract.effective_date = contract.effective_date or effective_date
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract
 
 
@@ -142,7 +150,7 @@ async def activate_contract_record(
     )
     contract.contract_status = ContractStatus.ACTIVE.value
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract
 
 
@@ -159,5 +167,5 @@ async def close_contract_record(
     ensure_status_transition(ContractStatus(contract.contract_status), target)
     contract.contract_status = target.value
     contract.updated_by_admin_user_id = admin_user_id
-    await db.flush()
+    await flush_contract_write(db)
     return contract

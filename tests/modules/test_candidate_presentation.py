@@ -34,7 +34,7 @@ pytestmark = pytest.mark.no_database_cleanup
         (
             "assessment_review",
             True,
-            {"assessment_result": "需重新提交", "assessment_attachment_asset_id": 101},
+            {"assessment_result": "需重新提交", "assessment_submissions": [{"asset_id": 101}]},
             None,
             ("action_required", "assessment_file", "upload_assessment"),
         ),
@@ -55,7 +55,7 @@ pytestmark = pytest.mark.no_database_cleanup
         (
             "assessment_review",
             True,
-            {"assessment_submitted_at": "2026-07-10T08:00:00Z", "assessment_attachment_asset_id": 101},
+            {"assessment_submitted_at": "2026-07-10T08:00:00Z", "assessment_submissions": [{"asset_id": 101}]},
             None,
             ("under_review", "assessment_file", "view_status"),
         ),
@@ -94,7 +94,7 @@ pytestmark = pytest.mark.no_database_cleanup
             {
                 "draft_contract_attachment": {"asset_id": 201},
                 "candidate_signed_contract_attachment": {"asset_id": 202},
-                "contract_review": "待修改",
+                "contract_review_status": "changes_requested",
             },
             ("action_required", "signed_contract", "upload_contract"),
         ),
@@ -106,7 +106,7 @@ pytestmark = pytest.mark.no_database_cleanup
                 "draft_contract_attachment": {"asset_id": 201},
                 "candidate_signed_contract_attachment": {"asset_id": 202},
                 "submitted_contract_at": "2026-07-10T08:00:00Z",
-                "contract_review": "待审核",
+                "contract_review_status": "pending",
             },
             ("under_review", "signed_contract", "view_status"),
         ),
@@ -117,7 +117,7 @@ pytestmark = pytest.mark.no_database_cleanup
             {
                 "candidate_signed_contract_attachment": {"asset_id": 202},
                 "company_sealed_contract_attachment": {"asset_id": 203},
-                "contract_review": "审核通过",
+                "contract_review_status": "approved",
             },
             ("under_review", "task_group", "view_status"),
         ),
@@ -184,7 +184,7 @@ pytestmark = pytest.mark.no_database_cleanup
             "unexpected_stage",
             True,
             {"onboarding_status": "corrupt"},
-            {"contract_review": "unknown"},
+            {"contract_review_status": "unknown"},
             ("under_review", "application_review", "view_details"),
         ),
     ],
@@ -265,7 +265,7 @@ def test_submitted_states_explain_that_review_is_still_pending() -> None:
     assessment = build_candidate_presentation(
         current_stage="assessment_review",
         assessment_enabled=True,
-        process_data={"assessment_submitted_at": "2026-07-10", "assessment_attachment_asset_id": 101},
+        process_data={"assessment_submitted_at": "2026-07-10", "assessment_submissions": [{"asset_id": 101}]},
         contract_data=None,
     )
     contract = build_candidate_presentation(
@@ -274,7 +274,7 @@ def test_submitted_states_explain_that_review_is_still_pending() -> None:
         process_data={},
         contract_data={
             "candidate_signed_contract_attachment": {"asset_id": 202},
-            "contract_review": "待审核",
+            "contract_review_status": "pending",
         },
     )
 

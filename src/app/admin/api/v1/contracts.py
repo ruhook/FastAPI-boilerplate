@@ -6,11 +6,14 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.db.database import async_get_db
+from ....modules.contract_record.commands import review_contract
 from ....modules.contract_record.schema import (
     ContractRecordListPage,
     ContractRecordResignResponse,
     ContractRecordUpdateRequest,
     ContractRecordUpdateResponse,
+    ContractReviewRequest,
+    ContractStateRead,
 )
 from ....modules.contract_record.service import (
     list_contract_records_for_admin,
@@ -34,6 +37,26 @@ def _parse_date_form_value(value: Any) -> date | None:
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value))
+
+
+@router.post(
+    "/{contract_record_id}/review",
+    response_model=ContractStateRead,
+    dependencies=[Depends(require_admin_permission("合同管理"))],
+)
+async def review_contract_record(
+    contract_record_id: int,
+    payload: ContractReviewRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> ContractStateRead:
+    contract = await review_contract(
+        db=db,
+        contract_record_id=contract_record_id,
+        target=payload.target,
+        admin_user_id=int(current_admin["id"]),
+    )
+    return ContractStateRead.model_validate(contract)
 
 
 @router.get(

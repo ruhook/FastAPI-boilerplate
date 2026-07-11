@@ -350,8 +350,6 @@ async def submit_job_progress_assessment(
         }
     )
     next_data[JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value] = submission_records
-    next_data[JobProgressDataKey.ASSESSMENT_ATTACHMENT.value] = asset_payload["original_name"]
-    next_data[JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value] = int(asset_payload["id"])
     next_data[JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value] = submitted_at.isoformat()
     next_data.pop(JobProgressDataKey.ASSESSMENT_RESULT.value, None)
     next_data.pop(JobProgressDataKey.ASSESSMENT_REVIEW_COMMENT.value, None)
@@ -404,13 +402,6 @@ async def submit_job_progress_assessment(
 
     await db.flush()
 
-    serialized_asset = {
-        "asset_id": int(asset_payload["id"]),
-        "name": asset_payload["original_name"],
-        "preview_url": asset_payload["preview_url"],
-        "download_url": asset_payload["download_url"],
-        "mime_type": asset_payload["mime_type"],
-    }
     return JobProgressAssessmentUploadResponse(
         job_progress_id=progress.id,
         job_id=progress.job_id,
@@ -419,5 +410,5 @@ async def submit_job_progress_assessment(
         current_stage_cn_name=get_recruitment_stage_cn_name(progress.current_stage),
         assessment_asset=asset_payload,
         process_data=_serialize_process_data(next_data, {int(asset_payload["id"]): asset_payload}),
-        process_assets={JobProgressDataKey.ASSESSMENT_ATTACHMENT.value: serialized_asset},
+        process_assets={},
     ).model_dump()

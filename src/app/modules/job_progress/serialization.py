@@ -13,7 +13,6 @@ from .candidate_presentation import (
     build_candidate_presentation,
 )
 from .const import (
-    JOB_PROGRESS_ATTACHMENT_ASSET_KEY_MAP,
     JobProgressDataKey,
     RecruitmentStage,
     get_recruitment_stage_cn_name,
@@ -33,22 +32,8 @@ from .state import _has_assessment_invitation
 
 CONTRACT_PROCESS_DATA_KEYS = {
     JobProgressDataKey.ACCEPTED_RATE.value,
-    JobProgressDataKey.SIGNING_STATUS.value,
     JobProgressDataKey.CONTRACT_NUMBER.value,
-    JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT.value,
-    JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT_ASSET_ID.value,
-    JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT.value,
-    JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID.value,
     JobProgressDataKey.SUBMITTED_CONTRACT_AT.value,
-    JobProgressDataKey.CONTRACT_REVIEW.value,
-    JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT.value,
-    JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT_ASSET_ID.value,
-}
-
-CONTRACT_PROCESS_ASSET_KEYS = {
-    JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT,
-    JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT,
-    JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT,
 }
 
 CANDIDATE_VISIBLE_STAGE_LABELS = {
@@ -166,14 +151,6 @@ def _serialize_application_assets(
 
 def _extract_process_asset_ids(progress_data: dict[str, Any]) -> list[int]:
     asset_ids: list[int] = []
-    for asset_id_key in JOB_PROGRESS_ATTACHMENT_ASSET_KEY_MAP.values():
-        value = progress_data.get(asset_id_key.value)
-        if value is None or value == "":
-            continue
-        try:
-            asset_ids.append(int(value))
-        except (TypeError, ValueError):
-            continue
     for item in _get_assessment_submission_records(progress_data):
         value = item.get("asset_id")
         if value is None or value == "":
@@ -188,21 +165,7 @@ def _extract_process_asset_ids(progress_data: dict[str, Any]) -> list[int]:
 def _get_assessment_submission_records(progress_data: dict[str, Any]) -> list[dict[str, Any]]:
     raw_items = progress_data.get(JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value)
     if isinstance(raw_items, list):
-        items = [dict(item) for item in raw_items if isinstance(item, dict)]
-        if items:
-            return items
-
-    legacy_asset_id = progress_data.get(JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value)
-    legacy_name = progress_data.get(JobProgressDataKey.ASSESSMENT_ATTACHMENT.value)
-    legacy_submitted_at = progress_data.get(JobProgressDataKey.ASSESSMENT_SUBMITTED_AT.value)
-    if legacy_asset_id or legacy_name:
-        return [
-            {
-                "asset_id": legacy_asset_id,
-                "name": legacy_name,
-                "submitted_at": legacy_submitted_at,
-            }
-        ]
+        return [dict(item) for item in raw_items if isinstance(item, dict)]
     return []
 
 
@@ -256,28 +219,7 @@ def _serialize_process_assets(
     *,
     exclude_contract_assets: bool = False,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
-    for file_name_key, asset_id_key in JOB_PROGRESS_ATTACHMENT_ASSET_KEY_MAP.items():
-        if exclude_contract_assets and file_name_key in CONTRACT_PROCESS_ASSET_KEYS:
-            continue
-        asset_id_value = progress_data.get(asset_id_key.value)
-        if asset_id_value is None or asset_id_value == "":
-            continue
-        try:
-            asset_id = int(asset_id_value)
-        except (TypeError, ValueError):
-            continue
-        asset_payload = asset_map.get(asset_id)
-        if asset_payload is None:
-            continue
-        payload[file_name_key.value] = {
-            "asset_id": asset_id,
-            "name": progress_data.get(file_name_key.value) or asset_payload.get("original_name") or "",
-            "preview_url": asset_payload.get("preview_url"),
-            "download_url": asset_payload.get("download_url"),
-            "mime_type": asset_payload.get("mime_type"),
-        }
-    return payload
+    return {}
 
 
 def _extract_id_attachment_asset_id(user_data: dict[str, Any] | None) -> int | None:
@@ -449,8 +391,8 @@ def _serialize_contract_record_data(
             asset_map=asset_map,
         ),
         submitted_contract_at=(_normalize_text(contract_data.get("candidate_signed_contract_submitted_at")) or None),
-        signing_status=_normalize_text(contract_data.get("signing_status")) or None,
-        contract_review=_normalize_text(contract_data.get("contract_review")) or None,
+        signing_status=contract_record.signing_status,
+        contract_review_status=contract_record.contract_review_status,
         parse_status=contract_record.parse_status,
         parse_error=contract_record.parse_error,
         data=dict(contract_data),
@@ -471,7 +413,7 @@ def _build_candidate_presentation_for_progress(
             "company_sealed_contract_attachment": contract_record.company_sealed_contract_asset_id,
             "contract_attachment": contract_record.contract_attachment_asset_id,
             "submitted_contract_at": contract_data.get("candidate_signed_contract_submitted_at"),
-            "contract_review": contract_data.get("contract_review"),
+            "contract_review_status": contract_record.contract_review_status,
         }
         if contract_record is not None
         else None

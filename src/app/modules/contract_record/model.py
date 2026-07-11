@@ -134,3 +134,5 @@ class ContractRecord(DataBackedSoftDeleteEntityMixin, Base):
         nullable=True,
         index=True,
     )
+
+    __mapper_args__ = {"version_id_col": version}

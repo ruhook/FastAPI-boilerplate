@@ -26,8 +26,6 @@ class JobProgressDataKey(StrEnum):
     ASSESSMENT_INVITED_AT = "assessment_invited_at"
     ASSESSMENT_INVITE_MAIL_TASK_ID = "assessment_invite_mail_task_id"
     ASSESSMENT_SENT_AT = "assessment_sent_at"
-    ASSESSMENT_ATTACHMENT = "assessment_attachment"
-    ASSESSMENT_ATTACHMENT_ASSET_ID = "assessment_attachment_asset_id"
     ASSESSMENT_SUBMITTED_AT = "assessment_submitted_at"
     ASSESSMENT_SUBMISSIONS = "assessment_submissions"
     ASSESSMENT_RESULT = "assessment_result"
@@ -37,34 +35,16 @@ class JobProgressDataKey(StrEnum):
     QA_STATUS = "qa_status"
     QA_FEEDBACK = "qa_feedback"
     ACCEPTED_RATE = "accepted_rate"
-    SIGNING_STATUS = "signing_status"
     CONTRACT_NUMBER = "contract_number"
-    CONTRACT_DRAFT_ATTACHMENT = "contract_draft_attachment"
-    CONTRACT_DRAFT_ATTACHMENT_ASSET_ID = "contract_draft_attachment_asset_id"
-    SUBMITTED_CONTRACT_ATTACHMENT = "submitted_contract_attachment"
-    SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID = "submitted_contract_attachment_asset_id"
     SUBMITTED_CONTRACT_AT = "submitted_contract_at"
-    CONTRACT_REVIEW = "contract_review"
-    CONTRACT_RETURN_ATTACHMENT = "contract_return_attachment"
-    CONTRACT_RETURN_ATTACHMENT_ASSET_ID = "contract_return_attachment_asset_id"
     ONBOARDING_STATUS = "onboarding_status"
     ONBOARDING_DATE = "onboarding_date"
     SALARY_CONFIRMED_AT = "salary_confirmed_at"
     GIFT_PACKAGE_SENT_AT = "gift_package_sent_at"
     JOB_LANGUAGES = "job_languages"
     REJECTED_FROM_STAGE = "rejected_from_stage"
-    REJECTED_CONTRACT_PREVIOUS_STATUS = "rejected_contract_previous_status"
-    REJECTED_CONTRACT_PREVIOUS_END_DATE = "rejected_contract_previous_end_date"
     REPLACEMENT_REASON = "replacement_reason"
     NOTE = "note"
-
-
-JOB_PROGRESS_ATTACHMENT_ASSET_KEY_MAP: dict[JobProgressDataKey, JobProgressDataKey] = {
-    JobProgressDataKey.ASSESSMENT_ATTACHMENT: JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID,
-    JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT: JobProgressDataKey.CONTRACT_DRAFT_ATTACHMENT_ASSET_ID,
-    JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT: JobProgressDataKey.SUBMITTED_CONTRACT_ATTACHMENT_ASSET_ID,
-    JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT: JobProgressDataKey.CONTRACT_RETURN_ATTACHMENT_ASSET_ID,
-}
 
 
 RECRUITMENT_STAGE_CN_NAME_MAP: dict[RecruitmentStage, str] = {
@@ -169,7 +149,7 @@ RECRUITMENT_STAGE_DEFAULT_COLUMNS: dict[RecruitmentStageView | RecruitmentStage,
         "contract_draft_attachment",
         "submitted_contract_attachment",
         "submitted_contract_at",
-        "contract_review",
+        "contract_review_status",
         "contract_return_attachment",
         "note",
         "salary_confirmed_at",
@@ -246,7 +226,6 @@ RECRUITMENT_STAGE_TRANSITIONS: dict[RecruitmentStage, tuple[RecruitmentStage, ..
         RecruitmentStage.ASSESSMENT_REVIEW,
         RecruitmentStage.SCREENING_PASSED,
         RecruitmentStage.CONTRACT_POOL,
-        RecruitmentStage.ACTIVE,
     ),
     RecruitmentStage.REPLACED: (RecruitmentStage.PENDING_SCREENING,),
 }

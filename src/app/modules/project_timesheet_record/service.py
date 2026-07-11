@@ -1727,7 +1727,7 @@ async def update_project_timesheet_record(
     )
     if (
         int(payload.contract_record_id) != int(record.contract_record_id or 0)
-        and contract_record.contract_status != "Active"
+        and contract_record.contract_status != CONTRACT_STATUS_ACTIVE
     ):
         raise BadRequestException("Selected worker must have an active contract.")
     if payload.user_id is not None and int(payload.user_id) != int(user.id):

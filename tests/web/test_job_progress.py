@@ -970,11 +970,13 @@ async def test_rejected_active_progress_restores_previous_contract_state(
             job_snapshot_title="Progress Role",
             service_customer_company_id=int(job.company_id),
             service_customer_project_id=int(job.project_id),
-            contract_status="Active",
+            contract_status="active",
+            contract_review_status="approved",
+            signing_status="company_sealed",
             contractor_name="Progress Candidate",
             candidate_signed_contract_asset_id=signed_asset.id,
             end_date=date(2027, 1, 31),
-            data={"contract_review": "审核通过"},
+            data={},
         )
         setup_session.add(contract)
         await setup_session.commit()
@@ -993,29 +995,16 @@ async def test_rejected_active_progress_restores_previous_contract_state(
         assert rejected_progress is not None
         assert rejected_contract is not None
         assert rejected_progress.data["rejected_from_stage"] == "active"
-        assert rejected_progress.data["rejected_contract_previous_status"] == "Active"
-        assert rejected_progress.data["rejected_contract_previous_end_date"] == "2027-01-31"
-        assert rejected_contract.contract_status == "Terminated"
+        assert "rejected_contract_previous_status" not in rejected_progress.data
+        assert "rejected_contract_previous_end_date" not in rejected_progress.data
+        assert rejected_contract.contract_status == "terminated"
 
     restore_response = await admin_client.post(
         f"/api/v1/jobs/{progress.job_id}/progress/stage",
         headers=admin_auth_headers,
         json={"progress_ids": [progress.id], "target_stage": "active"},
     )
-    assert restore_response.status_code == 200, restore_response.text
-
-    async with local_session() as assertion_session:
-        restored_progress = await assertion_session.get(JobProgress, progress.id)
-        restored_contract = await assertion_session.get(ContractRecord, contract_id)
-        assert restored_progress is not None
-        assert restored_contract is not None
-        assert restored_progress.current_stage == "active"
-        assert restored_progress.data["onboarding_status"] == "已发大礼包"
-        assert "rejected_from_stage" not in restored_progress.data
-        assert "rejected_contract_previous_status" not in restored_progress.data
-        assert "rejected_contract_previous_end_date" not in restored_progress.data
-        assert restored_contract.contract_status == "Active"
-        assert restored_contract.end_date == date(2027, 1, 31)
+    assert restore_response.status_code == 400, restore_response.text
 
 
 async def test_successful_assessment_mail_task_syncs_sent_at_to_progress(

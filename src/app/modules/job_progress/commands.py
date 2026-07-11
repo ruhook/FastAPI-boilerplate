@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..candidate_application.model import CandidateApplication
 from ..candidate_application_field_value.model import CandidateApplicationFieldValue
+from ..contract_record.const import (
+    CONTRACT_STATUS_ACTIVE,
+    CONTRACT_STATUS_TERMINATED,
+    ContractReviewStatus,
+    ContractSigningStatus,
+)
 from ..contract_record.model import ContractRecord
 from ..contract_record.service import (
     get_current_contract_record_by_progress_id,
@@ -28,7 +34,7 @@ from .language_rules import normalize_progress_language_value, resolve_progress_
 from .mail_workflow import _trigger_stage_mail_task
 from .model import JobProgress
 from .normalization import _has_assessment_attachment, _normalize_text
-from .rejection_restore import build_rejected_progress_data, pop_active_contract_restore_data
+from .rejection_restore import build_rejected_progress_data
 from .schema import JobProgressOnboardingUpdateResponse
 from .state import get_job_progress_models
 
@@ -167,7 +173,6 @@ async def move_job_progress_stage(  # noqa: C901
 
     active_contract_record_map: dict[int, ContractRecord] = {}
     leaving_active_contract_record_map: dict[int, ContractRecord] = {}
-    active_restore_data_map: dict[int, tuple[dict[str, Any], str, date | None]] = {}
 
     for progress in progress_items:
         if (
@@ -192,30 +197,11 @@ async def move_job_progress_stage(  # noqa: C901
                 RecruitmentStage.ASSESSMENT_REVIEW.value,
                 RecruitmentStage.SCREENING_PASSED.value,
                 RecruitmentStage.CONTRACT_POOL.value,
-                RecruitmentStage.ACTIVE.value,
             }
             if rejected_from_stage not in allowed_restore_stages:
                 raise BadRequestException("Rejected progress record is missing a supported source stage.")
             if normalized_target_stage.value != rejected_from_stage:
                 raise BadRequestException("Rejected progress record can only restore to its source stage.")
-            if normalized_target_stage == RecruitmentStage.ACTIVE:
-                progress_data = progress.data or {}
-                if (
-                    JobProgressDataKey.REJECTED_CONTRACT_PREVIOUS_STATUS.value not in progress_data
-                    or JobProgressDataKey.REJECTED_CONTRACT_PREVIOUS_END_DATE.value not in progress_data
-                ):
-                    raise BadRequestException("Rejected active record is missing previous contract state.")
-                try:
-                    cleaned_data, previous_status, previous_end_date = pop_active_contract_restore_data(progress_data)
-                except ValueError as exc:
-                    raise BadRequestException("Rejected active record has invalid previous contract state.") from exc
-                if not previous_status:
-                    raise BadRequestException("Rejected active record is missing previous contract status.")
-                active_restore_data_map[progress.id] = (
-                    cleaned_data,
-                    previous_status,
-                    previous_end_date,
-                )
         if (
             progress.current_stage == RecruitmentStage.ASSESSMENT_REVIEW.value
             and normalized_target_stage == RecruitmentStage.SCREENING_PASSED
@@ -239,10 +225,9 @@ async def move_job_progress_stage(  # noqa: C901
             )
             if contract_record is None:
                 raise BadRequestException("Active stage requires a contract record.")
-            if contract_record.candidate_signed_contract_asset_id in (None, 0, ""):
-                raise BadRequestException("Active stage requires a candidate signed contract.")
-            current_contract_review = _normalize_text((contract_record.data or {}).get("contract_review"))
-            if current_contract_review != "审核通过":
+            if contract_record.signing_status != ContractSigningStatus.COMPANY_SEALED.value:
+                raise BadRequestException("Active stage requires a company sealed contract.")
+            if contract_record.contract_review_status != ContractReviewStatus.APPROVED.value:
                 raise BadRequestException("Active stage requires an approved contract review.")
             active_contract_record_map[progress.id] = contract_record
         if (
@@ -254,7 +239,7 @@ async def move_job_progress_stage(  # noqa: C901
             )
             if contract_record is not None and (
                 contract_record.company_sealed_contract_asset_id not in (None, 0, "")
-                or contract_record.contract_status == "Active"
+                or contract_record.contract_status == CONTRACT_STATUS_ACTIVE
             ):
                 raise BadRequestException("Signed active contracts cannot move back to screening passed.")
         if progress.current_stage == RecruitmentStage.ACTIVE.value and normalized_target_stage in {
@@ -272,20 +257,12 @@ async def move_job_progress_stage(  # noqa: C901
         from_stage = progress.current_stage
         next_data = dict(progress.data or {})
         if normalized_target_stage == RecruitmentStage.REJECTED:
-            leaving_contract = leaving_active_contract_record_map.get(progress.id)
             next_data = build_rejected_progress_data(
                 next_data,
                 source_stage=from_stage,
-                contract_status=leaving_contract.contract_status if leaving_contract is not None else None,
-                contract_end_date=leaving_contract.end_date if leaving_contract is not None else None,
             )
         elif JobProgressDataKey.REJECTED_FROM_STAGE.value in next_data:
-            if normalized_target_stage == RecruitmentStage.ACTIVE:
-                next_data = active_restore_data_map[progress.id][0]
-            else:
-                next_data.pop(JobProgressDataKey.REJECTED_FROM_STAGE.value, None)
-                next_data.pop(JobProgressDataKey.REJECTED_CONTRACT_PREVIOUS_STATUS.value, None)
-                next_data.pop(JobProgressDataKey.REJECTED_CONTRACT_PREVIOUS_END_DATE.value, None)
+            next_data.pop(JobProgressDataKey.REJECTED_FROM_STAGE.value, None)
         if normalized_target_stage == RecruitmentStage.SCREENING_PASSED:
             next_data.pop(JobProgressDataKey.QA_STATUS.value, None)
         if normalized_target_stage == RecruitmentStage.CONTRACT_POOL:
@@ -299,12 +276,7 @@ async def move_job_progress_stage(  # noqa: C901
 
         if normalized_target_stage == RecruitmentStage.ACTIVE:
             contract_record = active_contract_record_map[progress.id]
-            if from_stage == RecruitmentStage.REJECTED.value:
-                _, previous_status, previous_end_date = active_restore_data_map[progress.id]
-                contract_record.contract_status = previous_status
-                contract_record.end_date = previous_end_date
-            else:
-                contract_record.contract_status = "Active"
+            contract_record.contract_status = CONTRACT_STATUS_ACTIVE
             contract_record.updated_by_admin_user_id = admin_user_id
             await ensure_user_referral_profile_from_job(
                 user_id=int(progress.user_id),
@@ -315,7 +287,7 @@ async def move_job_progress_stage(  # noqa: C901
             )
         if progress.id in leaving_active_contract_record_map:
             contract_record = leaving_active_contract_record_map[progress.id]
-            contract_record.contract_status = "Terminated"
+            contract_record.contract_status = CONTRACT_STATUS_TERMINATED
             contract_record.end_date = contract_record.end_date or get_default_contract_end_date(
                 contract_record.effective_date or datetime.now(UTC).date()
             )

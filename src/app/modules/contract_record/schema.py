@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from .const import ContractReviewStatus
 
 
 class ContractRecordAssetRead(BaseModel):
@@ -76,3 +78,17 @@ class ContractRecordUpdateResponse(BaseModel):
 
 class ContractRecordResignResponse(BaseModel):
     item: ContractRecordListItemRead
+
+
+class ContractReviewRequest(BaseModel):
+    target: ContractReviewStatus
+
+
+class ContractStateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    version: int
+    contract_status: str
+    contract_review_status: str
+    signing_status: str

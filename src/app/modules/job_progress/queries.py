@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -281,25 +281,31 @@ async def list_candidate_job_applications(
     if normalized_stage:
         conditions.append(JobProgress.current_stage == normalized_stage)
 
-    contract_lookup = aliased(ContractRecord)
     current_contract = aliased(ContractRecord)
-    current_contract_id = (
-        select(contract_lookup.id)
-        .where(
-            contract_lookup.job_progress_id == JobProgress.id,
-            contract_lookup.is_deleted.is_(False),
-            contract_lookup.is_current.is_(True),
+    current_contract_ids = (
+        select(
+            ContractRecord.job_progress_id.label("job_progress_id"),
+            func.max(ContractRecord.id).label("contract_record_id"),
         )
-        .order_by(contract_lookup.version.desc(), contract_lookup.id.desc())
-        .limit(1)
-        .correlate(JobProgress)
-        .scalar_subquery()
+        .where(
+            ContractRecord.is_deleted.is_(False),
+            ContractRecord.is_current.is_(True),
+        )
+        .group_by(ContractRecord.job_progress_id)
+        .subquery()
     )
     result = await db.stream(
         select(JobProgress, CandidateApplication, Job, current_contract)
         .join(CandidateApplication, CandidateApplication.id == JobProgress.application_id)
         .join(Job, Job.id == JobProgress.job_id)
-        .outerjoin(current_contract, current_contract.id == current_contract_id)
+        .outerjoin(current_contract_ids, current_contract_ids.c.job_progress_id == JobProgress.id)
+        .outerjoin(
+            current_contract,
+            and_(
+                current_contract.id == current_contract_ids.c.contract_record_id,
+                current_contract.job_progress_id == JobProgress.id,
+            ),
+        )
         .where(*conditions)
         .order_by(CandidateApplication.submitted_at.desc(), CandidateApplication.id.desc())
         .execution_options(yield_per=max(page_size, 100))

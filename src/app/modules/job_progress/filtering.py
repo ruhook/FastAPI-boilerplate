@@ -159,35 +159,11 @@ def _build_job_languages_sql_expression():
 
 
 def _build_progress_assessment_attachment_filter_expression():
-    legacy_asset_id = func.lower(
-        func.trim(
-            func.coalesce(
-                _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value),
-                "",
-            )
-        )
-    )
-    legacy_name = func.trim(
-        func.coalesce(
-            _build_progress_json_text_expression(JobProgressDataKey.ASSESSMENT_ATTACHMENT.value),
-            "",
-        )
-    )
     submission_count = func.coalesce(
         func.json_length(func.json_extract(JobProgress.data, f"$.{JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value}")),
         0,
     )
-    return case(
-        (
-            or_(
-                submission_count > 0,
-                legacy_asset_id.notin_(["", "0", "none", "null"]),
-                legacy_name != "",
-            ),
-            "submitted",
-        ),
-        else_="",
-    )
+    return case((submission_count > 0, "submitted"), else_="")
 
 
 def _build_progress_contract_sql_expression(
@@ -255,7 +231,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         "id_attachment": "file",
         "submitted_contract_attachment": "file",
         "submitted_contract_at": "date",
-        "contract_review": "select",
+        "contract_review_status": "select",
         "contract_return_attachment": "file",
         "onboarding_status": "select",
         "onboarding_date": "date",
@@ -297,7 +273,7 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
         elif name == "qa_feedback":
             sql_expression = _build_progress_json_text_expression(JobProgressDataKey.QA_FEEDBACK.value)
         elif name == "signing_status":
-            sql_expression = _build_progress_contract_sql_expression(data_key="signing_status")
+            sql_expression = _build_progress_contract_sql_expression(column_name="signing_status")
         elif name == "contract_number":
             sql_expression = _build_progress_contract_sql_expression(column_name="agreement_ref_no")
         elif name == "contract_draft_attachment":
@@ -322,8 +298,8 @@ def _build_progress_advanced_filter_field_map(job: Job | None) -> dict[str, Adva
             sql_expression = _build_progress_contract_sql_expression(column_name="candidate_signed_contract_asset_id")
         elif name == "submitted_contract_at":
             sql_expression = _build_progress_contract_sql_expression(data_key="candidate_signed_contract_submitted_at")
-        elif name == "contract_review":
-            sql_expression = _build_progress_contract_sql_expression(data_key="contract_review")
+        elif name == "contract_review_status":
+            sql_expression = _build_progress_contract_sql_expression(column_name="contract_review_status")
         elif name == "contract_return_attachment":
             sql_expression = _build_progress_contract_sql_expression(column_name="company_sealed_contract_asset_id")
         elif name == "onboarding_status":
@@ -391,7 +367,6 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
         "applied_at": _serialize_filter_record_datetime(item.applied_at),
         "assessment_attachment": _normalize_text(
             (latest_assessment_submission or {}).get("name")
-            or item.process_data.get(JobProgressDataKey.ASSESSMENT_ATTACHMENT.value)
         ),
         "assessment_sent_at": _normalize_text(
             item.process_data.get(JobProgressDataKey.ASSESSMENT_SENT_AT.value)
@@ -423,7 +398,9 @@ def _build_progress_advanced_filter_record(item: JobProgressListItemRead) -> dic
         "submitted_contract_at": (
             _normalize_text(contract_record.submitted_contract_at) if contract_record is not None else ""
         ),
-        "contract_review": _normalize_text(contract_record.contract_review) if contract_record is not None else "",
+        "contract_review_status": (
+            _normalize_text(contract_record.contract_review_status) if contract_record is not None else ""
+        ),
         "contract_return_attachment": company_sealed_attachment_name,
         "onboarding_status": (
             _normalize_text(item.process_data.get(JobProgressDataKey.ONBOARDING_STATUS.value))

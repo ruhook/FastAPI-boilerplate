@@ -27,6 +27,7 @@ from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
 from ..talent_profile.model import TalentProfile
 from ..user.model import User
+from .commands import flush_contract_write
 from .const import (
     CONTRACT_STATUS_ACTIVE,
     CONTRACT_STATUS_PENDING_ACTIVATION,
@@ -214,7 +215,7 @@ async def upsert_contract_record_for_progress(
             **dict(data_updates),
         }
 
-    await db.flush()
+    await flush_contract_write(db)
     return current
 
 
@@ -603,7 +604,7 @@ async def update_contract_record_for_admin(
         }
         updated_fields.append("contract_attachment")
 
-    await db.flush()
+    await flush_contract_write(db)
     if {"rate", "base_pay", "contract_type", "contract_status"}.intersection(updated_fields):
         await sync_contract_rate_change(db=db, contract_record_id=int(record.id))
 
@@ -812,7 +813,7 @@ async def resign_contract_record_for_admin(
         },
     )
     db.add(new_record)
-    await db.flush()
+    await flush_contract_write(db)
 
     await create_operation_log(
         db=db,

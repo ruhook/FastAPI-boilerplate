@@ -15,6 +15,7 @@ from ..admin.mail_template.service import get_mail_template_model
 from ..assets.model import Asset
 from ..assets.service import serialize_asset
 from ..candidate_application.model import CandidateApplication
+from ..contract_record.const import ContractSigningStatus
 from ..contract_record.model import ContractRecord
 from ..contract_record.service import (
     list_current_contract_records_by_progress_ids,
@@ -424,16 +425,12 @@ async def notify_job_progress_sign_contract(
         if mail_task_id:
             mail_task_ids.append(mail_task_id)
 
-        next_progress_data = dict(progress.data or {})
-        next_progress_data[JobProgressDataKey.ONBOARDING_STATUS.value] = "已通知人选签合同"
-        progress.data = next_progress_data
-
         updated_contract_record = await upsert_contract_record_for_progress(
             progress=progress,
             job=job,
             db=db,
             admin_user_id=admin_user_id,
-            data_updates={"signing_status": "已通知人选签合同"},
+            field_updates={"signing_status": ContractSigningStatus.SENT.value},
         )
         updated_contract_records[progress.id] = updated_contract_record
         await create_operation_log(
@@ -451,7 +448,6 @@ async def notify_job_progress_sign_contract(
                 "current_stage_cn_name": get_recruitment_stage_cn_name(progress.current_stage),
                 "operator_admin_user_id": admin_user_id,
                 "contract_updated_fields": ["signing_status"],
-                "progress_updated_fields": [JobProgressDataKey.ONBOARDING_STATUS.value],
                 "mail_task_id": mail_task_id or None,
             },
         )

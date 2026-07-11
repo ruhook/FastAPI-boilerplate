@@ -110,21 +110,12 @@ def _has_contract_asset(contract_data: Mapping[str, Any], key: str) -> bool:
     return _has_value(contract_data.get(key))
 
 
-def _has_draft_contract(contract_data: Mapping[str, Any], process_data: Mapping[str, Any]) -> bool:
-    return _has_contract_asset(contract_data, "draft_contract_attachment") or _has_value(
-        process_data.get("contract_draft_attachment_asset_id")
-    )
+def _has_draft_contract(contract_data: Mapping[str, Any]) -> bool:
+    return _has_contract_asset(contract_data, "draft_contract_attachment")
 
 
-def _has_candidate_signed_contract(contract_data: Mapping[str, Any], process_data: Mapping[str, Any]) -> bool:
-    return any(
-        (
-            _has_contract_asset(contract_data, "candidate_signed_contract_attachment"),
-            _has_value(contract_data.get("submitted_contract_at")),
-            _has_value(process_data.get("submitted_contract_at")),
-            _has_value(process_data.get("submitted_contract_attachment_asset_id")),
-        )
-    )
+def _has_candidate_signed_contract(contract_data: Mapping[str, Any]) -> bool:
+    return _has_contract_asset(contract_data, "candidate_signed_contract_attachment")
 
 
 def _has_company_sealed_contract(contract_data: Mapping[str, Any]) -> bool:
@@ -134,10 +125,6 @@ def _has_company_sealed_contract(contract_data: Mapping[str, Any]) -> bool:
 
 
 def _has_assessment_submission(process_data: Mapping[str, Any]) -> bool:
-    legacy_asset_id = _text(process_data.get("assessment_attachment_asset_id")).lower()
-    if legacy_asset_id not in {"", "0", "none", "null"}:
-        return True
-
     submissions = process_data.get("assessment_submissions")
     if not isinstance(submissions, list):
         return False
@@ -153,8 +140,7 @@ def _needs_assessment_revision(process_data: Mapping[str, Any]) -> bool:
 
 
 def _needs_contract_revision(contract_data: Mapping[str, Any]) -> bool:
-    review = _text(contract_data.get("contract_review")).lower()
-    return review in {"待修改", "needs revision", "needs_revision"}
+    return _text(contract_data.get("contract_review_status")).lower() == "changes_requested"
 
 
 def _rejected_stage(process_data: Mapping[str, Any]) -> CandidateStage:
@@ -254,9 +240,9 @@ def build_candidate_presentation(
         )
 
     if normalized_stage in {"screening_passed", "contract_pool"} and (
-        _has_draft_contract(contract, process) or _has_candidate_signed_contract(contract, process)
+        _has_draft_contract(contract) or _has_candidate_signed_contract(contract)
     ):
-        if not _has_candidate_signed_contract(contract, process) or _needs_contract_revision(contract):
+        if not _has_candidate_signed_contract(contract) or _needs_contract_revision(contract):
             return _build(
                 status="action_required",
                 stage="signed_contract",

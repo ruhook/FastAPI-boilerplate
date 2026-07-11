@@ -5,6 +5,7 @@ from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...application.contracting import activate_contract
 from ...core.exceptions.http_exceptions import BadRequestException, NotFoundException
 from ..assets.model import Asset
 from ..assets.schema import AssetUploadPayload
@@ -12,9 +13,10 @@ from ..assets.service import serialize_asset, upload_asset
 from ..candidate_application.model import CandidateApplication
 from ..candidate_internal_notification.service import create_candidate_internal_notification
 from ..contract_record.const import (
-    CONTRACT_STATUS_ACTIVE,
     CONTRACT_STATUS_EXPIRED,
     CONTRACT_STATUS_TERMINATED,
+    ContractReviewStatus,
+    ContractSigningStatus,
 )
 from ..contract_record.model import ContractRecord
 from ..contract_record.service import (
@@ -24,16 +26,13 @@ from ..contract_record.service import (
 from ..job.model import Job
 from ..operation_log.const import OperationLogType
 from ..operation_log.service import create_operation_log
-from ..referral_bonus_model.service import ensure_user_referral_profile_from_job
 from .const import (
-    JobProgressDataKey,
     RecruitmentStage,
     get_recruitment_stage_cn_name,
 )
 from .model import JobProgress
 from .normalization import (
     _normalize_decimal,
-    _normalize_text,
 )
 from .schema import (
     JobProgressCandidateSignedContractUploadResponse,
@@ -59,12 +58,6 @@ CONTRACT_RECORD_FIELD_STAGE_MAP: dict[str, set[str]] = {
         RecruitmentStage.SCREENING_PASSED.value,
         RecruitmentStage.CONTRACT_POOL.value,
     },
-    "signing_status": {
-        RecruitmentStage.SCREENING_PASSED.value,
-    },
-    "contract_review": {
-        RecruitmentStage.CONTRACT_POOL.value,
-    },
     "end_date": {
         RecruitmentStage.CONTRACT_POOL.value,
     },
@@ -88,23 +81,16 @@ async def update_job_progress_contract_record(
     db: AsyncSession,
     ensure_contract_record: bool = False,
     agreement_ref_no: str | None = None,
-    signing_status: str | None = None,
-    contract_review: str | None = None,
     rate: str | None = None,
     end_date: date | None = None,
     update_agreement_ref_no: bool = False,
-    update_signing_status: bool = False,
-    update_contract_review: bool = False,
     update_rate: bool = False,
     update_end_date: bool = False,
 ) -> dict[str, Any]:
     changed_fields: list[str] = []
     field_updates: dict[str, Any] = {}
-    data_updates: dict[str, Any] = {}
     has_agreement_ref_no_update = update_agreement_ref_no or agreement_ref_no is not None
     has_rate_update = update_rate or rate is not None
-    has_signing_status_update = update_signing_status or signing_status is not None
-    has_contract_review_update = update_contract_review or contract_review is not None
     has_end_date_update = update_end_date or end_date is not None
 
     if has_agreement_ref_no_update:
@@ -113,12 +99,6 @@ async def update_job_progress_contract_record(
     if has_rate_update:
         field_updates["rate"] = _normalize_decimal(rate)
         changed_fields.append("rate")
-    if has_signing_status_update:
-        data_updates["signing_status"] = (signing_status or "").strip() or None
-        changed_fields.append("signing_status")
-    if has_contract_review_update:
-        data_updates["contract_review"] = (contract_review or "").strip() or None
-        changed_fields.append("contract_review")
     if has_end_date_update:
         field_updates["end_date"] = end_date
         changed_fields.append("end_date")
@@ -148,62 +128,13 @@ async def update_job_progress_contract_record(
             stage=progress.current_stage,
             changed_fields=changed_fields,
         )
-        if data_updates.get("contract_review") == "审核通过":
-            current_contract_record = await get_current_contract_record_by_progress_id(
-                progress_id=progress.id,
-                db=db,
-            )
-            if current_contract_record is None or current_contract_record.candidate_signed_contract_asset_id in (
-                None,
-                0,
-                "",
-            ):
-                raise BadRequestException("Approved contract review requires a candidate signed contract.")
-
         contract_record = await upsert_contract_record_for_progress(
             progress=progress,
             job=job,
             db=db,
             admin_user_id=admin_user_id,
             field_updates=field_updates,
-            data_updates=data_updates,
         )
-        if data_updates.get("contract_review") == "审核通过":
-            previous_stage = progress.current_stage
-            activated_at = datetime.now(UTC)
-            next_data = dict(progress.data or {})
-            next_data[JobProgressDataKey.ONBOARDING_STATUS.value] = "成功签约"
-            progress.data = next_data
-            progress.current_stage = RecruitmentStage.ACTIVE.value
-            progress.entered_stage_at = activated_at
-            contract_record.contract_status = CONTRACT_STATUS_ACTIVE
-            contract_record.updated_by_admin_user_id = admin_user_id
-            await ensure_user_referral_profile_from_job(
-                user_id=int(progress.user_id),
-                job=job,
-                db=db,
-                admin_user_id=admin_user_id,
-                contract_record=contract_record,
-            )
-            await create_operation_log(
-                db=db,
-                user_id=progress.user_id,
-                job_id=progress.job_id,
-                application_id=progress.application_id,
-                talent_profile_id=progress.talent_profile_id,
-                log_type=OperationLogType.JOB_PROGRESS_STAGE_CHANGED.value,
-                data={
-                    "job_progress_id": progress.id,
-                    "job_id": job.id,
-                    "job_title": job.title,
-                    "from_stage": previous_stage,
-                    "from_stage_cn_name": get_recruitment_stage_cn_name(previous_stage),
-                    "to_stage": RecruitmentStage.ACTIVE.value,
-                    "to_stage_cn_name": get_recruitment_stage_cn_name(RecruitmentStage.ACTIVE.value),
-                    "operator_admin_user_id": admin_user_id,
-                    "reason": "contract_review_approved",
-                },
-            )
         updated_contract_records[progress.id] = contract_record
         await create_operation_log(
             db=db,
@@ -307,11 +238,10 @@ async def submit_job_progress_candidate_signed_contract(
     if contract_record.contract_status in {CONTRACT_STATUS_TERMINATED, CONTRACT_STATUS_EXPIRED}:
         raise BadRequestException("Contract signing is no longer available because this contract is inactive.")
 
-    current_contract_review = _normalize_text((contract_record.data or {}).get("contract_review"))
     if (
         progress.current_stage == RecruitmentStage.CONTRACT_POOL.value
         and contract_record.candidate_signed_contract_asset_id not in (None, "", 0)
-        and current_contract_review != "待修改"
+        and contract_record.contract_review_status != ContractReviewStatus.CHANGES_REQUESTED.value
     ):
         raise BadRequestException(
             "Your signed contract is currently under review. "
@@ -356,6 +286,8 @@ async def submit_job_progress_candidate_signed_contract(
         db=db,
         field_updates={
             "candidate_signed_contract_asset_id": int(asset_payload["id"]),
+            "signing_status": ContractSigningStatus.CANDIDATE_SIGNED.value,
+            "contract_review_status": ContractReviewStatus.PENDING.value,
             "parse_status": "pending",
             "parse_error": None,
         },
@@ -363,7 +295,6 @@ async def submit_job_progress_candidate_signed_contract(
             "source": "single_signed_upload",
             "candidate_signed_contract_attachment_name": asset_payload["original_name"],
             "candidate_signed_contract_submitted_at": submitted_at.isoformat(),
-            "contract_review": "待审核",
         },
     )
 
@@ -495,6 +426,8 @@ async def upload_job_progress_contract_draft(
         admin_user_id=admin_user_id,
         field_updates={
             "draft_contract_asset_id": int(asset_payload["id"]),
+            "signing_status": ContractSigningStatus.NOT_SENT.value,
+            "contract_review_status": ContractReviewStatus.PENDING.value,
             "effective_date": uploaded_at.date(),
         },
         data_updates={
@@ -578,8 +511,7 @@ async def upload_job_progress_company_sealed_contract(
             "Company signed contract can only be uploaded after the candidate signed contract is submitted."
         )
 
-    current_contract_review = _normalize_text((contract_record.data or {}).get("contract_review"))
-    if current_contract_review != "审核通过":
+    if contract_record.contract_review_status != ContractReviewStatus.APPROVED.value:
         raise BadRequestException("Company signed contract can only be uploaded after contract review is approved.")
 
     asset_payload = await upload_asset(
@@ -593,7 +525,6 @@ async def upload_job_progress_company_sealed_contract(
         upload=upload,
     )
     uploaded_at = datetime.now(UTC)
-    from_stage = progress.current_stage
 
     await create_operation_log(
         db=db,
@@ -617,6 +548,7 @@ async def upload_job_progress_company_sealed_contract(
     field_updates: dict[str, Any] = {
         "company_sealed_contract_asset_id": int(asset_payload["id"]),
         "contract_attachment_asset_id": int(asset_payload["id"]),
+        "signing_status": ContractSigningStatus.COMPANY_SEALED.value,
     }
     if contract_record.effective_date is None:
         field_updates["effective_date"] = uploaded_at.date()
@@ -633,41 +565,11 @@ async def upload_job_progress_company_sealed_contract(
             "company_sealed_contract_uploaded_at": uploaded_at.isoformat(),
         },
     )
-    next_progress_data = dict(progress.data or {})
-    next_progress_data[JobProgressDataKey.ONBOARDING_STATUS.value] = "成功签约"
-    progress.data = next_progress_data
-    if progress.current_stage != RecruitmentStage.ACTIVE.value:
-        progress.current_stage = RecruitmentStage.ACTIVE.value
-        progress.entered_stage_at = uploaded_at
-    contract_record.contract_status = CONTRACT_STATUS_ACTIVE
-    contract_record.updated_by_admin_user_id = admin_user_id
-    await ensure_user_referral_profile_from_job(
-        user_id=int(progress.user_id),
-        job=job,
+    await activate_contract(
         db=db,
+        contract_record_id=int(contract_record.id),
         admin_user_id=admin_user_id,
-        contract_record=contract_record,
     )
-    if from_stage != RecruitmentStage.ACTIVE.value:
-        await create_operation_log(
-            db=db,
-            user_id=progress.user_id,
-            job_id=progress.job_id,
-            application_id=progress.application_id,
-            talent_profile_id=progress.talent_profile_id,
-            log_type=OperationLogType.JOB_PROGRESS_STAGE_CHANGED.value,
-            data={
-                "job_progress_id": progress.id,
-                "job_id": job.id,
-                "job_title": job.title,
-                "from_stage": from_stage,
-                "from_stage_cn_name": get_recruitment_stage_cn_name(from_stage),
-                "to_stage": RecruitmentStage.ACTIVE.value,
-                "to_stage_cn_name": get_recruitment_stage_cn_name(RecruitmentStage.ACTIVE.value),
-                "reason": "company_sealed_contract_uploaded",
-                "operator_admin_user_id": admin_user_id,
-            },
-        )
     await create_candidate_internal_notification(
         db=db,
         recipient_user_id=progress.user_id,

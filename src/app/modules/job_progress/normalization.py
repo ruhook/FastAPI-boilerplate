@@ -23,9 +23,6 @@ def _has_asset_id(value: Any) -> bool:
 
 def _has_assessment_attachment(progress: JobProgress) -> bool:
     progress_data = progress.data or {}
-    if _has_asset_id(progress_data.get(JobProgressDataKey.ASSESSMENT_ATTACHMENT_ASSET_ID.value)):
-        return True
-
     raw_submissions = progress_data.get(JobProgressDataKey.ASSESSMENT_SUBMISSIONS.value)
     if not isinstance(raw_submissions, list):
         return False
