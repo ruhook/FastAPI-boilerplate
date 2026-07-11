@@ -184,11 +184,11 @@ GET 请求不创建或修改 Payable。以下写流程同步调用 `settlement` 
 - 推荐工时跨越里程碑后，为对应 `referral_record_id + milestone_index` 创建 Payable。
 - 合同费率或组长配置变化后，重算仍为 pending 的受影响 Payable。
 
-管理端另提供显式 `POST /api/v1/admin/payables/sync`，按月份重建缺失的 pending Payable，供开发数据初始化、规则调整和运营修复使用。同步使用 `source_key` 唯一约束实现幂等；已进入 processing 之后不自动改金额。
+管理端另提供显式 `POST /v1/payables/sync`，按月份重建缺失的 pending Payable，供开发数据初始化、规则调整和运营修复使用。同步使用 `source_key` 唯一约束实现幂等；已进入 processing 之后不自动改金额。
 
 ### 确认支付
 
-`POST /api/v1/admin/payables/pay` 接收 Payable ID 列表和交易信息。每一项执行：
+`POST /v1/payables/pay` 接收 Payable ID 列表和交易信息。每一项执行：
 
 1. `SELECT ... FOR UPDATE` 锁定 Payable。
 2. 验证状态为 processing，金额大于零且来源未变化。
@@ -200,7 +200,7 @@ GET 请求不创建或修改 Payable。以下写流程同步调用 `settlement` 
 
 ### 冲正
 
-`POST /api/v1/admin/payments/{payment_id}/reverse` 锁定原 Payment 和 Payable，创建金额相反的 reversal，将 Payable 改为 reversed。已冲正 Payment 再次冲正返回既有 reversal；不同冲正参数返回 409。
+`POST /v1/payments/{payment_id}/reverse` 锁定原 Payment 和 Payable，创建金额相反的 reversal，将 Payable 改为 reversed。已冲正 Payment 再次冲正返回既有 reversal；不同冲正参数返回 409。
 
 ### 候选人收入
 
@@ -210,18 +210,19 @@ GET 请求不创建或修改 Payable。以下写流程同步调用 `settlement` 
 
 管理端使用：
 
-- `GET /api/v1/admin/payables`
-- `POST /api/v1/admin/payables/sync`
-- `POST /api/v1/admin/payables/processing`
-- `POST /api/v1/admin/payables/reopen`
-- `POST /api/v1/admin/payables/cancel`
-- `POST /api/v1/admin/payables/pay`
-- `GET /api/v1/admin/payments`
-- `POST /api/v1/admin/payments/{payment_id}/reverse`
+- `GET /v1/payables`
+- `POST /v1/payables/manual`
+- `POST /v1/payables/sync`
+- `POST /v1/payables/processing`
+- `POST /v1/payables/reopen`
+- `POST /v1/payables/cancel`
+- `POST /v1/payables/pay`
+- `GET /v1/payments`
+- `POST /v1/payments/{payment_id}/reverse`
 
 候选人端使用：
 
-- `GET /api/v1/me/payments`
+- `GET /v1/me/payments`
 
 旧的 auto-payable、payment-record 更新、人工 Payment 批量创建和旧收入 API 删除。三端共享的字段名称全部采用 snake_case API 契约；两个 TypeScript 前端在 API client 边界定义明确响应类型，不在页面组件内猜测可选字段。
 
