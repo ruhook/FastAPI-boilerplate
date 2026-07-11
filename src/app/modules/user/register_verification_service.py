@@ -15,7 +15,6 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.auth_rate_limit import AuthRateLimitAction, enforce_auth_rate_limit
 from ...core.config import EnvironmentOption, settings
 from ...core.exceptions.http_exceptions import (
     BadRequestException,
@@ -195,15 +194,8 @@ async def send_register_verification_code(
     email: str,
     redis: Redis,
     db: AsyncSession,
-    client_ip: str,
 ) -> VerificationSendResult:
     normalized_email = _normalize_email(email)
-    await enforce_auth_rate_limit(
-        redis,
-        action=AuthRateLimitAction.VERIFICATION_SEND,
-        client_ip=client_ip,
-        identifier=normalized_email,
-    )
     if await crud_users.exists(db=db, email=normalized_email):
         _perform_dummy_verification_work(normalized_email)
         return VerificationSendResult(
@@ -269,15 +261,8 @@ async def send_password_reset_verification_code(
     email: str,
     redis: Redis,
     db: AsyncSession,
-    client_ip: str,
 ) -> VerificationSendResult:
     normalized_email = _normalize_email(email)
-    await enforce_auth_rate_limit(
-        redis,
-        action=AuthRateLimitAction.VERIFICATION_SEND,
-        client_ip=client_ip,
-        identifier=normalized_email,
-    )
     user_result = await db.execute(
         select(User.id).where(
             func.lower(User.email) == normalized_email,
@@ -352,16 +337,9 @@ async def _verify_verification_code(
     email: str,
     code: str,
     redis: Redis,
-    client_ip: str,
     prefix: str | None = None,
 ) -> None:
     normalized_email = _normalize_email(email)
-    await enforce_auth_rate_limit(
-        redis,
-        action=AuthRateLimitAction.VERIFICATION_CHECK,
-        client_ip=client_ip,
-        identifier=normalized_email,
-    )
     normalized_code = code.strip()
     if not normalized_code:
         raise UnprocessableEntityException("Verification code is required.")
@@ -406,13 +384,11 @@ async def verify_register_verification_code(
     email: str,
     code: str,
     redis: Redis,
-    client_ip: str,
 ) -> None:
     await _verify_verification_code(
         email=email,
         code=code,
         redis=redis,
-        client_ip=client_ip,
     )
 
 
@@ -421,12 +397,10 @@ async def verify_password_reset_verification_code(
     email: str,
     code: str,
     redis: Redis,
-    client_ip: str,
 ) -> None:
     await _verify_verification_code(
         email=email,
         code=code,
         redis=redis,
-        client_ip=client_ip,
         prefix=settings.CANDIDATE_PASSWORD_RESET_VERIFICATION_REDIS_PREFIX,
     )
