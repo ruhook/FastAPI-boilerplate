@@ -7,6 +7,7 @@ from fastapi import UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...application.settlement import sync_contract_rate_change
 from ...core.advanced_filter import (
     AdvancedFilterFieldDefinition,
     build_advanced_filter_query_sql_condition,
@@ -601,6 +602,8 @@ async def update_contract_record_for_admin(
         updated_fields.append("contract_attachment")
 
     await db.flush()
+    if {"rate", "base_pay", "contract_type", "contract_status"}.intersection(updated_fields):
+        await sync_contract_rate_change(db=db, contract_record_id=int(record.id))
 
     if updated_fields:
         await create_operation_log(

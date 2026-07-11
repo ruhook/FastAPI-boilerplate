@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....application.payouts import pay_payables
+from ....application.settlement import sync_settlement_month
 from ....core.db.database import async_get_db
 from ....modules.payable.commands import create_manual_payable, transition_payables
 from ....modules.payable.const import PayableStatus
@@ -15,6 +16,8 @@ from ....modules.payable.schema import (
     PayableListPage,
     PayableListQuery,
     PayableRead,
+    PayableSyncRequest,
+    PayableSyncResponse,
 )
 from ....modules.payment.schema import BatchPayoutRequest, BatchPayoutResult
 from ..dependencies import get_current_admin_user, require_admin_permission
@@ -59,6 +62,22 @@ async def create_manual(
         admin_user_id=int(current_admin["id"]),
     )
     return PayableRead.model_validate(payable)
+
+
+@router.post("/sync", response_model=PayableSyncResponse, dependencies=[_permission])
+async def sync_payables(
+    payload: PayableSyncRequest,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    _current_admin: Annotated[dict[str, Any], Depends(get_current_admin_user)],
+) -> PayableSyncResponse:
+    result = await sync_settlement_month(db=db, settlement_month=payload.settlement_month)
+    return PayableSyncResponse(
+        settlement_month=result.settlement_month,
+        created_count=result.created_count,
+        updated_count=result.updated_count,
+        deleted_count=result.deleted_count,
+        frozen_count=result.frozen_count,
+    )
 
 
 async def _transition(

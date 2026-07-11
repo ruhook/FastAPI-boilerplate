@@ -16,6 +16,7 @@ from src.app.modules.job.const import JobStatus
 from src.app.modules.job.model import Job
 from src.app.modules.job_progress.const import RecruitmentScreeningMode, RecruitmentStage
 from src.app.modules.job_progress.model import JobProgress
+from src.app.modules.payable.model import Payable
 from src.app.modules.project_timesheet_record.model import ProjectTimesheetRecord
 from src.app.modules.project_timesheet_record.schema import ProjectTimesheetBatchCreateRequest
 from src.app.modules.project_timesheet_record.service import (
@@ -282,6 +283,8 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
         project=other_company_project,
         admin=admin,
     )
+    leader_contract.contract_type = "team_leader"
+    leader_contract.base_pay = Decimal("100.00")
     await db_session.commit()
 
     payload = ProjectTimesheetBatchCreateRequest(
@@ -337,6 +340,25 @@ async def test_create_timesheet_allows_worker_and_team_leader_from_other_company
     assert timesheet_record.project_manager_admin_user_id == project_manager.id
     assert timesheet_record.project_manager_name_snapshot == project_manager.name
     assert timesheet_record.project_link is None
+    payable_result = await db_session.execute(
+        select(Payable).where(
+            Payable.contract_record_id == worker_contract.id,
+            Payable.settlement_month == "2026-06",
+        )
+    )
+    salary_payable = payable_result.scalar_one()
+    assert salary_payable.payment_type == "salary"
+    assert salary_payable.amount == Decimal("6.00")
+    leader_payable = (
+        await db_session.scalars(
+            select(Payable).where(
+                Payable.user_id == leader.id,
+                Payable.payment_type == "team_leader_bonus",
+            )
+        )
+    ).one()
+    assert leader_payable.project_id == current_project.id
+    assert leader_payable.amount == Decimal("100.36")
 
     workspace = await list_project_timesheet_workspace(
         company_id=current_company.id,

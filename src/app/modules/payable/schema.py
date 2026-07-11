@@ -125,6 +125,18 @@ class PayableBatchResponse(BaseModel):
     items: list[PayableRead]
 
 
+class PayableSyncRequest(BaseModel):
+    settlement_month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+class PayableSyncResponse(BaseModel):
+    settlement_month: str
+    created_count: int = 0
+    updated_count: int = 0
+    deleted_count: int = 0
+    frozen_count: int = 0
+
+
 class PayableListQuery(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=1000)
