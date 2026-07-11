@@ -26,12 +26,12 @@ from ..app.modules.job.const import JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.const import RecruitmentScreeningMode, RecruitmentStage
 from ..app.modules.job_progress.model import JobProgress
+from ..app.modules.project_timesheet_record.commands import create_project_timesheet_records
 from ..app.modules.project_timesheet_record.model import ProjectTimesheetRecord
 from ..app.modules.project_timesheet_record.schema import (
     ProjectTimesheetBatchCreateEntry,
     ProjectTimesheetBatchCreateRequest,
 )
-from ..app.modules.project_timesheet_record.service import create_project_timesheet_records
 from ..app.modules.referral.model import ReferralRecord
 from ..app.modules.referral.service import ensure_user_referral_code
 from ..app.modules.referral_bonus_model.service import (

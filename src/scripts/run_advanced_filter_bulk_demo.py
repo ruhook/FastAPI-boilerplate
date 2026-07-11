@@ -27,11 +27,11 @@ from ..app.modules.job.const import JobStatus
 from ..app.modules.job.model import Job
 from ..app.modules.job_progress.const import JobProgressDataKey, RecruitmentStage
 from ..app.modules.job_progress.service import get_job_progress_by_application_id
+from ..app.modules.project_timesheet_record.commands import create_project_timesheet_records
 from ..app.modules.project_timesheet_record.schema import (
     ProjectTimesheetBatchCreateEntry,
     ProjectTimesheetBatchCreateRequest,
 )
-from ..app.modules.project_timesheet_record.service import create_project_timesheet_records
 from ..app.modules.talent_profile.model import TalentProfile
 from ..app.modules.talent_profile.service import create_application_and_sync_talent
 from .demo_assets import build_demo_resume_pdf_bytes, refresh_demo_resume_asset_if_needed

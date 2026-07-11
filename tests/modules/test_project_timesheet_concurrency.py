@@ -7,8 +7,8 @@ import pytest
 from src.app.core.db.database import local_session
 from src.app.core.exceptions.http_exceptions import ConflictException
 from src.app.modules.admin.company.model import AdminCompany, AdminCompanyProject
+from src.app.modules.project_timesheet_record.commands import flush_timesheet_write
 from src.app.modules.project_timesheet_record.model import ProjectTimesheetRecord
-from src.app.modules.project_timesheet_record.service import _flush_timesheet_write
 from src.app.modules.user.model import User
 
 pytestmark = pytest.mark.no_database_cleanup
@@ -65,9 +65,9 @@ async def test_stale_timesheet_writer_gets_conflict() -> None:
         assert first is not None and second is not None
 
         first.extra_notes = "first writer"
-        await _flush_timesheet_write(first_session)
+        await flush_timesheet_write(first_session)
         await first_session.commit()
 
         second.extra_notes = "stale writer"
         with pytest.raises(ConflictException, match="changed by another request"):
-            await _flush_timesheet_write(second_session)
+            await flush_timesheet_write(second_session)
