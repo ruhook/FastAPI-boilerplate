@@ -147,3 +147,6 @@ src/.env
 
 # Don't ignore files inside of script folder:
 !scripts/*
+
+# Local isolated development worktrees
+.worktrees/
