@@ -21,9 +21,10 @@ def _assert_country_fields_are_dictionary_values(items: list[dict[str, object]])
         assert values[field_key] in COUNTRY_VALUES
 
 
-def test_client_apply_demo_uses_country_dictionary_values() -> None:
+@pytest.mark.parametrize("job_index", [0, 1])
+def test_client_apply_demo_uses_country_dictionary_values(job_index: int) -> None:
     items = run_client_apply_demo.build_application_items(
-        job_index=0,
+        job_index=job_index,
         candidate_name="Demo Candidate",
         email="demo@example.com",
         resume_asset_id=1,
