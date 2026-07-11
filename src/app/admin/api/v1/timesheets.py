@@ -5,10 +5,15 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....core.db.database import async_get_db
+from ....modules.project_timesheet_record.analytics import list_project_timesheet_analytics
 from ....modules.project_timesheet_record.commands import (
     create_project_timesheet_records,
     delete_project_timesheet_records,
     update_project_timesheet_record,
+)
+from ....modules.project_timesheet_record.queries import (
+    list_project_timesheet_overview,
+    list_project_timesheet_workspace,
 )
 from ....modules.project_timesheet_record.schema import (
     ProjectTimesheetAnalyticsRead,
@@ -20,11 +25,6 @@ from ....modules.project_timesheet_record.schema import (
     ProjectTimesheetRecordRead,
     ProjectTimesheetUpdateRequest,
     ProjectTimesheetWorkspaceRead,
-)
-from ....modules.project_timesheet_record.service import (
-    list_project_timesheet_analytics,
-    list_project_timesheet_overview,
-    list_project_timesheet_workspace,
 )
 from ..dependencies import get_current_admin_user, require_admin_permission
 

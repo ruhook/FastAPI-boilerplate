@@ -6,6 +6,7 @@ from typing import Any, Literal, cast
 
 from sqlalchemy import Numeric, String, and_, func, or_
 from sqlalchemy import cast as sql_cast
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
 
 from .exceptions.http_exceptions import BadRequestException
@@ -19,7 +20,7 @@ AdvancedFilterRecord = dict[str, Any]
 class AdvancedFilterFieldDefinition:
     name: str
     filter_kind: AdvancedFilterFieldKind
-    sql_expression: ColumnElement[Any] | None = None
+    sql_expression: ColumnElement[Any] | InstrumentedAttribute[Any] | None = None
 
 
 TEXT_OPERATORS = {"contains", "doesNotContain", "=", "!=", "isEmpty", "isNotEmpty"}

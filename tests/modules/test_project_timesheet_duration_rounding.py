@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.app.modules.project_timesheet_record.service import (
+from src.app.modules.project_timesheet_record.serialization import (
     _quantize_candidate_duration_hours,
     _quantize_customer_duration_hours,
 )

@@ -22,8 +22,8 @@ from ...modules.job_progress.service import (
 )
 from ...modules.payment.queries import list_candidate_payments
 from ...modules.payment.schema import CandidatePaymentListPage, PaymentListQuery
+from ...modules.project_timesheet_record.queries import list_candidate_timesheet_workspace
 from ...modules.project_timesheet_record.schema import CandidateTimesheetWorkspaceRead
-from ...modules.project_timesheet_record.service import list_candidate_timesheet_workspace
 from ...modules.referral.schema import CandidateReferralDashboardRead
 from ...modules.referral.service import get_candidate_referral_dashboard
 from ...modules.user.model import User

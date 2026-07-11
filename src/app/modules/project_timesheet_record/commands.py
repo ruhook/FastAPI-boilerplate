@@ -11,6 +11,20 @@ from ..contract_record.const import CONTRACT_STATUS_ACTIVE
 from ..payable.source_policy import ensure_timesheets_editable
 from .idempotency import claim_timesheet_request, complete_timesheet_request
 from .model import ProjectTimesheetRecord
+from .queries import (
+    _get_company_and_project,
+    _get_company_timesheet_languages,
+    _get_company_timesheet_roles,
+    _get_company_timesheet_work_types,
+    _load_admin_user_payload_map,
+    _load_note_asset_payload_map,
+    _load_team_leader_payload_map,
+    _resolve_project_manager_admin_user,
+    _resolve_timesheet_worker,
+    _validate_timesheet_note_assets,
+    list_active_project_team_leaders,
+    list_active_project_workers,
+)
 from .schema import (
     ProjectTimesheetBatchCreateRequest,
     ProjectTimesheetBatchCreateResponse,
@@ -18,24 +32,12 @@ from .schema import (
     ProjectTimesheetBatchDeleteResponse,
     ProjectTimesheetUpdateRequest,
 )
-from .service import (
-    _get_company_and_project,
-    _get_company_timesheet_languages,
-    _get_company_timesheet_roles,
-    _get_company_timesheet_work_types,
+from .serialization import (
     _get_timesheet_worker_name,
-    _load_admin_user_payload_map,
-    _load_note_asset_payload_map,
-    _load_team_leader_payload_map,
     _quantize_candidate_duration_hours,
     _quantize_customer_duration_hours,
     _quantize_hours,
-    _resolve_project_manager_admin_user,
-    _resolve_timesheet_worker,
     _serialize_timesheet_record,
-    _validate_timesheet_note_assets,
-    list_active_project_team_leaders,
-    list_active_project_workers,
 )
 
 
@@ -265,7 +267,7 @@ async def update_project_timesheet_record(
         asset_map=asset_map,
         team_leader_map=team_leader_map,
         admin_user_map=admin_user_map,
-    )
+    ).model_dump()
 
 
 async def delete_project_timesheet_records(
